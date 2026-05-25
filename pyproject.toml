@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "archguard"
+version = "0.1.0"
+description = "Architectural drift detector for Python codebases."
+authors = []
+readme = "README.md"
+packages = [{include = "archguard"}]
+
+[tool.poetry.scripts]
+archguard = "archguard.cli.main:main"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+typer = {extras = ["all"], version = ">=0.9,<1.0"}
+rich = ">=13.0"
+pyyaml = ">=6.0"
+jsonschema = ">=4.17"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+mypy = ">=1.0"
+types-PyYAML = "*"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
