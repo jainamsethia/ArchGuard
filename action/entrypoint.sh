@@ -14,20 +14,27 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   exit 1
 fi
 
-CMD="archguard analyze --repo ${REPO_ROOT}"
+# Security fix: Use array CMD to prevent shell injection from inputs
+CMD=("archguard" "analyze")
+CMD+=("--repo" "${REPO_ROOT}")
 
-[[ -n "${PR_NUMBER}" ]] && CMD="${CMD} --pr ${PR_NUMBER}"
-[[ -n "${REPO_SLUG}" ]] && CMD="${CMD} --repo-slug ${REPO_SLUG}"
-[[ "${SKIP_EXPLANATION}" == "true" ]] && CMD="${CMD} --skip-explanation"
-[[ "${FAIL_ON_WARN}" == "true" ]] && CMD="${CMD} --fail-on-warn"
-[[ "${DRY_RUN}" == "true" ]] && CMD="${CMD} --dry-run"
-[[ -n "${EXTRA_ARGS}" ]] && CMD="${CMD} ${EXTRA_ARGS}"
+[[ -n "${PR_NUMBER}" ]] && CMD+=("--pr" "${PR_NUMBER}")
+[[ -n "${GITHUB_EVENT_NUMBER:-}" ]] && CMD+=("--pr-number" "${GITHUB_EVENT_NUMBER}")
+[[ -n "${REPO_SLUG}" ]] && CMD+=("--repo-slug" "${REPO_SLUG}")
+[[ "${SKIP_EXPLANATION}" == "true" ]] && CMD+=("--skip-explanation")
+[[ "${FAIL_ON_WARN}" == "true" ]] && CMD+=("--fail-on-warn")
+[[ "${DRY_RUN}" == "true" ]] && CMD+=("--dry-run")
+
+if [[ -n "${EXTRA_ARGS}" ]]; then
+  read -ra EXTRA <<< "$INPUT_EXTRA_ARGS"
+  CMD+=("${EXTRA[@]}")
+fi
 
 echo "::group::ArchGuard Analysis"
-echo "Running: ${CMD}"
+echo "Running: ${CMD[@]}"
 
 set +e
-${CMD}
+"${CMD[@]}"
 EXIT_CODE=$?
 set -e
 

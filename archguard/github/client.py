@@ -2,10 +2,27 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from typing import Any
 
 from archguard.utils.errors import ConfigError
+
+logger = logging.getLogger(__name__)
+
+
+def _get_pr_number() -> int | None:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return None
+    try:
+        with open(event_path) as f:
+            event = json.load(f)
+        return event.get("pull_request", {}).get("number") or event.get("number")
+    except (OSError, json.JSONDecodeError, KeyError):
+        return None
+
 
 
 class GitHubClient:
@@ -44,3 +61,44 @@ class GitHubClient:
     def get_repo(self, repo_slug: str) -> Any:
         """Return a PyGitHub Repository object."""
         return self._gh.get_repo(repo_slug)
+
+    def post_comment(
+        self,
+        repo_slug: str,
+        body: str,
+        pr_number: int | None = None,
+    ) -> bool:
+        """Post or update a comment on a GitHub PR."""
+        pr_number = pr_number or _get_pr_number()
+        if pr_number is None:
+            logger.warning("Could not determine PR number. Skipping comment posting.")
+            return False
+
+        try:
+            from archguard.github.comments import PRCommentManager
+            manager = PRCommentManager(self)
+            manager.post_or_update(repo_slug, pr_number, body)
+            return True
+        except Exception as e:
+            logger.warning("Failed to post PR comment: %s", e)
+            return False
+
+
+def post_comment(
+    repo_slug: str,
+    body: str,
+    pr_number: int | None = None,
+    token: str | None = None,
+) -> bool:
+    """Post or update a comment on a GitHub PR."""
+    pr_number = pr_number or _get_pr_number()
+    if pr_number is None:
+        logger.warning("Could not determine PR number. Skipping comment posting.")
+        return False
+
+    try:
+        client = GitHubClient(token=token)
+        return client.post_comment(repo_slug, body, pr_number=pr_number)
+    except Exception as e:
+        logger.warning("Failed to post PR comment: %s", e)
+        return False

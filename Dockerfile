@@ -1,5 +1,5 @@
 # Stage 1: builder
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -10,23 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install poetry
-RUN pip install --no-cache-dir poetry==1.8.3
-
 # Copy dependency files first (layer caching)
-COPY pyproject.toml ./
-COPY archguard/__init__.py ./archguard/__init__.py
-
-# Export requirements and install to /install prefix
-RUN poetry export --without-hashes -f requirements.txt -o requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY pyproject.toml README.md ./
 
 # Copy full source
-COPY . .
-RUN pip install --no-cache-dir --prefix=/install --no-deps .
+COPY archguard/ ./archguard/
+
+# Install the package
+RUN pip install --no-cache-dir .
 
 # Stage 2: runtime
-FROM python:3.11-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 # Install runtime system deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,7 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from builder
-COPY --from=builder /install /usr/local
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin/archguard /usr/local/bin/archguard
 
 # MiniLM downloads on first run to /tmp/hf_cache (no build-time internet needed)
 ENV TRANSFORMERS_CACHE=/tmp/hf_cache
@@ -49,5 +44,7 @@ RUN useradd -m -u 1000 archguard
 USER archguard
 
 WORKDIR /github/workspace
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD archguard --version || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]

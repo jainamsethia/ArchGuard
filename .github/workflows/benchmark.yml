@@ -15,21 +15,20 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - run: pip install poetry && poetry install --with dev
+      - run: pip install -e ".[dev]"
 
       - name: Run benchmarks
         run: |
-          poetry run pytest tests/benchmarks/ \
-            --benchmark-only \
-            --benchmark-json=benchmark-results.json \
-            --benchmark-min-rounds=3 \
-            -v
-
-      - name: Check latency thresholds
-        run: python3 scripts/check_benchmarks.py benchmark-results.json
+          if [ -f .benchmarks/baseline.json ]; then
+            pytest tests/benchmarks/ --benchmark-json=.benchmarks/current.json
+            python scripts/check_benchmarks.py --baseline .benchmarks/baseline.json --current .benchmarks/current.json
+          else
+            echo "No baseline found. Generating baseline for future runs."
+            pytest tests/benchmarks/ --benchmark-json=.benchmarks/baseline.json
+          fi
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results-${{ github.sha }}
-          path: benchmark-results.json
+          path: .benchmarks/

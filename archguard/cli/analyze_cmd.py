@@ -167,7 +167,7 @@ def analyze_command(
         Path("."), "--repo", help="Path to the repository root.",
     ),
     pr: int | None = typer.Option(
-        None, "--pr", help="Pull request number.",
+        None, "--pr", "--pr-number", help="Pull request number.",
     ),
     repo_slug: str | None = typer.Option(
         None, "--repo-slug", help="Repository slug (e.g. myorg/myrepo).",
@@ -198,13 +198,8 @@ def analyze_command(
     # Auto-detect GitHub Actions env vars
     repo_slug = repo_slug or os.environ.get("GITHUB_REPOSITORY")
     if pr is None:
-        pr_env = os.environ.get("GITHUB_PR_NUMBER", "0")
-        try:
-            pr_val = int(pr_env)
-            if pr_val > 0:
-                pr = pr_val
-        except ValueError:
-            pass
+        from archguard.github.client import _get_pr_number
+        pr = _get_pr_number()
 
     # Load contract
     try:
@@ -266,15 +261,22 @@ def analyze_command(
         _print_rich_report(result, repo_root)
 
     # Post PR comment (if applicable)
-    if pr and repo_slug and not dry_run:
+    if repo_slug and not dry_run:
         try:
-            from archguard.github.client import GitHubClient
+            from archguard.github.client import post_comment
             from archguard.github.comments import PRCommentManager
 
-            client = GitHubClient()
-            manager = PRCommentManager(client)
+            token = os.environ.get("GITHUB_TOKEN")
+            client = None
+            if token:
+                from archguard.github.client import GitHubClient
+                try:
+                    client = GitHubClient(token=token)
+                except Exception:
+                    pass
+            manager = PRCommentManager(client)  # type: ignore
             body = manager.format_report(result)
-            manager.post_or_update(repo_slug, pr, body)
+            post_comment(repo_slug, body, pr_number=pr, token=token)
         except Exception:  # noqa: BLE001
             _console.print("[yellow]Warning: Failed to post PR comment.[/yellow]")
 

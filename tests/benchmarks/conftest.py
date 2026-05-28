@@ -37,15 +37,15 @@ def fixture_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             (mod_dir / f"service_{i}.py").write_text(
                 f'"""Module {module} service {i}."""\n\n'
                 + "\n".join(
-                    [
+                    line
+                    for j in range(3)
+                    for line in [
                         f"def function_{j}(x: int) -> int:",
                         f'    """Process {module} item."""',
                         "    result = x * 2",
                         "    return result",
                         "",
                     ]
-                    * 3
-                    for j in range(3)
                 )
             )
 
