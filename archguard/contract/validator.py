@@ -27,4 +27,5 @@ def validate_contract(data: dict[str, object]) -> None:
             f"{'.'.join(str(p) for p in e.path) or 'root'}: {e.message}"
             for e in errors
         ]
-        raise ContractValidationError(messages)
+        from archguard.utils.errors import ContractError
+        raise ContractError(f"Contract validation failed: {messages}")

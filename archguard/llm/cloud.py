@@ -15,6 +15,7 @@ from archguard.llm.prompts import (
     parse_llm_response,
 )
 from archguard.utils.content_filter import redact_secrets
+from archguard.utils.errors import LLMError
 
 if TYPE_CHECKING:
     from archguard.analysis.layers import AnalysisResult, ViolationDetail
@@ -70,47 +71,78 @@ class CloudLLMExplainer:
 
         safe_violations = self._redact_violations(result.violations)
         summary = build_contract_summary(contract)
-        prompt = build_violation_prompt(
-            safe_violations, summary, result.changed_files,
-        )
 
-        # Try primary, then fallback
-        response_text: str = ""
-        stop_reason: str = ""
+        all_explanations: list[str] = []
         model_used: str = ""
+        truncated = False
+        unavailable = False
+        failure_reason = ""
 
-        for model in (PRIMARY_MODEL, FALLBACK_MODEL):
-            try:
-                response_text, stop_reason = self._call_api(prompt, model)
-                model_used = model
-                break
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("LLM call to %s failed: %s", model, exc)
-                continue
-        else:
-            # Both models failed
-            return LLMExplanationResult(
-                unavailable=True,
-                failure_reason="All LLM models failed",
+        chunk_size = 20
+        for i in range(0, len(safe_violations), chunk_size):
+            chunk = safe_violations[i:i + chunk_size]
+            prompt = build_violation_prompt(
+                chunk, summary, result.changed_files,
             )
 
-        # Detect truncation
-        truncated = False
-        if stop_reason != "end_turn":
-            truncated = True
-        elif response_text and response_text.rstrip()[-1:] not in _TERMINAL_PUNCT:
-            truncated = True
+            response_text: str = ""
+            stop_reason: str = ""
+            chunk_success = False
 
-        # Parse response
-        explanations = parse_llm_response(
-            response_text, len(result.violations),
-        )
+            for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+                try:
+                    response_text, stop_reason = self._call_api(prompt, model)
+                    model_used = model
+                    chunk_success = True
+                    break
+                except LLMError as err:
+                    logger.warning("LLMError: %s (cause: %s)", err.message, err.cause)
+                    continue
+
+            if not chunk_success:
+                # Fallback to per-violation calls for this chunk
+                for single_violation in chunk:
+                    single_prompt = build_violation_prompt([single_violation], summary, result.changed_files)
+                    single_success = False
+                    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+                        try:
+                            s_resp, s_stop = self._call_api(single_prompt, model)
+                            model_used = model
+                            single_success = True
+                            single_exps = parse_llm_response(s_resp, 1)
+                            all_explanations.extend(single_exps)
+                            break
+                        except LLMError:
+                            continue
+                    if not single_success:
+                        all_explanations.append("Explanation unavailable.")
+                        unavailable = True
+                        failure_reason = "All LLM models failed on fallback"
+                continue
+
+            # Detect truncation
+            if stop_reason != "end_turn":
+                truncated = True
+            elif response_text and response_text.rstrip()[-1:] not in _TERMINAL_PUNCT:
+                truncated = True
+
+            # Parse chunk response
+            chunk_explanations = parse_llm_response(
+                response_text, len(chunk),
+            )
+            all_explanations.extend(chunk_explanations)
+
+        if unavailable and all(e == "Explanation unavailable." for e in all_explanations):
+            return LLMExplanationResult(
+                unavailable=True,
+                failure_reason=failure_reason,
+            )
 
         if truncated:
             # Append truncation note to last explanation
-            if explanations:
-                explanations[-1] = (
-                    explanations[-1] + " [Note: explanation was truncated]"
+            if all_explanations:
+                all_explanations[-1] = (
+                    all_explanations[-1] + " [Note: explanation was truncated]"
                 )
             if self._audit:
                 self._audit.log(
@@ -120,23 +152,31 @@ class CloudLLMExplainer:
                 )
 
         return LLMExplanationResult(
-            explanations=explanations,
+            explanations=all_explanations,
             model_used=model_used,
             truncated=truncated,
+            unavailable=unavailable,
         )
 
+    from archguard.utils.retry import with_retry
+
+    @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
         import anthropic  # lazy import
 
-        client: Any = anthropic.Anthropic(api_key=self._api_key)
-        message: Any = client.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return str(message.content[0].text), str(message.stop_reason)
+        try:
+            client: Any = anthropic.Anthropic(api_key=self._api_key)
+            message: Any = client.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return str(message.content[0].text), str(message.stop_reason)
+        except Exception as e:
+            from archguard.utils.errors import LLMError
+            raise LLMError(f"LLM call to {model} failed", cause=e) from e
 
     def _redact_violations(
         self,

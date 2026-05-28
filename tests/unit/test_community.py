@@ -80,3 +80,30 @@ class TestDetectCommunities:
         g = nx.Graph()
         result = detect_communities(g, seed=42)
         assert result == {}
+
+class TestGetSeedFromRepo:
+    def test_get_seed_from_repo_success(self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+        from archguard.analysis.community import get_seed_from_repo
+        from unittest.mock import MagicMock
+        import sys
+        
+        mock_pydriller = MagicMock()
+        mock_commit = MagicMock()
+        mock_commit.hash = "01234567"
+        mock_pydriller.Repository.return_value.traverse_commits.return_value = [mock_commit]
+        
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "pydriller", mock_pydriller)
+            assert get_seed_from_repo(tmp_path) == int("01234567", 16)
+
+    def test_get_seed_from_repo_fallback(self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+        from archguard.analysis.community import get_seed_from_repo
+        from unittest.mock import MagicMock
+        import sys
+        
+        mock_pydriller = MagicMock()
+        mock_pydriller.Repository.side_effect = Exception("No repo")
+        
+        with monkeypatch.context() as m:
+            m.setitem(sys.modules, "pydriller", mock_pydriller)
+            assert get_seed_from_repo(tmp_path) == 42

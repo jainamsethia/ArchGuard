@@ -13,6 +13,7 @@ from archguard.analysis.semantic import (
     SemanticAnalyzer,
     FunctionChunk,
     cosine_distance,
+    extract_module_text,
 )
 from archguard.cache.db import EmbeddingDB
 from archguard.cache.embeddings import EmbeddingCache
@@ -56,29 +57,39 @@ def analyzer(cache: EmbeddingCache) -> SemanticAnalyzer:
     return SemanticAnalyzer(cache)
 
 
-class TestExtractFunctions:
-    """Tests for SemanticAnalyzer.extract_functions."""
+class TestExtractModuleText:
+    """Tests for extract_module_text."""
 
-    def test_two_functions_extracted(
-        self, analyzer: SemanticAnalyzer,
-    ) -> None:
-        chunks = analyzer.extract_functions(TWO_FUNC_SOURCE, "test.py")
-        assert len(chunks) == 2
-        names = {c.function_name for c in chunks}
-        assert names == {"foo", "bar"}
+    def test_r_string_docstring(self, tmp_path: Path) -> None:
+        src = 'r"""This is an r-string docstring"""\ndef foo(): pass'
+        f = tmp_path / "test.py"
+        f.write_text(src, encoding="utf-8")
+        text = extract_module_text(f)
+        assert "This is an r-string docstring" in text
+        assert "foo" in text
 
-    def test_short_function_excluded(
-        self, analyzer: SemanticAnalyzer,
-    ) -> None:
-        chunks = analyzer.extract_functions(SHORT_FUNC_SOURCE, "test.py")
-        assert len(chunks) == 0
+    def test_class_docstring(self, tmp_path: Path) -> None:
+        src = 'class MyClass:\n    """Class docstring."""\n    pass'
+        f = tmp_path / "test.py"
+        f.write_text(src, encoding="utf-8")
+        text = extract_module_text(f)
+        assert "Class docstring" in text
+        assert "MyClass" in text
 
-    def test_docstring_included(
-        self, analyzer: SemanticAnalyzer,
-    ) -> None:
-        chunks = analyzer.extract_functions(DOCSTRING_SOURCE, "test.py")
-        assert len(chunks) == 1
-        assert "This is a docstring" in chunks[0].source
+    def test_no_docstring(self, tmp_path: Path) -> None:
+        src = 'def foo(): pass\nclass Bar: pass'
+        f = tmp_path / "test.py"
+        f.write_text(src, encoding="utf-8")
+        text = extract_module_text(f)
+        assert "foo" in text
+        assert "Bar" in text
+
+    def test_syntax_error(self, tmp_path: Path) -> None:
+        src = 'def foo(:::'
+        f = tmp_path / "test.py"
+        f.write_text(src, encoding="utf-8")
+        text = extract_module_text(f)
+        assert text == ""
 
 
 class TestComputeCentroid:
@@ -93,7 +104,8 @@ class TestComputeCentroid:
         assert abs(norm - 1.0) < 1e-5  # unit-normalized
 
     def test_empty_raises(self, analyzer: SemanticAnalyzer) -> None:
-        with pytest.raises(ValueError, match="empty"):
+        from archguard.utils.errors import AnalysisError
+        with pytest.raises(AnalysisError, match="empty"):
             analyzer.compute_centroid({})
 
 

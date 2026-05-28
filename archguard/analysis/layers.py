@@ -13,6 +13,7 @@ from archguard.analysis.scoring import (
     LayerScores,
     compute_archdebt,
 )
+from archguard.utils.severity import Severity
 from archguard.cache.db import EmbeddingDB
 from archguard.cache.embeddings import EmbeddingCache
 from archguard.contract.loader import load_contract
@@ -30,6 +31,7 @@ class ViolationDetail:
     commit_sha: str
     file_path: str
     explanation: str = ""
+    severity: Severity = Severity.LOW
 
 
 @dataclass
@@ -73,6 +75,7 @@ class AnalysisOrchestrator:
         changed_files: list[Path],
         commit_sha: str,
         skip_explanation: bool = False,
+        progress_callback: Any = None,
     ) -> AnalysisResult:
         """Run the full Layer 1–4 pipeline."""
         py_files = [f for f in changed_files if str(f).endswith(".py")]
@@ -95,18 +98,26 @@ class AnalysisOrchestrator:
         affected = self._get_affected_modules(py_files)
         violations: list[ViolationDetail] = []
 
+        if progress_callback:
+            progress_callback("Layer Enforcement")
         # --- Layer 1: Import boundary violations ---
         layer1 = self._run_layer1(py_files, affected, commit_sha, violations)
 
+        if progress_callback:
+            progress_callback("Coupling Analysis")
         # --- Layer 2: Coupling delta ---
         layer2 = self._run_layer2(affected, commit_sha, violations)
 
+        if progress_callback:
+            progress_callback("Semantic Cohesion")
         # --- Layer 3: Semantic drift ---
         layer3 = self._run_layer3(affected, py_files, commit_sha, violations)
 
         # --- Reinference: check staleness + create proposals ---
         self._run_reinference(affected, commit_sha)
 
+        if progress_callback:
+            progress_callback("Duplication Detection")
         # --- Layer 4: Duplication ---
         layer4 = self._run_layer4(affected, commit_sha, violations)
 
@@ -215,6 +226,7 @@ class AnalysisOrchestrator:
                                 ),
                                 commit_sha=commit_sha[:7],
                                 file_path=rel,
+                                severity=Severity.CRITICAL,
                             ))
                             continue
 
@@ -237,10 +249,12 @@ class AnalysisOrchestrator:
                                     ),
                                     commit_sha=commit_sha[:7],
                                     file_path=rel,
+                                    severity=Severity.CRITICAL,
                                 ))
 
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as e:
+                from archguard.utils.errors import AnalysisError
+                raise AnalysisError(f"Layer 1 analysis failed on {fpath}", cause=e) from e
 
         return violation_count / max(total_imports, 1)
 
@@ -280,6 +294,7 @@ class AnalysisOrchestrator:
                     message=f"fan_out={fan_out} exceeds budget={budget}",
                     commit_sha=commit_sha[:7],
                     file_path="",
+                    severity=Severity.HIGH,
                 ))
 
             max_delta = max(max_delta, delta)
@@ -318,10 +333,12 @@ class AnalysisOrchestrator:
                         ),
                         commit_sha=commit_sha[:7],
                         file_path="",
+                        severity=Severity.LOW,
                     ))
                 max_drift = max(max_drift, result.drift_score)
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as e:
+                from archguard.utils.errors import AnalysisError
+                raise AnalysisError(f"Layer 3 analysis failed on module {mod_name}", cause=e) from e
 
         return max_drift
 
@@ -335,6 +352,11 @@ class AnalysisOrchestrator:
         from archguard.analysis.duplication import DuplicationAnalyzer
 
         analyzer = DuplicationAnalyzer(self.cache)
+        modules_cfg = self.contract.get("modules", [])
+        thresholds: dict[str, float] = {
+            m["name"]: m.get("duplication_threshold", 0.5)
+            for m in modules_cfg
+        }
         max_agg = 0.0
 
         for mod_name, files in affected.items():
@@ -347,18 +369,35 @@ class AnalysisOrchestrator:
             try:
                 result = analyzer.analyze_module(mod_name, rel_files)
                 if result.aggregate_score > 0.0 and not result.skipped:
+                    # Collect file information from the matches
+                    match_details = []
+                    for m in result.matches[:3]: # limit to top 3 to avoid huge messages
+                        src_file = m.source_function.split("::")[0]
+                        tgt_file = m.matched_function.split("::")[0]
+                        match_details.append(f"{src_file} <-> {tgt_file}")
+                    
+                    details_str = ", ".join(match_details)
+                    if len(result.matches) > 3:
+                        details_str += "..."
+
+                    threshold = thresholds.get(mod_name, 0.5)
+                    sev = Severity.MEDIUM if result.aggregate_score >= threshold else Severity.LOW
+
                     violations.append(ViolationDetail(
                         layer=4,
                         module=mod_name,
                         message=(
-                            f"duplication score {result.aggregate_score:.2f}"
+                            f"duplication score {result.aggregate_score:.2f} "
+                            f"(matches found in: {details_str})"
                         ),
                         commit_sha=commit_sha[:7],
                         file_path="",
+                        severity=sev,
                     ))
                 max_agg = max(max_agg, result.aggregate_score)
-            except Exception:  # noqa: BLE001
-                continue
+            except Exception as e:
+                from archguard.utils.errors import AnalysisError
+                raise AnalysisError(f"Layer 4 analysis failed on module {mod_name}", cause=e) from e
 
         return max_agg
 
@@ -379,8 +418,9 @@ class AnalysisOrchestrator:
                 v for v in violations
                 if not store.is_suppressed(v.module, v.layer, v.message)
             ]
-        except Exception:  # noqa: BLE001
-            return violations
+        except Exception as e:
+            from archguard.utils.errors import AnalysisError
+            raise AnalysisError("Failed to filter suppressed violations", cause=e) from e
 
     def _run_reinference(
         self,
@@ -434,18 +474,29 @@ class AnalysisOrchestrator:
                             ),
                             source_commit=commit_sha,
                         )
-                except Exception:  # noqa: BLE001
-                    continue
-        except Exception:  # noqa: BLE001
-            logger.warning("Reinference check failed")
+                except Exception as e:
+                    from archguard.utils.errors import AnalysisError
+                    raise AnalysisError(f"Reinference proposal failed on module {mod_name}", cause=e) from e
+        except Exception as e:
+            from archguard.utils.errors import AnalysisError
+            raise AnalysisError("Reinference check failed", cause=e) from e
 
     def _get_affected_modules(
         self,
         changed_files: list[Path],
     ) -> dict[str, list[Path]]:
-        """Map changed files to their module names using contract paths."""
+        """Map changed files to their module names using contract paths or module_names."""
         modules_cfg = self.contract.get("modules", [])
         result: dict[str, list[Path]] = {}
+
+        def _resolve_module_name(fpath: Path) -> str:
+            rel = fpath.relative_to(self.repo_root)
+            parts = list(rel.with_suffix("").parts)
+            if parts and parts[0] == "src":
+                parts = parts[1:]
+            if parts and parts[-1] == "__init__":
+                parts = parts[:-1]
+            return ".".join(parts)
 
         for fpath in changed_files:
             rel = (
@@ -453,14 +504,28 @@ class AnalysisOrchestrator:
                 if fpath.is_absolute()
                 else str(fpath).replace("\\", "/")
             )
+            dotted_module = _resolve_module_name(fpath if fpath.is_absolute() else self.repo_root / fpath)
 
             for mod in modules_cfg:
                 mod_name: str = mod["name"]
                 paths: list[str] = mod.get("paths", [])
+                module_names: list[str] = mod.get("module_names", [])
+
+                matched = False
                 for p in paths:
                     if _normalize_path(rel).startswith(_normalize_path(p)):
-                        result.setdefault(mod_name, []).append(fpath)
+                        matched = True
                         break
+
+                if not matched:
+                    for m_name in module_names:
+                        if dotted_module == m_name or dotted_module.startswith(m_name + "."):
+                            matched = True
+                            break
+
+                if matched:
+                    result.setdefault(mod_name, []).append(fpath)
+                    break
 
         return result
 
@@ -477,6 +542,7 @@ class AnalysisOrchestrator:
             )
             if result.returncode == 0:
                 return result.stdout.strip()[:7]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:
+            from archguard.utils.errors import AnalysisError
+            raise AnalysisError("Failed to get commit SHA", cause=e) from e
         return "unknown"

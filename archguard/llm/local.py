@@ -11,6 +11,8 @@ from typing import Any, TYPE_CHECKING
 import httpx
 
 from archguard.config import EVENT_LOCAL_LLM_FAILURE
+from archguard.utils.errors import LLMError
+from archguard.utils.retry import with_retry
 
 if TYPE_CHECKING:
     from archguard.audit.logger import AuditLogger
@@ -58,16 +60,10 @@ class LocalLLMExplainer:
         )
         self._audit: AuditLogger | None = audit_logger
 
-    def explain(self, prompt: str) -> LocalLLMResult:
-        """Send a prompt to Ollama and return the result.
-
-        Handles three failure paths with actionable error messages.
-        Never raises — always returns a ``LocalLLMResult``.
-        """
-        url = f"{self._base_url}/api/generate"
-
+    @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
+    def _call_api(self, url: str, prompt: str) -> httpx.Response:
         try:
-            response = httpx.post(
+            return httpx.post(
                 url,
                 json={
                     "model": self._model,
@@ -77,6 +73,21 @@ class LocalLLMExplainer:
                 headers={"Content-Type": "application/json"},
                 timeout=OLLAMA_TIMEOUT,
             )
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            raise
+        except Exception as e:
+            raise LLMError("Unexpected error connecting to ollama", cause=e) from e
+
+    def explain(self, prompt: str) -> LocalLLMResult:
+        """Send a prompt to Ollama and return the result.
+
+        Handles three failure paths with actionable error messages.
+        Never raises — always returns a ``LocalLLMResult``.
+        """
+        url = f"{self._base_url}/api/generate"
+
+        try:
+            response = self._call_api(url, prompt)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             failure_msg = (
                 f"ollama is not running at {self._base_url}. "
@@ -90,8 +101,8 @@ class LocalLLMExplainer:
                 failure_type=LocalLLMFailureType.NOT_INSTALLED,
                 failure_message=failure_msg,
             )
-        except Exception as exc:  # noqa: BLE001
-            failure_msg = f"Unexpected error connecting to ollama: {exc}"
+        except LLMError as exc:
+            failure_msg = f"Unexpected error connecting to ollama: {exc.cause}"
             self._log_failure(None, failure_msg)
             return LocalLLMResult(
                 text="",

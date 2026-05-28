@@ -23,9 +23,12 @@ SCHEMA_VERSION: str = "3.0"
 ARCHGUARD_CONFIG_FILE: str = ".archguard.yml"
 ARCHGUARD_CONFIG_DIR: str = ".archguard"
 
+import os
+
 # Audit log
-AUDIT_LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10MB
-AUDIT_LOG_MAX_ENTRIES: int = 10_000
+AUDIT_LOG_MAX_SIZE_MB: int = int(os.environ.get("ARCHGUARD_AUDIT_MAX_SIZE_MB", "10"))
+AUDIT_LOG_MAX_BYTES: int = AUDIT_LOG_MAX_SIZE_MB * 1024 * 1024
+AUDIT_LOG_MAX_ENTRIES: int = int(os.environ.get("ARCHGUARD_AUDIT_MAX_ENTRIES", "1000"))
 AUDIT_LOG_FILENAME: str = ".archguard-cache/audit.jsonl"
 
 # Cache

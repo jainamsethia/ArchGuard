@@ -226,3 +226,37 @@ class TestInitCommand:
             )
         assert result.exit_code == 0
         assert (tmp_path / ".archguard.yml").exists()
+
+    def test_phase4_embeddings_no_llm(self, tmp_path: Path) -> None:
+        """_phase4_embeddings returns mock data when no_llm is True."""
+        from archguard.cli.init_cmd import _phase4_embeddings
+        communities = {"mod1": ["file1.py"]}
+        res = _phase4_embeddings(communities, tmp_path, no_llm=True)
+        assert res["modules_embedded"] == 1
+        assert res["model_name"] == "none"
+
+    def test_interactive_review_accept(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_interactive_review handles 'y'."""
+        from archguard.cli.init_cmd import _interactive_review
+        communities = {"mod1": ["file1.py"]}
+        monkeypatch.setattr("typer.prompt", lambda *a, **k: "y")
+        res = _interactive_review(communities)
+        assert "mod1" in res
+
+    def test_interactive_review_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_interactive_review handles 'n'."""
+        from archguard.cli.init_cmd import _interactive_review
+        communities = {"mod1": ["file1.py"]}
+        monkeypatch.setattr("typer.prompt", lambda *a, **k: "n")
+        res = _interactive_review(communities)
+        assert "mod1" not in res
+
+    def test_interactive_review_rename(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_interactive_review handles 'rename'."""
+        from archguard.cli.init_cmd import _interactive_review
+        communities = {"mod1": ["file1.py"]}
+        prompts = iter(["rename", "mod2"])
+        monkeypatch.setattr("typer.prompt", lambda *a, **k: next(prompts))
+        res = _interactive_review(communities)
+        assert "mod2" in res
+        assert "mod1" not in res

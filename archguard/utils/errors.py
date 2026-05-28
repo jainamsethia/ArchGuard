@@ -4,24 +4,46 @@
 class ArchGuardError(Exception):
     """Base exception for all ArchGuard errors."""
 
-    def __init__(self, message: str, exit_code: int) -> None:
+    def __init__(self, message: str, exit_code: int = 1, cause: Exception | None = None) -> None:
         self.message = message
         self.exit_code = exit_code
+        self.cause = cause
         super().__init__(message)
 
 
 class ConfigError(ArchGuardError):
     """Raised when configuration is invalid or missing."""
 
-    def __init__(self, message: str) -> None:
-        super().__init__(message=message, exit_code=1)
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message=message, exit_code=1, cause=cause)
 
 
 class InternalError(ArchGuardError):
     """Raised on unexpected internal failures."""
 
-    def __init__(self, message: str) -> None:
-        super().__init__(message=message, exit_code=2)
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message=message, exit_code=2, cause=cause)
+
+
+class ContractError(ArchGuardError):
+    """Raised when contract validation or loading fails."""
+
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message=message, exit_code=3, cause=cause)
+
+
+class AnalysisError(ArchGuardError):
+    """Raised when analysis operations fail."""
+
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message=message, exit_code=4, cause=cause)
+
+
+class LLMError(ArchGuardError):
+    """Raised when LLM operations fail."""
+
+    def __init__(self, message: str, cause: Exception | None = None) -> None:
+        super().__init__(message=message, exit_code=5, cause=cause)
 
 
 def format_error(msg: str) -> str:

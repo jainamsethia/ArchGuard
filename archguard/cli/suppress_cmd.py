@@ -10,7 +10,7 @@ from rich.console import Console
 from archguard.config import EXIT_OK, EXIT_VIOLATION
 from archguard.suppression.store import SuppressionStore, SuppressionValidationError
 from archguard.utils.errors import format_error
-
+from archguard.utils.output import vprint
 suppress_app: typer.Typer = typer.Typer(
     name="suppress",
     help="Manage architectural violation suppressions.",
@@ -23,20 +23,78 @@ _console: Console = Console()
 
 @suppress_app.command("add")
 def suppress_add(
-    module: str = typer.Option(..., "--module", help="Module name."),
-    layer: int = typer.Option(..., "--layer", help="Layer (1–4)."),
-    message: str = typer.Option(..., "--message", help="Violation message."),
-    reason: str = typer.Option(..., "--reason", help="Suppression reason."),
+    ctx: typer.Context,
+    module: str | None = typer.Option(None, "--module", help="Module name."),
+    layer: int | None = typer.Option(None, "--layer", help="Layer (1–4)."),
+    message: str | None = typer.Option(None, "--message", help="Violation message."),
+    reason: str | None = typer.Option(None, "--reason", help="Suppression reason."),
     expires: str | None = typer.Option(
-        None, "--expires", help="Expiry date (ISO8601).",
+        None, "--expires", "--expiry", help="Expiry date (ISO8601).",
     ),
     pr: int | None = typer.Option(None, "--pr", help="PR number."),
+    all_pending: bool = typer.Option(
+        False, "--all-pending", help="Suppress all violations from the most recent analysis run. Use --yes to skip confirmation."
+    ),
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt."),
     repo: Path = typer.Option(
         Path("."), "--repo", help="Repository root.",
     ),
 ) -> None:
     """Add a violation suppression."""
     store = SuppressionStore(repo.resolve())
+    
+    if all_pending:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import AUDIT_LOG_FILENAME
+        from rich.table import Table
+        
+        logger = AuditLogger(log_path=repo.resolve() / AUDIT_LOG_FILENAME)
+        last_run = logger.read_last_run()
+        if not last_run:
+            _console.print(format_error("No analysis run found. Run `archguard analyze` first."))
+            raise typer.Exit(EXIT_VIOLATION)
+            
+        violations = last_run.get("violations", [])
+        active_violations = [v for v in violations if not v.get("suppressed")]
+        
+        if not active_violations:
+            _console.print("No active violations found in the last analysis run.")
+            return
+            
+        if not yes and not ctx.obj.get("quiet"):
+            if not typer.confirm(f"Suppress all {len(active_violations)} active violations? This cannot be undone easily."):
+                raise typer.Exit(EXIT_OK)
+                
+        table = Table(title="Suppressed Violations")
+        table.add_column("Status", justify="center")
+        table.add_column("Layer")
+        table.add_column("Module")
+        table.add_column("Message")
+        
+        for v in active_violations:
+            try:
+                store.add(
+                    module=v.get("module", ""),
+                    layer=v.get("layer", 1),
+                    message=v.get("message", ""),
+                    reason="bulk suppressed via --all-pending",
+                    expires_at=expires,
+                    pr_number=pr,
+                )
+                table.add_row("✓", str(v.get("layer", 1)), str(v.get("module", "")), str(v.get("message", "")))
+            except SuppressionValidationError as exc:
+                _console.print(format_error(str(exc)))
+                
+        if ctx.obj.get("quiet"):
+            raise typer.Exit(EXIT_OK)
+            
+        _console.print(table)
+        return
+
+    if not module or not layer or not message or not reason:
+        _console.print(format_error("Missing required arguments. Need --module, --layer, --message, and --reason."))
+        raise typer.Exit(EXIT_VIOLATION)
+
     try:
         suppression = store.add(
             module=module,
@@ -58,6 +116,7 @@ def suppress_add(
 
 @suppress_app.command("list")
 def suppress_list(
+    ctx: typer.Context,
     json_output: bool = typer.Option(
         False, "--json", help="Output JSON.",
     ),
@@ -84,6 +143,7 @@ def suppress_list(
 
 @suppress_app.command("migrate")
 def suppress_migrate(
+    ctx: typer.Context,
     from_module: str = typer.Option(
         ..., "--from", help="Old module name.",
     ),
@@ -104,6 +164,7 @@ def suppress_migrate(
 
 @suppress_app.command("orphans")
 def suppress_orphans(
+    ctx: typer.Context,
     confirm_all: bool = typer.Option(
         False, "--confirm-all", help="Skip confirmation prompt.",
     ),

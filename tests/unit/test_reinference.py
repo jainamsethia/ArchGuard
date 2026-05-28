@@ -164,6 +164,55 @@ class TestAcceptReject:
         engine = _make_engine(tmp_path)
         assert engine.reject_proposal("nope") is False
 
+    def test_accept_github_mode_update(self, tmp_path: Path) -> None:
+        _write_proposal(tmp_path, "payments")
+        engine = _make_engine(tmp_path)
+        mock_client = MagicMock()
+        mock_repo = MagicMock()
+        mock_client.get_repo.return_value = mock_repo
+        mock_contents = MagicMock()
+        mock_contents.decoded_content = b"schema_version: '3.0'\nmodules: []"
+        mock_contents.sha = "sha123"
+        mock_repo.get_contents.return_value = mock_contents
+        
+        assert engine.accept_proposal("payments", github_client=mock_client, repo_slug="org/repo") is True
+        mock_repo.update_file.assert_called_once()
+
+    def test_accept_github_mode_create(self, tmp_path: Path) -> None:
+        _write_proposal(tmp_path, "payments")
+        engine = _make_engine(tmp_path)
+        mock_client = MagicMock()
+        mock_repo = MagicMock()
+        mock_client.get_repo.return_value = mock_repo
+        mock_repo.get_contents.side_effect = Exception("Not found")
+        mock_repo.update_file.side_effect = Exception("Not found")
+        
+        assert engine.accept_proposal("payments", github_client=mock_client, repo_slug="org/repo") is True
+        mock_repo.create_file.assert_called_once()
+
+    def test_accept_github_mode_failure(self, tmp_path: Path) -> None:
+        _write_proposal(tmp_path, "payments")
+        engine = _make_engine(tmp_path)
+        mock_client = MagicMock()
+        mock_repo = MagicMock()
+        mock_client.get_repo.return_value = mock_repo
+        mock_repo.get_contents.side_effect = Exception("Not found")
+        mock_repo.update_file.side_effect = Exception("Not found")
+        mock_repo.create_file.side_effect = Exception("Fails to create")
+        
+        assert engine.accept_proposal("payments", github_client=mock_client, repo_slug="org/repo") is False
+
+class TestListPending:
+    def test_list_pending_skips_malformed(self, tmp_path: Path) -> None:
+        engine = _make_engine(tmp_path)
+        valid_path = _write_proposal(tmp_path, "valid")
+        bad_path = tmp_path / ".archguard-pending-contracts" / "bad.yml"
+        bad_path.write_text("{bad yaml")
+        
+        pending = engine.list_pending()
+        assert len(pending) == 1
+        assert pending[0].module_name == "valid"
+
 
 class TestHandleDeletedComment:
     def test_resets_last_processed_id(self, tmp_path: Path) -> None:

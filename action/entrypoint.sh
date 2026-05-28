@@ -15,19 +15,22 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
 fi
 
 # Security fix: Use array CMD to prevent shell injection from inputs
-CMD=("archguard" "analyze")
-CMD+=("--repo" "${REPO_ROOT}")
+if [[ "${GITHUB_EVENT_NAME:-}" == "issue_comment" ]]; then
+  CMD=("archguard" "github-sync" "--repo" "${REPO_ROOT}")
+else
+  CMD=("archguard" "analyze" "--repo" "${REPO_ROOT}")
 
-[[ -n "${PR_NUMBER}" ]] && CMD+=("--pr" "${PR_NUMBER}")
-[[ -n "${GITHUB_EVENT_NUMBER:-}" ]] && CMD+=("--pr-number" "${GITHUB_EVENT_NUMBER}")
-[[ -n "${REPO_SLUG}" ]] && CMD+=("--repo-slug" "${REPO_SLUG}")
-[[ "${SKIP_EXPLANATION}" == "true" ]] && CMD+=("--skip-explanation")
-[[ "${FAIL_ON_WARN}" == "true" ]] && CMD+=("--fail-on-warn")
-[[ "${DRY_RUN}" == "true" ]] && CMD+=("--dry-run")
+  [[ -n "${PR_NUMBER}" ]] && CMD+=("--pr" "${PR_NUMBER}")
+  [[ -n "${GITHUB_EVENT_NUMBER:-}" ]] && CMD+=("--pr-number" "${GITHUB_EVENT_NUMBER}")
+  [[ -n "${REPO_SLUG}" ]] && CMD+=("--repo-slug" "${REPO_SLUG}")
+  [[ "${SKIP_EXPLANATION}" == "true" ]] && CMD+=("--skip-explanation")
+  [[ "${FAIL_ON_WARN}" == "true" ]] && CMD+=("--fail-on-warn")
+  [[ "${DRY_RUN}" == "true" ]] && CMD+=("--dry-run")
 
-if [[ -n "${EXTRA_ARGS}" ]]; then
-  read -ra EXTRA <<< "$INPUT_EXTRA_ARGS"
-  CMD+=("${EXTRA[@]}")
+  if [[ -n "${EXTRA_ARGS}" ]]; then
+    read -ra EXTRA <<< "$INPUT_EXTRA_ARGS"
+    CMD+=("${EXTRA[@]}")
+  fi
 fi
 
 echo "::group::ArchGuard Analysis"

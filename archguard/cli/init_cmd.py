@@ -10,9 +10,11 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.prompt import Prompt
 
 from archguard.config import CHECKPOINTS_DIR, EMBEDDING_CACHE_FILE
 from archguard.utils.errors import format_error, format_warning
+from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
 
 init_app: typer.Typer = typer.Typer(
@@ -175,9 +177,25 @@ def _phase3_communities(
 def _phase4_embeddings(
     communities: dict[str, list[str]],
     repo_root: Path,
+    no_llm: bool = False,
 ) -> dict[str, Any]:
     """Phase 4: Embedding Centroid Computation."""
-    from sentence_transformers import SentenceTransformer  # lazy import
+    if no_llm:
+        return {
+            "modules_embedded": len(communities),
+            "total_functions_embedded": 0,
+            "model_name": "none",
+        }
+
+    try:
+        from sentence_transformers import SentenceTransformer  # lazy import
+    except ImportError:
+        return {
+            "modules_embedded": len(communities),
+            "total_functions_embedded": 0,
+            "model_name": "none",
+        }
+
     import hashlib
     import numpy as np
     from archguard.cache.db import EmbeddingDB
@@ -188,6 +206,32 @@ def _phase4_embeddings(
     total_embedded = 0
 
     with EmbeddingDB(db_path) as db:
+        _console.print(
+            f"  [green]✔ Found {len(python_files)} Python files[/green]\n"
+            f"  [green]✔ Detected {len(communities)} primary modules[/green]\n"
+        )
+
+        choices = {"1": "strict", "2": "lenient", "3": "ci", "4": "custom"}
+        answer = Prompt.ask(
+            "Which profile would you like to use?\n"
+            "1. strict — Production-grade enforcement\n"
+            "2. lenient — Minimal enforcement\n"
+            "3. ci — Balanced CI enforcement\n"
+            "4. custom — I'll set thresholds manually",
+            choices=["1", "2", "3", "4"],
+            default="1"
+        )
+        profile_name = choices[answer]
+
+        contract: dict[str, Any] = {
+            "schema_version": "3.0",
+        }
+        
+        if profile_name != "custom":
+            contract["profile"] = profile_name
+
+        contract["modules"] = []
+
         for module_name, files in communities.items():
             texts: list[str] = []
             file_paths: list[str] = []
@@ -372,6 +416,7 @@ def _write_summary(
 
 @init_app.callback(invoke_without_command=True)
 def init_command(
+    ctx: typer.Context,
     repo: Path = typer.Option(
         Path("."), "--repo", help="Path to the repository root.",
     ),
@@ -386,6 +431,9 @@ def init_command(
     ),
     output: Path | None = typer.Option(
         None, "--output", help="Write contract to this path.",
+    ),
+    no_llm: bool = typer.Option(
+        False, "--no-llm", help="Skip LLM API calls entirely.",
     ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
@@ -425,9 +473,9 @@ def init_command(
     if resume:
         start_phase = latest_completed_phase(repo_root) + 1
         if start_phase > 5:
-            _console.print("[green]All phases already completed.[/green]")
+            vprint("[green]All phases already completed.[/green]", ctx)
             return
-        _console.print(f"[blue]Resuming from phase {start_phase}...[/blue]")
+        vprint(f"[blue]Resuming from phase {start_phase}...[/blue]", ctx)
 
     # Phase data holders
     phase1_data: dict[str, Any] = {}
@@ -456,7 +504,7 @@ def init_command(
     try:
         # PHASE 1 — Repository Scan
         if start_phase <= 1:
-            _console.print("[bold cyan][1/5] Scanning repository...[/bold cyan]")
+            vprint("[bold cyan][1/5] Scanning repository...[/bold cyan]", ctx)
             phase1_data = _phase1_scan(repo_root)
 
             if phase1_data["total_files"] == 0:
@@ -465,56 +513,75 @@ def init_command(
                 ))
                 raise typer.Exit(1)
 
-            _console.print(
+            vprint(
                 f"Found {phase1_data['total_files']} Python files | "
-                f"{phase1_data['total_loc']:,} LOC"
+                f"{phase1_data['total_loc']:,} LOC", ctx
             )
 
             # Runtime estimate for large repos
             if phase1_data["total_loc"] > 50_000:
                 est = phase1_data["total_loc"] // 10_000 * 2
-                _console.print(
+                vprint(
                     f"[blue]Estimated init time: ~{est} minutes "
-                    f"for {phase1_data['total_loc']:,} LOC[/blue]"
+                    f"for {phase1_data['total_loc']:,} LOC[/blue]", ctx
                 )
 
             save_checkpoint(repo_root, 1, phase1_data)
 
         # PHASE 2 — Commit History Analysis
         if start_phase <= 2:
-            _console.print(
-                "[bold cyan][2/5] Analyzing commit history...[/bold cyan]"
+            vprint(
+                "[bold cyan][2/5] Analyzing commit history...[/bold cyan]", ctx
             )
             phase2_data = _phase2_commits(repo_root)
 
-            _console.print(
+            vprint(
                 f"Processed {phase2_data['commit_count']} commits | "
-                f"{phase2_data['graph_edges']} co-change pairs"
+                f"{phase2_data['graph_edges']} co-change pairs", ctx
             )
 
             save_checkpoint(repo_root, 2, phase2_data)
 
         # PHASE 3 — Louvain Community Detection
         if start_phase <= 3:
-            _console.print(
+            vprint(
                 "[bold cyan][3/5] Detecting module communities..."
-                "[/bold cyan]"
+                "[/bold cyan]", ctx
             )
-            phase3_data = _phase3_communities(
-                phase2_data["graph_data"],
-                repo_root,
-                phase1_data["python_files"],
-            )
+            
+            quiet = ctx.obj.get("quiet", False)
+            use_rich = is_tty() and not quiet
+            
+            if use_rich:
+                from rich.progress import Progress, SpinnerColumn, TextColumn
+                with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=_console) as p:
+                    p.add_task("Detecting communities...", total=None)
+                    phase3_data = _phase3_communities(
+                        phase2_data["graph_data"],
+                        repo_root,
+                        phase1_data["python_files"],
+                    )
+            else:
+                phase3_data = _phase3_communities(
+                    phase2_data["graph_data"],
+                    repo_root,
+                    phase1_data["python_files"],
+                )
 
             seed_hex = hex(phase3_data["seed"])
-            _console.print(
+            vprint(
                 f"Found {phase3_data['num_communities']} communities | "
-                f"Seed: {seed_hex}"
+                f"Seed: {seed_hex}", ctx
             )
 
             save_checkpoint(repo_root, 3, phase3_data)
 
         communities: dict[str, list[str]] = phase3_data["communities"]
+        
+        if ctx.obj.get("verbose"):
+            for name, files in communities.items():
+                for f in files:
+                    vprint(f"Found file {f} assigned to module {name}", ctx, level="debug")
 
         # Interactive review (TTY only, skipped if --confirm-all)
         if not confirm_all and is_tty():
@@ -529,16 +596,16 @@ def init_command(
 
         # PHASE 4 — Embedding Centroid Computation
         if start_phase <= 4:
-            _console.print(
+            vprint(
                 "[bold cyan][4/5] Computing semantic embeddings..."
-                "[/bold cyan]"
+                "[/bold cyan]", ctx
             )
-            phase4_data = _phase4_embeddings(communities, repo_root)
+            phase4_data = _phase4_embeddings(communities, repo_root, no_llm=no_llm)
 
-            _console.print(
+            vprint(
                 f"Embedded {phase4_data['modules_embedded']} modules | "
                 f"{phase4_data['total_functions_embedded']} functions | "
-                f"model: {phase4_data['model_name']}"
+                f"model: {phase4_data['model_name']}", ctx
             )
 
             save_checkpoint(repo_root, 4, phase4_data)
@@ -550,8 +617,8 @@ def init_command(
 
         # PHASE 5 — YAML Contract Write
         if start_phase <= 5:
-            _console.print(
-                "[bold cyan][5/5] Writing contract...[/bold cyan]"
+            vprint(
+                "[bold cyan][5/5] Writing contract...[/bold cyan]", ctx
             )
 
             from archguard.contract.writer import write_contract
@@ -565,7 +632,7 @@ def init_command(
                 ),
             )
 
-            _console.print(f"Contract written to [green]{output}[/green]")
+            vprint(f"Contract written to [green]{output}[/green]", ctx)
 
             save_checkpoint(repo_root, 5, {
                 "output_path": str(output),
@@ -583,9 +650,9 @@ def init_command(
             communities=communities,
         )
 
-        _console.print()
-        _console.print(
-            "[bold green]\u2713 ArchGuard initialization complete![/bold green]"
+        vprint("", ctx)
+        vprint(
+            "[bold green]\u2713 ArchGuard initialization complete![/bold green]", ctx
         )
 
     except typer.Exit:

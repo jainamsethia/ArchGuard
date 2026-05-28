@@ -21,7 +21,11 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
             "description": "List of architectural modules to enforce.",
             "items": {
                 "type": "object",
-                "required": ["name", "paths"],
+                "required": ["name"],
+                "anyOf": [
+                    {"required": ["paths"]},
+                    {"required": ["module_names"]}
+                ],
                 "additionalProperties": False,
                 "properties": {
                     "name": {
@@ -33,6 +37,12 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
                         "items": {"type": "string"},
                         "minItems": 1,
                         "description": "Glob patterns for files belonging to this module.",
+                    },
+                    "module_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "description": "Dotted module names belonging to this module.",
                     },
                     "allowed_imports": {
                         "type": "array",

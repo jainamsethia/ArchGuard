@@ -1,5 +1,5 @@
 name: 'ArchGuard'
-description: 'Detect architectural drift in Python pull requests using import analysis, semantic embeddings, and LLM explanations.'
+description: 'Detect architectural drift in Python pull requests using import analysis, semantic embeddings, and LLM explanations. Supports pull_request and issue_comment triggers.'
 author: 'ArchGuard'
 
 branding:

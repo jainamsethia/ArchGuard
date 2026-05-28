@@ -143,6 +143,43 @@ class TestSuppressCmd:
         assert result.exit_code == 0
         assert "No orphaned suppressions found" in result.output
 
+    def test_add_all_pending_valid(self, tmp_path: Path) -> None:
+        """suppress add --all-pending --yes suppresses all active violations."""
+        repo = _setup_repo(tmp_path)
+        
+        # Create a mock audit log
+        from archguard.config import AUDIT_LOG_FILENAME
+        import json
+        
+        audit_file = repo / AUDIT_LOG_FILENAME
+        audit_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        run_event = {
+            "event": "analysis_run",
+            "violations": [
+                {"module": "payments", "layer": 1, "message": "bad import 1", "suppressed": False},
+                {"module": "orders", "layer": 2, "message": "coupling high", "suppressed": False},
+            ]
+        }
+        
+        with audit_file.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(run_event) + "\n")
+            
+        result = runner.invoke(
+            app,
+            ["suppress", "add", "--all-pending", "--yes", "--repo", str(repo)]
+        )
+        
+        assert result.exit_code == 0
+        assert "Suppressed Violations" in result.output
+        
+        # Verify both violations appear in the suppressions store
+        from archguard.suppression.store import SuppressionStore
+        store = SuppressionStore(repo)
+        
+        assert store.is_suppressed("payments", 1, "bad import 1") is True
+        assert store.is_suppressed("orders", 2, "coupling high") is True
+
 
 class TestContractCmd:
     def test_list_pending_empty(self, tmp_path: Path) -> None:

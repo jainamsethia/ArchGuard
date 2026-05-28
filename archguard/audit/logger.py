@@ -13,7 +13,6 @@ from archguard.config import (
     AUDIT_LOG_MAX_ENTRIES,
 )
 
-_MAX_GENERATIONS: int = 3
 
 
 class AuditLogger:
@@ -30,9 +29,7 @@ class AuditLogger:
         """
         try:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-
-            if self._log_path.exists() and self._should_rotate(self._log_path):
-                self._rotate(self._log_path)
+            self._maybe_rotate(self._log_path)
 
             entry: dict[str, Any] = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -45,32 +42,50 @@ class AuditLogger:
         except Exception:  # noqa: BLE001 — intentionally broad
             pass  # Never crash CLI due to audit failure
 
-    def _should_rotate(self, path: Path) -> bool:
-        """Return True if the log file exceeds size or entry-count limits."""
+    def _maybe_rotate(self, log_path: Path) -> None:
+        """Rotate log file by truncating to the last MAX_ENTRIES lines."""
+        if not log_path.exists():
+            return
         try:
-            if path.stat().st_size >= AUDIT_LOG_MAX_BYTES:
-                return True
-            with path.open("r", encoding="utf-8") as f:
-                line_count = sum(1 for _ in f)
-            return line_count >= AUDIT_LOG_MAX_ENTRIES
-        except Exception:  # noqa: BLE001
-            return False
-
-    def _rotate(self, path: Path) -> None:
-        """Rotate log files, keeping up to 3 generations.
-
-        audit.jsonl.2 → audit.jsonl.3 (deleted if exists)
-        audit.jsonl.1 → audit.jsonl.2
-        audit.jsonl   → audit.jsonl.1
-        """
-        try:
-            for i in range(_MAX_GENERATIONS, 0, -1):
-                src = path.with_suffix(f"{path.suffix}.{i}")
-                dst = path.with_suffix(f"{path.suffix}.{i + 1}")
-                if i == _MAX_GENERATIONS and dst.exists():
-                    dst.unlink()
-                if src.exists():
-                    src.rename(dst)
-            path.rename(path.with_suffix(f"{path.suffix}.1"))
+            size = log_path.stat().st_size
+            if size < AUDIT_LOG_MAX_BYTES:
+                return
+            # Count lines
+            with open(log_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            if len(lines) < AUDIT_LOG_MAX_ENTRIES:
+                return
+            # Keep only the last MAX_ENTRIES - 1 lines
+            keep_count = AUDIT_LOG_MAX_ENTRIES - 1
+            if keep_count > 0:
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines[-keep_count:])
+            else:
+                # If MAX_ENTRIES is 1, we just clear the file
+                with open(log_path, "w", encoding="utf-8") as f:
+                    pass
         except Exception:  # noqa: BLE001
             pass
+
+    def read_last_run(self) -> dict[str, Any] | None:
+        """Read the audit log from the end to find the last 'analysis_run' event."""
+        return read_last_run(self._log_path)
+
+def read_last_run(log_path: Path) -> dict[str, Any] | None:
+    """Return the most recent analysis_run event, or None if not found."""
+    if not log_path.exists():
+        return None
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in reversed(f.readlines()):
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                    if event.get("event") == "analysis_run":
+                        return event
+                except json.JSONDecodeError:
+                    continue
+    except Exception:
+        pass
+    return None

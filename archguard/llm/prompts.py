@@ -50,12 +50,8 @@ def build_violation_prompt(
     else:
         files_str = ", ".join(changed_files) if changed_files else "(none)"
 
-    # Truncate violations
-    max_violations = 10
-    display_violations = violations[:max_violations]
-
     lines: list[str] = [
-        f"Repository has {len(violations)} architectural violation(s) in this PR.",
+        f"Repository has {len(violations)} architectural violation(s) in this batch.",
         "",
         "Contract summary:",
         contract_summary,
@@ -65,13 +61,12 @@ def build_violation_prompt(
         "Violations:",
     ]
 
-    for i, v in enumerate(display_violations, start=1):
+    for i, v in enumerate(violations, start=1):
+        sev_val = str(getattr(v, "severity", "low")).upper()
         lines.append(
-            f"{i}. [L{v.layer}] {v.module}: {v.message} (commit: {v.commit_sha})"
+            f"{i}. [L{v.layer}] {v.module}: {v.message} "
+            f"(severity: {sev_val}, commit: {v.commit_sha})"
         )
-
-    if len(violations) > max_violations:
-        lines.append(f"... and {len(violations) - max_violations} more violations")
 
     lines.append("")
     lines.append(

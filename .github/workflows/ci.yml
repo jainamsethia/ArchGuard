@@ -24,6 +24,14 @@ jobs:
         run: mypy archguard/ --ignore-missing-imports || true
       - name: Unit tests
         run: pytest tests/unit -v --tb=short
+      - name: Integration tests
+        if: env.GEMINI_API_KEY == ''
+        run: pytest tests/integration -v --tb=short
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4

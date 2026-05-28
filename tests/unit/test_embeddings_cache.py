@@ -112,3 +112,30 @@ class TestEmbeddingCache:
         # c2's write should also be visible via WAL
         db1.close()
         db2.close()
+
+    def test_get_batch_single_query(self, cache: EmbeddingCache) -> None:
+        """get_batch should execute exactly one query."""
+        e1 = np.random.rand(384).astype(np.float32)
+        e2 = np.random.rand(384).astype(np.float32)
+        cache.store_embedding("a.py", "f1", e1, "h1", "m")
+        cache.store_embedding("b.py", "f2", e2, "h2", "m")
+
+        queries = []
+        def trace(stmt):
+            if stmt.strip().upper().startswith("SELECT"):
+                queries.append(stmt)
+                
+        cache._db._conn.set_trace_callback(trace)
+
+        keys = ["a.py::f1::h1", "b.py::f2::h2", "missing.py::f3::h3"]
+        result = cache.get_batch(keys)
+        
+        cache._db._conn.set_trace_callback(None)
+        
+        assert len(result) == 3
+        assert result["a.py::f1::h1"] is not None
+        assert result["b.py::f2::h2"] is not None
+        assert result.get("missing.py::f3::h3") is None
+        
+        # Exactly one SELECT query
+        assert len(queries) == 1

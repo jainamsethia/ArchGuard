@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ArchGuard Health Report</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .stat-box { text-align: center; padding: 15px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; }
+        .stat-value { font-size: 2em; font-weight: bold; color: #2563eb; }
+        .stat-label { font-size: 0.9em; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
+        .grade-A { color: #16a34a; }
+        .grade-B { color: #2563eb; }
+        .grade-C { color: #d97706; }
+        .grade-D, .grade-F { color: #dc2626; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; font-weight: 600; color: #475569; }
+        .sev-critical { color: #ef4444; font-weight: bold; }
+        .sev-high { color: #f97316; font-weight: bold; }
+        .sev-medium { color: #eab308; font-weight: bold; }
+        .sev-low { color: #94a3b8; }
+        .graph-container { height: 500px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fafafa; }
+        .trend-container { height: 300px; }
+    </style>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>ArchGuard Architecture Report</h1>
+        <div style="color: #64748b;" id="timestamp-label"></div>
+    </div>
+
+    <div class="card">
+        <h2>Summary</h2>
+        <div class="summary-grid">
+            <div class="stat-box">
+                <div class="stat-value" id="score-val">-</div>
+                <div class="stat-label">Health Score</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="grade-val">-</div>
+                <div class="stat-label">Grade</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="violation-val">-</div>
+                <div class="stat-label">Violations</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="module-val">-</div>
+                <div class="stat-label">Modules</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Health Trend</h2>
+        <div class="trend-container">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Dependency Graph</h2>
+        <div id="dependencyGraph" class="graph-container"></div>
+    </div>
+
+    <div class="card">
+        <h2>Violations</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Layer</th>
+                    <th>Severity</th>
+                    <th>Module</th>
+                    <th>Message</th>
+                </tr>
+            </thead>
+            <tbody id="violations-table-body">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Embedded JSON data injected by Python
+    const SUMMARY = {{ SUMMARY_JSON }};
+    const VIOLATIONS = {{ VIOLATIONS_JSON }};
+    const GRAPH_DATA = {{ GRAPH_DATA_JSON }};
+    const TREND_DATA = {{ TREND_DATA_JSON }};
+
+    // Populate Summary
+    document.getElementById("timestamp-label").innerText = new Date(SUMMARY.timestamp).toLocaleString();
+    document.getElementById("score-val").innerText = SUMMARY.score.toFixed(1);
+    const gradeEl = document.getElementById("grade-val");
+    gradeEl.innerText = SUMMARY.grade;
+    gradeEl.className = "stat-value grade-" + SUMMARY.grade.charAt(0);
+    document.getElementById("violation-val").innerText = SUMMARY.violation_count;
+    document.getElementById("module-val").innerText = SUMMARY.module_count;
+
+    // Populate Violations
+    const tbody = document.getElementById("violations-table-body");
+    if (VIOLATIONS.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='4' style='text-align: center; color: #16a34a; font-weight: bold;'>No violations found! Great job.</td></tr>";
+    } else {
+        VIOLATIONS.forEach(v => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>L${v.layer || '?'}</td>
+                <td class="sev-${v.severity.toLowerCase()}">${v.severity.toUpperCase()}</td>
+                <td>${v.module}</td>
+                <td>${v.message}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // Chart.js Trend
+    if (TREND_DATA.scores && TREND_DATA.scores.length > 0) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: TREND_DATA.labels,
+                datasets: [{
+                    label: 'Health Score',
+                    data: TREND_DATA.scores,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: false, min: Math.max(0, Math.min(...TREND_DATA.scores) - 10), max: 100 }
+                }
+            }
+        });
+    } else {
+        document.getElementById('trendChart').parentElement.innerHTML = "<p style='text-align: center; color: #64748b; margin-top: 50px;'>No trend data available.</p>";
+    }
+
+    // vis.js Network Graph
+    if (GRAPH_DATA && GRAPH_DATA.nodes && GRAPH_DATA.nodes.length > 0) {
+        const container = document.getElementById('dependencyGraph');
+        const data = {
+            nodes: new vis.DataSet(GRAPH_DATA.nodes),
+            edges: new vis.DataSet(GRAPH_DATA.edges)
+        };
+        const options = {
+            nodes: {
+                shape: 'dot',
+                size: 20,
+                font: { size: 14, color: '#333' },
+                borderWidth: 2
+            },
+            edges: {
+                width: 1,
+                arrows: 'to',
+                color: { color: '#94a3b8', highlight: '#2563eb' }
+            },
+            physics: {
+                forceAtlas2Based: { gravitationalConstant: -50, centralGravity: 0.01, springLength: 100, springConstant: 0.08 },
+                maxVelocity: 50,
+                solver: 'forceAtlas2Based',
+                timestep: 0.35,
+                stabilization: { iterations: 150 }
+            }
+        };
+        new vis.Network(container, data, options);
+    } else {
+        document.getElementById('dependencyGraph').innerHTML = "<p style='text-align: center; color: #64748b; margin-top: 200px;'>No dependencies detected.</p>";
+    }
+</script>
+</body>
+</html>

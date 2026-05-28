@@ -5,6 +5,9 @@ description = "Architectural drift detector for Python codebases."
 authors = []
 readme = "README.md"
 packages = [{include = "archguard"}]
+include = [
+    {path = "archguard/templates/*"}
+]
 
 [tool.poetry.scripts]
 archguard = "archguard.cli.main:main"
@@ -21,6 +24,7 @@ requests = ">=2.28"
 pytest = ">=7.0"
 mypy = ">=1.0"
 types-PyYAML = "*"
+pre-commit = ">=3.0"
 
 [tool.mypy]
 python_version = "3.11"
@@ -49,8 +53,17 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
     "click>=8.1",
+    "pre-commit>=3.0",
 ]
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+addopts = "--cov=archguard --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=60"
+testpaths = ["tests/unit", "tests/integration"]
+markers = [
+    "integration: marks tests as integration tests (deselect with '-m not integration')",
+    "slow: marks tests as slow-running",
+]

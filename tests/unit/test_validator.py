@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from archguard.contract.validator import ContractValidationError, validate_contract
-
+from archguard.contract.validator import validate_contract
+from archguard.utils.errors import ContractError
 
 class TestValidateContract:
     """Tests for validate_contract()."""
@@ -21,9 +21,9 @@ class TestValidateContract:
         data: dict[str, Any] = {
             "modules": [{"name": "core", "paths": ["src/"]}],
         }
-        with pytest.raises(ContractValidationError) as exc_info:
+        with pytest.raises(ContractError) as exc_info:
             validate_contract(data)
-        assert any("schema_version" in e for e in exc_info.value.errors)
+        assert "schema_version" in str(exc_info.value)
 
     def test_fail_threshold_exclusive_max(self) -> None:
         """fail_threshold = 1.0 is invalid (exclusive max < 1.0)."""
@@ -32,9 +32,9 @@ class TestValidateContract:
             "modules": [{"name": "core", "paths": ["src/"]}],
             "fail_threshold": 1.0,
         }
-        with pytest.raises(ContractValidationError) as exc_info:
+        with pytest.raises(ContractError) as exc_info:
             validate_contract(data)
-        assert any("fail_threshold" in e for e in exc_info.value.errors)
+        assert "fail_threshold" in str(exc_info.value)
 
     def test_fail_threshold_valid(self) -> None:
         """fail_threshold = 0.8 is valid."""
@@ -51,9 +51,9 @@ class TestValidateContract:
             "schema_version": "3.0",
             "modules": [],
         }
-        with pytest.raises(ContractValidationError) as exc_info:
+        with pytest.raises(ContractError) as exc_info:
             validate_contract(data)
-        assert any("modules" in e for e in exc_info.value.errors)
+        assert "modules" in str(exc_info.value)
 
     def test_module_missing_name(self) -> None:
         """Module without a name raises ContractValidationError."""
@@ -61,6 +61,6 @@ class TestValidateContract:
             "schema_version": "3.0",
             "modules": [{"paths": ["src/"]}],
         }
-        with pytest.raises(ContractValidationError) as exc_info:
+        with pytest.raises(ContractError) as exc_info:
             validate_contract(data)
-        assert any("name" in e for e in exc_info.value.errors)
+        assert "name" in str(exc_info.value)

@@ -1,0 +1,4 @@
+.archguard-cache.json
+coverage.xml
+.coverage
+htmlcov/

@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from archguard.cache.locking import LockTimeoutError
 from archguard.config import SUPPRESSION_FILE
 from archguard.suppression.models import make_violation_hash
 from archguard.suppression.store import (
@@ -162,13 +161,13 @@ class TestConcurrency:
         lock_path = store._lock_path
         lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-        from archguard.cache.locking import acquire_lock
+        from archguard.cache.locking import file_lock
 
         barrier = threading.Barrier(2, timeout=5.0)
         error_holder: list[BaseException] = []
 
         def hold_lock() -> None:
-            with acquire_lock(lock_path, timeout=5.0):
+            with file_lock(lock_path, timeout=5.0):
                 barrier.wait()  # signal: lock is held
                 import time
                 time.sleep(1.0)  # hold for 1s
@@ -177,8 +176,8 @@ class TestConcurrency:
         t.start()
         barrier.wait()  # wait until lock is held by the other thread
 
-        with pytest.raises(LockTimeoutError):
-            with acquire_lock(lock_path, timeout=0.3):
+        with pytest.raises(TimeoutError):
+            with file_lock(lock_path, timeout=0.3):
                 pass  # pragma: no cover
 
         t.join()

@@ -106,13 +106,13 @@ class TestAnalyzeCommand:
 
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert "composite_score" in data
-        assert "band" in data
-        assert "should_fail_ci" in data
-        assert "layer_scores" in data
+        assert "score" in data
+        assert "grade" in data
+        assert "timestamp" in data
         assert "violations" in data
-        assert "commit_sha" in data
-        assert "changed_files" in data
+        assert "metrics" in data
+        assert "summary" in data
+        assert data["summary"]["total_violations"] == 0
 
     def test_above_fail_threshold_exit_1(self, tmp_path: Path) -> None:
         """ArchDebt > fail_threshold -> exit 1."""

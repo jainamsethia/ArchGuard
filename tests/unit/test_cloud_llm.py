@@ -83,8 +83,9 @@ class TestCloudLLMExplainer:
         result = _make_result()
 
         with patch.object(explainer, "_call_api") as mock_call:
+            from archguard.utils.errors import LLMError
             mock_call.side_effect = [
-                Exception("rate limited"),
+                LLMError("rate limited"),
                 ("1. Fix the import boundary.", "end_turn"),
             ]
             llm_result = explainer.explain(result, _CONTRACT)
@@ -98,7 +99,8 @@ class TestCloudLLMExplainer:
         result = _make_result()
 
         with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.side_effect = Exception("API down")
+            from archguard.utils.errors import LLMError
+            mock_call.side_effect = LLMError("API down")
             llm_result = explainer.explain(result, _CONTRACT)
 
         assert llm_result.unavailable is True
@@ -190,11 +192,50 @@ class TestCloudLLMExplainer:
         result = _make_result()
 
         with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.side_effect = Exception("boom")
+            from archguard.utils.errors import LLMError
+            mock_call.side_effect = LLMError("boom")
             llm_result = explainer.explain(result, _CONTRACT)
 
         # Should not raise
         assert llm_result.unavailable is True
+
+    def test_batch_chunking_and_fallback(self) -> None:
+        """With 5 violations, exactly 1 API call is made. If batch fails, fallback to 5 individual calls."""
+        explainer = CloudLLMExplainer(api_key="test-key")
+        
+        viols = [
+            ViolationDetail(1, module=f"mod{i}", message=f"msg{i}", commit_sha="abc", file_path=f"f{i}.py")
+            for i in range(5)
+        ]
+        result = _make_result(viols)
+        
+        # Scenario 1: Success
+        with patch.object(explainer, "_call_api") as mock_call:
+            mock_call.return_value = (
+                "1. E1\n2. E2\n3. E3\n4. E4\n5. E5",
+                "end_turn"
+            )
+            llm_result = explainer.explain(result, _CONTRACT)
+            
+            assert mock_call.call_count == 1
+            assert len(llm_result.explanations) == 5
+            
+        # Scenario 2: Batch fails, fallbacks to individual
+        with patch.object(explainer, "_call_api") as mock_call:
+            def side_effect(prompt, model):
+                if "mod0" in prompt and "mod4" in prompt:
+                    from archguard.utils.errors import LLMError
+                    raise LLMError("batch failed")
+                return ("1. Individual explanation.", "end_turn")
+            
+            mock_call.side_effect = side_effect
+            llm_result = explainer.explain(result, _CONTRACT)
+            
+            # 1 batch call * 2 models = 2 calls
+            # Then 5 individual items * 1 model each (since primary succeeds) = 5 calls
+            # Total calls = 7
+            assert mock_call.call_count == 7
+            assert len(llm_result.explanations) == 5
 
 
 class TestParseLLMResponse:

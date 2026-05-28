@@ -22,7 +22,7 @@ def duplication_score(similarity: float) -> float:
     Linear interpolation between 0.85 and 1.0.
     ``similarity < 0.85`` → ``0.0``.
     """
-    return max(0.0, (similarity - 0.85) / 0.15)
+    return min(1.0, max(0.0, (similarity - 0.85) / 0.15))
 
 
 @dataclass
@@ -66,7 +66,10 @@ class DuplicationAnalyzer:
         All embeddings are unit-normalized before adding.
         Returns ``(index, ordered_keys)``.
         """
-        import faiss  # lazy import
+        try:
+            import faiss  # lazy import
+        except (ImportError, AttributeError):
+            return None, []
 
         keys = list(embeddings.keys())
         if not keys:

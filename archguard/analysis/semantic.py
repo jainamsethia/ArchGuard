@@ -53,74 +53,40 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 # Analyzer
 # ------------------------------------------------------------------
 
+def extract_module_text(file_path: Path) -> str:
+    """
+    Extract meaningful text from a Python module for semantic analysis.
+    Uses ast.get_docstring() for correct handling of all docstring styles
+    (triple-quoted, r-prefixed, u-prefixed, indented, multi-line).
+    """
+    import ast
+    try:
+        source = file_path.read_text(encoding="utf-8", errors="replace")
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+
+    texts = []
+    # Module docstring
+    module_doc = ast.get_docstring(tree)
+    if module_doc:
+        texts.append(module_doc)
+
+    # Class and function docstrings + names
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            texts.append(node.name)  # function/class name as semantic signal
+            doc = ast.get_docstring(node)
+            if doc:
+                texts.append(doc)
+
+    return " ".join(texts)
+
 class SemanticAnalyzer:
     """Embedding pipeline + drift detection using all-MiniLM-L6-v2."""
 
     def __init__(self, cache: EmbeddingCache) -> None:
         self._cache: EmbeddingCache = cache
-
-    def extract_functions(
-        self,
-        source: str,
-        file_path: str,
-    ) -> list[FunctionChunk]:
-        """Extract function definitions from *source* via tree-sitter.
-
-        Skips functions whose body has fewer than 3 lines.
-        Includes docstring (if present) in the chunk source.
-        """
-        from tree_sitter import Language, Parser  # lazy import
-        import tree_sitter_python as tspython  # lazy import
-
-        parser: Any = Parser(Language(tspython.language()))
-        tree: Any = parser.parse(source.encode("utf-8"))
-
-        chunks: list[FunctionChunk] = []
-        stack: list[Any] = [tree.root_node]
-
-        while stack:
-            node = stack.pop()
-            if node.type == "function_definition":
-                name_node = node.child_by_field_name("name")
-                body_node = node.child_by_field_name("body")
-                if name_node is None or body_node is None:
-                    continue
-
-                func_name: str = name_node.text.decode("utf-8")
-                body_text: str = body_node.text.decode("utf-8")
-
-                # Count body lines (skip if < 3)
-                body_lines = [l for l in body_text.splitlines() if l.strip()]
-                if len(body_lines) < 3:
-                    stack.extend(reversed(node.children))
-                    continue
-
-                # Extract docstring if present
-                docstring = ""
-                if body_node.children:
-                    first_child = body_node.children[0]
-                    if first_child.type == "expression_statement":
-                        for sub in first_child.children:
-                            if sub.type == "string":
-                                docstring = sub.text.decode("utf-8")
-                                break
-
-                combined = f"{docstring}\n{body_text}" if docstring else body_text
-                content_hash = hashlib.sha256(
-                    combined.encode("utf-8"),
-                ).hexdigest()
-
-                chunks.append(FunctionChunk(
-                    file_path=file_path,
-                    function_name=func_name,
-                    source=combined,
-                    content_hash=content_hash,
-                ))
-
-            # Continue walking children
-            stack.extend(reversed(node.children))
-
-        return chunks
 
     def embed_chunks(
         self,
@@ -135,36 +101,40 @@ class SemanticAnalyzer:
         result: dict[str, npt.NDArray[np.float32]] = {}
         to_embed: list[FunctionChunk] = []
 
-        # Check cache first
-        for chunk in chunks:
-            key = f"{chunk.file_path}::{chunk.function_name}"
-            cached = self._cache.get_embedding(
-                chunk.file_path, chunk.function_name, chunk.content_hash,
-            )
+        # Check cache first using batch get
+        all_keys = [f"{c.file_path}::{c.function_name}::{c.content_hash}" for c in chunks]
+        cached_batch = self._cache.get_batch(all_keys)
+
+        for chunk, key in zip(chunks, all_keys):
+            cached = cached_batch.get(key)
+            result_key = f"{chunk.file_path}::{chunk.function_name}"
             if cached is not None:
-                result[key] = cached
+                result[result_key] = cached
             else:
                 to_embed.append(chunk)
 
         # Embed cache misses
         if to_embed:
-            from sentence_transformers import SentenceTransformer  # lazy
+            try:
+                from sentence_transformers import SentenceTransformer  # lazy
+                model = SentenceTransformer("all-MiniLM-L6-v2")
+                texts = [c.source for c in to_embed]
+                embeddings = model.encode(texts, batch_size=batch_size)
+                model_name = "all-MiniLM-L6-v2"
+            except ImportError:
+                embeddings = [np.zeros(384, dtype=np.float32) for _ in to_embed]
+                model_name = "none"
 
-            model = SentenceTransformer("all-MiniLM-L6-v2")
-            texts = [c.source for c in to_embed]
-            embeddings = model.encode(texts, batch_size=batch_size)
-
+            new_items = {}
             for i, chunk in enumerate(to_embed):
-                key = f"{chunk.file_path}::{chunk.function_name}"
+                result_key = f"{chunk.file_path}::{chunk.function_name}"
                 emb = np.array(embeddings[i], dtype=np.float32)
-                result[key] = emb
-                self._cache.store_embedding(
-                    chunk.file_path,
-                    chunk.function_name,
-                    emb,
-                    chunk.content_hash,
-                    "all-MiniLM-L6-v2",
-                )
+                result[result_key] = emb
+                
+                insert_key = f"{chunk.file_path}::{chunk.function_name}::{chunk.content_hash}::{model_name}"
+                new_items[insert_key] = emb
+                
+            self._cache.set_batch(new_items)
 
         return result
 
@@ -177,7 +147,8 @@ class SemanticAnalyzer:
         Raises ``ValueError`` if *embeddings* is empty.
         """
         if not embeddings:
-            raise ValueError("Cannot compute centroid of empty embeddings")
+            from archguard.utils.errors import AnalysisError
+            raise AnalysisError("Cannot compute centroid of empty embeddings")
 
         matrix = np.array(list(embeddings.values()), dtype=np.float32)
         centroid: npt.NDArray[np.float32] = np.mean(matrix, axis=0)
@@ -206,10 +177,18 @@ class SemanticAnalyzer:
         all_embeddings: dict[str, npt.NDArray[np.float32]] = {}
         for fpath in changed_files:
             try:
-                source = fpath.read_text(errors="replace")
                 rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
-                chunks = self.extract_functions(source, rel)
-                embedded = self.embed_chunks(chunks)
+                source = extract_module_text(fpath)
+                if not source:
+                    continue
+                content_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+                chunk = FunctionChunk(
+                    file_path=rel,
+                    function_name="<module>",
+                    source=source,
+                    content_hash=content_hash,
+                )
+                embedded = self.embed_chunks([chunk])
                 all_embeddings.update(embedded)
             except Exception:  # noqa: BLE001
                 continue

@@ -124,23 +124,114 @@ class EmbeddingCache:
     # Bulk reads
     # ----------------------------------------------------------
 
+    def get_batch(self, keys: list[str]) -> dict[str, npt.NDArray[np.float32] | None]:
+        """
+        Batch retrieve embeddings. Write lock is acquired for writes; reads use SQLite WAL which allows concurrent readers.
+        keys format: "file_path::function_name::content_hash"
+        """
+        if not keys:
+            return {}
+
+        result: dict[str, npt.NDArray[np.float32] | None] = {k: None for k in keys}
+        
+        lookup_keys = []
+        hash_map = {}
+        for k in keys:
+            parts = k.split("::")
+            if len(parts) >= 3:
+                fp_fn = f"{parts[0]}::{parts[1]}"
+                chash = parts[2]
+                lookup_keys.append(fp_fn)
+                hash_map[fp_fn] = chash
+
+        if not lookup_keys:
+            return result
+
+        try:
+            placeholders = ",".join("?" * len(lookup_keys))
+            query = (
+                f"SELECT file_path || '::' || function_name, content_hash, embedding "
+                f"FROM embeddings "
+                f"WHERE file_path || '::' || function_name IN ({placeholders})"
+            )
+            cursor = self._db._conn.execute(query, lookup_keys)
+            
+            for row in cursor:
+                fp_fn, chash, blob = row
+                expected_hash = hash_map.get(fp_fn)
+                if expected_hash == chash:
+                    key = f"{fp_fn}::{chash}"
+                    if key in result:
+                        result[key] = np.frombuffer(blob, dtype=np.float32).copy()
+        except Exception:
+            logger.warning("Failed to get_batch")
+
+        return result
+
+    def set_batch(self, items: dict[str, npt.NDArray[np.float32]]) -> None:
+        """
+        Batch insert embeddings.
+        Write lock is acquired for writes; reads use SQLite WAL which allows concurrent readers.
+        items format: "file_path::function_name::content_hash::model_name" -> embedding
+        """
+        if not items:
+            return
+
+        from archguard.cache.locking import file_lock
+        from pathlib import Path
+        db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
+        lock_path = Path(db_file).with_suffix(".lock")
+
+        rows = []
+        now = datetime.now(timezone.utc).isoformat()
+        for k, emb in items.items():
+            parts = k.split("::")
+            if len(parts) >= 4:
+                fp = parts[0]
+                fn = parts[1]
+                chash = parts[2]
+                model = parts[3]
+                blob = emb.astype(np.float32).tobytes()
+                rows.append((fp, fn, blob, chash, model, now))
+
+        if not rows:
+            return
+
+        try:
+            with file_lock(lock_path):
+                self._db._conn.executemany(
+                    "INSERT OR REPLACE INTO embeddings "
+                    "(file_path, function_name, embedding, content_hash, model_name, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    rows
+                )
+                self._db._conn.commit()
+        except Exception:
+            logger.warning("Failed to set_batch")
+
     def get_all_embeddings(self) -> dict[str, tuple[npt.NDArray[np.float32], str]]:
         """Return all cached embeddings.
 
         Keys are ``"{file_path}::{function_name}"``.
         Values are ``(embedding_array, content_hash)``.
         """
+        from archguard.cache.locking import file_lock
+        from pathlib import Path
+        db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
+        lock_path = Path(db_file).with_suffix(".lock")
+
         result: dict[str, tuple[npt.NDArray[np.float32], str]] = {}
         try:
-            cursor = self._db._conn.execute(
-                "SELECT file_path, function_name, embedding, content_hash "
-                "FROM embeddings",
-            )
-            for row in cursor:
-                fp, fn, blob, chash = row
-                key = f"{fp}::{fn}"
-                arr = np.frombuffer(blob, dtype=np.float32).copy()
-                result[key] = (arr, chash)
+            with file_lock(lock_path):
+                cursor = self._db._conn.execute(
+                    "SELECT file_path, function_name, embedding, content_hash "
+                    "FROM embeddings",
+                )
+                for row in cursor:
+                    fp, fn, blob, chash = row
+                    key = f"{fp}::{fn}"
+                    arr = np.frombuffer(blob, dtype=np.float32).copy()
+                    result[key] = (arr, chash)
         except Exception:  # noqa: BLE001
             logger.warning("Failed to read all embeddings")
         return result

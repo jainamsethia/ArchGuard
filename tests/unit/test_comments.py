@@ -209,7 +209,7 @@ class TestParseCommands:
         )
         assert len(result) == 1
         assert result[0].command == ArchGuardCommand.ACCEPT_CONTRACT
-        assert result[0].module_name == "payments"
+        assert result[0].args[0] == "payments"
 
     def test_unknown_command_ignored(self) -> None:
         """Unknown command -> empty list."""

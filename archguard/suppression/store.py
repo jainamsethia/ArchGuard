@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from archguard.cache.locking import acquire_lock
+from archguard.cache.locking import file_lock
 from archguard.config import EVENT_SUPPRESSION_CREATED, SUPPRESSION_FILE
 from archguard.suppression.models import (
     Suppression,
@@ -80,7 +80,7 @@ class SuppressionStore:
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-        with acquire_lock(self._lock_path):
+        with file_lock(self._lock_path):
             with self._path.open("a", encoding="utf-8") as f:
                 f.write(suppression_to_jsonl(suppression) + "\n")
 
@@ -164,7 +164,7 @@ class SuppressionStore:
         id_set = set(orphan_ids)
         count = 0
 
-        with acquire_lock(self._lock_path):
+        with file_lock(self._lock_path):
             all_sups = self._read_all_raw()
             updated: list[Suppression] = []
             for sup in all_sups:
@@ -184,7 +184,7 @@ class SuppressionStore:
 
         count = 0
 
-        with acquire_lock(self._lock_path):
+        with file_lock(self._lock_path):
             all_sups = self._read_all_raw()
             updated: list[Suppression] = []
             for sup in all_sups:

@@ -62,6 +62,15 @@ class GitHubClient:
         """Return a PyGitHub Repository object."""
         return self._gh.get_repo(repo_slug)
 
+    from archguard.utils.retry import with_retry
+    import requests
+
+    @with_retry(max_attempts=3, retryable_exceptions=(requests.exceptions.RequestException,))
+    def _do_post(self, repo_slug: str, body: str, pr_number: int) -> None:
+        from archguard.github.comments import PRCommentManager
+        manager = PRCommentManager(self)
+        manager.post_or_update(repo_slug, pr_number, body)
+
     def post_comment(
         self,
         repo_slug: str,
@@ -75,9 +84,7 @@ class GitHubClient:
             return False
 
         try:
-            from archguard.github.comments import PRCommentManager
-            manager = PRCommentManager(self)
-            manager.post_or_update(repo_slug, pr_number, body)
+            self._do_post(repo_slug, body, pr_number)
             return True
         except Exception as e:
             logger.warning("Failed to post PR comment: %s", e)

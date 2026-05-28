@@ -50,7 +50,7 @@ def load_contract(repo_root: Path) -> dict[str, Any]:
 
     Raises:
         ConfigError: If no config is found or YAML parsing fails.
-        ContractValidationError: If the merged config fails schema validation.
+        ContractError: If the merged config fails schema validation.
     """
     single_file = repo_root / ARCHGUARD_CONFIG_FILE
     config_dir = repo_root / ARCHGUARD_CONFIG_DIR
