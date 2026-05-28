@@ -43,11 +43,20 @@ class EmbeddingDB:
         * Runs schema migrations.
         * Records schema version in ``archguard_meta``.
         """
+        import logging
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: sqlite3.Connection = sqlite3.connect(str(db_path))
+        try:
+            self._conn: sqlite3.Connection = sqlite3.connect(str(db_path), timeout=10)
+        except sqlite3.DatabaseError as e:
+            logging.warning(f"Cache database corrupted ({e}). Recreating cache.")
+            db_path.unlink(missing_ok=True)
+            self._conn = sqlite3.connect(str(db_path), timeout=10)
 
         # Enable WAL mode and performance pragmas
         self._conn.execute("PRAGMA journal_mode=WAL")
+        result = self._conn.execute("PRAGMA journal_mode").fetchone()
+        if result and result[0] != "wal":
+            logging.warning("SQLite WAL mode unavailable (network filesystem?). Using default journal mode.")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()

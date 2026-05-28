@@ -457,8 +457,9 @@ def init_command(
                     "in your workflow."
                 ))
                 raise typer.Exit(1)
-        except ImportError:
-            pass
+        except ImportError as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure importing pydriller: {e}")
 
     # Non-TTY auto-confirm
     if not is_tty() and not confirm_all:

@@ -28,7 +28,9 @@ def load_cache(root: Path) -> dict[str, FileRecord]:
     try:
         data = json.loads(cache_file.read_text())
         return {k: FileRecord(**v) for k, v in data.items()}
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Non-critical failure in load_cache: {e}")
         return {}
 
 def save_cache(root: Path, records: dict[str, FileRecord]) -> None:

@@ -56,8 +56,9 @@ def _get_trend_data() -> dict:
                         event = json.loads(line)
                         if event.get("event") == "analysis_run":
                             runs.append(event)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"Non-critical failure parsing log line: {e}")
                 
                 # Get last 10
                 for r in runs[-10:]:
@@ -68,8 +69,9 @@ def _get_trend_data() -> dict:
                     labels.append(dt.strftime("%b %d %H:%M"))
                     score = float(r.get("score", r.get("archdebt", {}).get("composite_score", 0.0) * 100))
                     scores.append(score)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure generating trend data: {e}")
     return {"labels": labels, "scores": scores}
 
 def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> dict:

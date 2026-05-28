@@ -39,8 +39,9 @@ class AuditLogger:
 
             with self._log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, default=str) + "\n")
-        except Exception:  # noqa: BLE001 — intentionally broad
-            pass  # Never crash CLI due to audit failure
+        except Exception as e:  # noqa: BLE001 — intentionally broad
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in log: {e}")
 
     def _maybe_rotate(self, log_path: Path) -> None:
         """Rotate log file by truncating to the last MAX_ENTRIES lines."""
@@ -64,8 +65,9 @@ class AuditLogger:
                 # If MAX_ENTRIES is 1, we just clear the file
                 with open(log_path, "w", encoding="utf-8") as f:
                     pass
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in _maybe_rotate: {e}")
 
     def read_last_run(self) -> dict[str, Any] | None:
         """Read the audit log from the end to find the last 'analysis_run' event."""
@@ -86,6 +88,7 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                         return event
                 except json.JSONDecodeError:
                     continue
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Non-critical failure in read_last_run: {e}")
     return None

@@ -55,7 +55,9 @@ class GitHubClient:
         try:
             repo = self._gh.get_repo(repo_slug)
             return bool(repo.has_in_collaborators(username))
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in is_collaborator: {e}")
             return False
 
     def get_repo(self, repo_slug: str) -> Any:

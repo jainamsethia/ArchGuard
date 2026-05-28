@@ -73,8 +73,9 @@ def trends_cmd(
                             "grade": event.get("grade", event.get("archdebt", {}).get("band", "UNKNOWN")),
                             "violation_count": int(event.get("violation_count", len(event.get("violations", [])))),
                         })
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Non-critical failure parsing trend log line: {e}")
     except Exception as e:
         if json_output:
             _console.print(json.dumps({"error": f"Failed to read audit log: {e}"}))

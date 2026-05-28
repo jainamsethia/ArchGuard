@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck benchmark benchmark-check
+.PHONY: test lint typecheck benchmark benchmark-check smoke-test
 
 test:
 	poetry run pytest tests/unit -v --tb=short
@@ -15,3 +15,6 @@ benchmark:
 
 benchmark-check:
 	python3 scripts/check_benchmarks.py benchmark-results.json
+
+smoke-test:
+	bash scripts/smoke_test_docker.sh

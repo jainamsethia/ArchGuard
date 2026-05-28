@@ -144,7 +144,9 @@ class LocalLLMExplainer:
         try:
             data: dict[str, Any] = response.json()
             text = str(data.get("response", ""))
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in local llm parse: {e}")
             text = response.text
 
         return LocalLLMResult(
@@ -166,7 +168,9 @@ class LocalLLMExplainer:
                 timeout=2.0,
             )
             return response.status_code == 200
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in local llm is_available: {e}")
             return False
 
     def _log_failure(

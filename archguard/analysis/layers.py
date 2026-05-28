@@ -48,11 +48,26 @@ class AnalysisResult:
     commit_sha: str = "unknown"
     skipped: bool = False
     skip_reason: str = ""
+    fail_fast_triggered: bool = False
+    skipped_layers_names: list[str] = field(default_factory=list)
 
 
 def _normalize_path(path: str) -> str:
     """Normalize path separators."""
     return path.replace("\\", "/").rstrip("/")
+
+def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
+    """
+    Check if file_path is inside module_path, with proper boundary checking.
+    Prevents false matches like api_utils matching module 'api'.
+    """
+    # Normalize both to forward-slash, strip leading slash
+    file_parts = Path(file_path.strip("/")).parts
+    module_parts = Path(module_path.strip("/")).parts
+    if len(file_parts) < len(module_parts):
+        return False
+    # Compare part-by-part, not as raw strings
+    return file_parts[:len(module_parts)] == module_parts
 
 
 class AnalysisOrchestrator:
@@ -76,6 +91,7 @@ class AnalysisOrchestrator:
         commit_sha: str,
         skip_explanation: bool = False,
         progress_callback: Any = None,
+        fail_fast: bool = False,
     ) -> AnalysisResult:
         """Run the full Layer 1–4 pipeline."""
         py_files = [f for f in changed_files if str(f).endswith(".py")]
@@ -98,35 +114,203 @@ class AnalysisOrchestrator:
         affected = self._get_affected_modules(py_files)
         violations: list[ViolationDetail] = []
 
-        if progress_callback:
-            progress_callback("Layer Enforcement")
-        # --- Layer 1: Import boundary violations ---
-        layer1 = self._run_layer1(py_files, affected, commit_sha, violations)
+        fail_threshold = float(self.contract.get("fail_threshold", 0.75))
 
-        if progress_callback:
-            progress_callback("Coupling Analysis")
-        # --- Layer 2: Coupling delta ---
-        layer2 = self._run_layer2(affected, commit_sha, violations)
+        import sys
+        is_tty = sys.stdout.isatty()
+        progress = None
+        if is_tty:
+            from rich.progress import Progress, SpinnerColumn, TextColumn
+            from rich.console import Console
+            console = Console()
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+                transient=True,
+            )
+            progress.start()
 
-        if progress_callback:
-            progress_callback("Semantic Cohesion")
-        # --- Layer 3: Semantic drift ---
-        layer3 = self._run_layer3(affected, py_files, commit_sha, violations)
+        try:
+            # --- Layer 1: Import boundary violations ---
+            desc1 = "Layer 1: Boundary Analysis..."
+            if progress:
+                task1 = progress.add_task(desc1, total=None)
+            else:
+                print(desc1)
+                
+            layer1 = self._run_layer1(py_files, affected, commit_sha, violations)
+            
+            l1_violations = len([v for v in violations if v.layer == 1])
+            if progress:
+                progress.update(task1, description=f"[green]✓ Layer 1:[/green] {l1_violations} violations")
+                progress.stop_task(task1)
+            else:
+                print(f"✓ Layer 1 complete ({l1_violations} violations)")
 
-        # --- Reinference: check staleness + create proposals ---
-        self._run_reinference(affected, commit_sha)
+            if fail_fast and layer1 >= fail_threshold:
+                if progress: progress.stop()
+                from rich.console import Console
+                Console().print(
+                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
+                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+                )
+                return self._build_partial_result(layer1, 0.0, 0.0, 0.0, ["coupling", "semantic", "duplication"], violations, affected, rel_files, commit_sha)
 
-        if progress_callback:
-            progress_callback("Duplication Detection")
-        # --- Layer 4: Duplication ---
-        layer4 = self._run_layer4(affected, commit_sha, violations)
+            # --- Layer 2: Coupling delta ---
+            desc2 = "Layer 2: Coupling Analysis..."
+            if progress:
+                task2 = progress.add_task(desc2, total=None)
+            else:
+                print(desc2)
+                
+            layer2 = self._run_layer2(affected, commit_sha, violations)
+            
+            l2_violations = len([v for v in violations if v.layer == 2])
+            if progress:
+                progress.update(task2, description=f"[green]✓ Layer 2:[/green] {l2_violations} violations")
+                progress.stop_task(task2)
+            else:
+                print(f"✓ Layer 2 complete ({l2_violations} violations)")
 
-        # --- Filter out suppressed violations ---
+            if fail_fast and layer2 >= fail_threshold:
+                if progress: progress.stop()
+                from rich.console import Console
+                Console().print(
+                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
+                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+                )
+                return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
+
+            # --- Layer 3: Semantic drift ---
+            skip_layers = self.contract.get("skip_layers", [])
+            
+            desc3 = "Layer 3: Semantic Cohesion..."
+            if progress:
+                task3 = progress.add_task(desc3, total=None)
+            else:
+                print(desc3)
+                
+            if "semantic" in skip_layers:
+                layer3 = 0.0
+                if progress:
+                    progress.update(task3, description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]")
+                    progress.stop_task(task3)
+                else:
+                    print("⚠ Layer 3 Skipped (config)")
+            else:
+                try:
+                    layer3 = self._run_layer3(affected, py_files, commit_sha, violations)
+                    l3_violations = len([v for v in violations if v.layer == 3])
+                    if progress:
+                        progress.update(task3, description=f"[green]✓ Layer 3:[/green] {l3_violations} violations")
+                        progress.stop_task(task3)
+                    else:
+                        print(f"✓ Layer 3 complete ({l3_violations} violations)")
+                except RuntimeError as e:
+                    if "ML dependencies" in str(e):
+                        if progress:
+                            progress.update(task3, description="[bold red]✗ Layer 3: Failed (Missing ML dependencies)[/bold red]")
+                            progress.stop_task(task3)
+                        raise
+                    else:
+                        raise
+
+            if fail_fast and layer3 >= fail_threshold:
+                if progress: progress.stop()
+                from rich.console import Console
+                Console().print(
+                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} "
+                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+                )
+                return self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha)
+
+            # --- Reinference: check staleness + create proposals ---
+            self._run_reinference(affected, commit_sha)
+
+            # --- Layer 4: Duplication ---
+            desc4 = "Layer 4: Duplication Detection..."
+            if progress:
+                task4 = progress.add_task(desc4, total=None)
+            else:
+                print(desc4)
+                
+            if "duplication" in skip_layers:
+                layer4 = 0.0
+                if progress:
+                    progress.update(task4, description="[yellow]⚠ Layer 4: Skipped (config)[/yellow]")
+                    progress.stop_task(task4)
+                else:
+                    print("⚠ Layer 4 Skipped (config)")
+            else:
+                try:
+                    layer4 = self._run_layer4(affected, commit_sha, violations)
+                    l4_violations = len([v for v in violations if v.layer == 4])
+                    if progress:
+                        progress.update(task4, description=f"[green]✓ Layer 4:[/green] {l4_violations} violations")
+                        progress.stop_task(task4)
+                    else:
+                        print(f"✓ Layer 4 complete ({l4_violations} violations)")
+                except RuntimeError as e:
+                    if "ML dependencies" in str(e):
+                        if progress:
+                            progress.update(task4, description="[bold red]✗ Layer 4: Failed (Missing ML dependencies)[/bold red]")
+                            progress.stop_task(task4)
+                        raise
+                    else:
+                        raise
+
+            # --- Filter out suppressed violations ---
+            violations = self._filter_suppressed(violations)
+
+            scores = LayerScores(layer1, layer2, layer3, layer4)
+
+            # Get weights from contract if available
+            weights_cfg = self.contract.get("weights")
+            if weights_cfg and isinstance(weights_cfg, dict):
+                weights = (
+                    float(weights_cfg.get("layer1", 0.25)),
+                    float(weights_cfg.get("layer2", 0.25)),
+                    float(weights_cfg.get("layer3", 0.25)),
+                    float(weights_cfg.get("layer4", 0.25)),
+                )
+            else:
+                weights = (0.25, 0.25, 0.25, 0.25)
+
+            archdebt = compute_archdebt(
+                scores,
+                weights=weights,
+                fail_threshold=float(self.contract.get("fail_threshold", 0.75)),
+                warn_threshold=float(self.contract.get("warn_threshold", 0.50)),
+            )
+
+            return AnalysisResult(
+                archdebt=archdebt,
+                violations=violations,
+                layer_scores=scores,
+                modules_analyzed=len(affected),
+                changed_files=rel_files,
+                commit_sha=commit_sha,
+            )
+        finally:
+            if progress:
+                progress.stop()
+
+    # ------------------------------------------------------------------
+    # Layer implementations
+    # ------------------------------------------------------------------
+
+    def _build_partial_result(
+        self, l1: float, l2: float, l3: float, l4: float, 
+        skipped_layers: list[str], 
+        violations: list[ViolationDetail], 
+        affected: dict, 
+        rel_files: list[str], 
+        commit_sha: str
+    ) -> AnalysisResult:
         violations = self._filter_suppressed(violations)
-
-        scores = LayerScores(layer1, layer2, layer3, layer4)
-
-        # Get weights from contract if available
+        scores = LayerScores(l1, l2, l3, l4)
+        
         weights_cfg = self.contract.get("weights")
         if weights_cfg and isinstance(weights_cfg, dict):
             weights = (
@@ -137,15 +321,17 @@ class AnalysisOrchestrator:
             )
         else:
             weights = (0.25, 0.25, 0.25, 0.25)
-
+            
         archdebt = compute_archdebt(
             scores,
             weights=weights,
             fail_threshold=float(self.contract.get("fail_threshold", 0.75)),
             warn_threshold=float(self.contract.get("warn_threshold", 0.50)),
         )
+        # Even if partial, we set should_fail_ci to True if it triggered fail-fast
+        archdebt.should_fail_ci = True
 
-        return AnalysisResult(
+        res = AnalysisResult(
             archdebt=archdebt,
             violations=violations,
             layer_scores=scores,
@@ -153,10 +339,9 @@ class AnalysisOrchestrator:
             changed_files=rel_files,
             commit_sha=commit_sha,
         )
-
-    # ------------------------------------------------------------------
-    # Layer implementations
-    # ------------------------------------------------------------------
+        res.fail_fast_triggered = True
+        res.skipped_layers_names = skipped_layers
+        return res
 
     def _run_layer1(
         self,
@@ -196,9 +381,8 @@ class AnalysisOrchestrator:
                 # Determine which module this file belongs to
                 file_module: str | None = None
                 for mod_name, paths in module_paths.items():
-                    norm_rel = _normalize_path(rel)
                     for p in paths:
-                        if norm_rel.startswith(_normalize_path(p)):
+                        if _path_belongs_to_module(rel, p):
                             file_module = mod_name
                             break
                     if file_module:
@@ -235,7 +419,7 @@ class AnalysisOrchestrator:
                         if root not in allowed_map[file_module]:
                             # Check if it's within the same module
                             is_self = any(
-                                root.startswith(_normalize_path(p).split("/")[0])
+                                _path_belongs_to_module(root, _normalize_path(p).split("/")[0])
                                 for p in module_paths.get(file_module, [])
                             )
                             if not is_self:
@@ -336,6 +520,8 @@ class AnalysisOrchestrator:
                         severity=Severity.LOW,
                     ))
                 max_drift = max(max_drift, result.drift_score)
+            except RuntimeError:
+                raise
             except Exception as e:
                 from archguard.utils.errors import AnalysisError
                 raise AnalysisError(f"Layer 3 analysis failed on module {mod_name}", cause=e) from e
@@ -395,6 +581,8 @@ class AnalysisOrchestrator:
                         severity=sev,
                     ))
                 max_agg = max(max_agg, result.aggregate_score)
+            except RuntimeError:
+                raise
             except Exception as e:
                 from archguard.utils.errors import AnalysisError
                 raise AnalysisError(f"Layer 4 analysis failed on module {mod_name}", cause=e) from e
@@ -474,6 +662,10 @@ class AnalysisOrchestrator:
                             ),
                             source_commit=commit_sha,
                         )
+                except RuntimeError as e:
+                    if "ML dependencies" in str(e):
+                        continue
+                    raise
                 except Exception as e:
                     from archguard.utils.errors import AnalysisError
                     raise AnalysisError(f"Reinference proposal failed on module {mod_name}", cause=e) from e
@@ -513,7 +705,7 @@ class AnalysisOrchestrator:
 
                 matched = False
                 for p in paths:
-                    if _normalize_path(rel).startswith(_normalize_path(p)):
+                    if _path_belongs_to_module(rel, p):
                         matched = True
                         break
 

@@ -79,26 +79,49 @@ def _resolve_changed_files(
             client = GitHubClient()
             files = client.get_pr_changed_files(repo_slug, pr_number)
             return [repo_root / f for f in files]
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Analysis failed in _resolve_changed_files: {e}", exc_info=True)
+            raise
 
-    # Fallback: git diff
+    # Fallback: git diff HEAD~1
     try:
+        # First, check if HEAD~1 exists
         result = subprocess.run(
-            ["git", "diff", "HEAD~1", "--name-only"],
+            ["git", "rev-parse", "--verify", "HEAD~1"],
+            cwd=repo_root,
             capture_output=True,
-            text=True,
-            cwd=str(repo_root),
-            timeout=30,
+            text=True
         )
         if result.returncode == 0:
-            return [
-                repo_root / f.strip()
-                for f in result.stdout.strip().splitlines()
-                if f.strip()
-            ]
-    except Exception:  # noqa: BLE001
-        pass
+            # HEAD~1 exists, use normal diff
+            diff_cmd = ["git", "diff", "HEAD~1", "--name-only", "--diff-filter=ACMR"]
+        else:
+            # Initial commit or detached HEAD — diff against empty tree
+            # The empty tree hash is a git constant, always valid
+            EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            diff_cmd = ["git", "diff", EMPTY_TREE, "HEAD", "--name-only", "--diff-filter=ACMR"]
+            _console.print("[yellow]⚠ Initial commit detected — analyzing all Python files.[/yellow]")
+
+        diff_result = subprocess.run(
+            diff_cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True
+        )
+
+        if diff_result.returncode != 0:
+            # Log a warning, don't silently return empty
+            import logging
+            logging.warning(f"git diff failed: {diff_result.stderr}. Analyzing all Python files.")
+            return list(repo_root.rglob("*.py"))
+            
+        files = [Path(f) for f in diff_result.stdout.strip().splitlines() if f.endswith(".py")]
+        return [repo_root / f for f in files if (repo_root / f).exists()]
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Analysis failed in _resolve_changed_files git fallback: {e}", exc_info=True)
+        raise
 
     return []
 
@@ -115,13 +138,43 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     _console.print(f"Repo:    {repo_root}")
     _console.print(f"Commit:  {result.commit_sha}")
     _console.print(f"Files:   {len(result.changed_files)} changed Python files")
-    _console.print(f"ArchDebt Score:  {archdebt.composite_score:.2f}   {band_str}")
     _console.print()
-    _console.print("[bold]Layer Scores:[/bold]")
-    _console.print(f"  L1 Import:      {archdebt.layer_scores.layer1_violation:.2f}")
-    _console.print(f"  L2 Coupling:    {archdebt.layer_scores.layer2_coupling:.2f}")
-    _console.print(f"  L3 Drift:       {archdebt.layer_scores.layer3_drift:.2f}")
-    _console.print(f"  L4 Duplication: {archdebt.layer_scores.layer4_duplication:.2f}")
+    
+    from rich.table import Table
+    table = Table(title="ArchGuard Analysis Summary", show_header=True)
+    table.add_column("Layer", style="bold")
+    table.add_column("Status", justify="center")
+    table.add_column("Score", justify="right")
+    table.add_column("Details")
+    
+    skipped = getattr(result, "skipped_layers_names", [])
+    v_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+    for v in result.violations:
+        v_counts[v.layer] = v_counts.get(v.layer, 0) + 1
+
+    # L1
+    s1 = archdebt.layer_scores.layer1_violation
+    st1 = "[yellow]SKIPPED[/yellow]" if "boundaries" in skipped else ("[red]FAIL[/red]" if s1 > 0.0 else "[green]PASS[/green]")
+    table.add_row("L1 Boundaries", st1, f"{s1:.2f}", f"{v_counts[1]} violations")
+
+    # L2
+    s2 = archdebt.layer_scores.layer2_coupling
+    st2 = "[yellow]SKIPPED[/yellow]" if "coupling" in skipped else ("[red]FAIL[/red]" if s2 > 0.0 else "[green]PASS[/green]")
+    table.add_row("L2 Coupling", st2, f"{s2:.2f}", f"{v_counts[2]} violations")
+
+    # L3
+    s3 = archdebt.layer_scores.layer3_drift
+    st3 = "[yellow]SKIPPED[/yellow]" if "semantic" in skipped else ("[red]FAIL[/red]" if s3 > 0.0 else "[green]PASS[/green]")
+    table.add_row("L3 Drift", st3, f"{s3:.2f}", f"{v_counts[3]} violations")
+
+    # L4
+    s4 = archdebt.layer_scores.layer4_duplication
+    st4 = "[yellow]SKIPPED[/yellow]" if "duplication" in skipped else ("[red]FAIL[/red]" if s4 > 0.0 else "[green]PASS[/green]")
+    table.add_row("L4 Duplication", st4, f"{s4:.2f}", f"{v_counts[4]} violations")
+
+    _console.print(table)
+    _console.print(f"\n[bold]ArchDebt Score: {archdebt.composite_score:.2f} — {band_str}[/bold]")
+    _console.print(f"Result: {ci_str}\n")
 
     if result.violations:
         from rich.table import Table
@@ -234,8 +287,36 @@ def analyze_command(
     no_llm: bool = typer.Option(
         False, "--no-llm", help="Skip LLM API calls entirely.",
     ),
+    out_file: Path | None = typer.Option(
+        None, "--out-file", help="Write JSON result to this file path (for CI/CD pipelines)"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show full debug logs.",
+    ),
+    fail_fast: bool = typer.Option(
+        False, "--fail-fast", help="Exit after first layer that exceeds fail threshold"
+    ),
 ) -> None:
     """Run architectural drift analysis."""
+    if verbose:
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
+        
+    try:
+        _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip_explanation, full, json_output, fail_on_warn, dry_run, incremental, no_incremental, no_llm, out_file, fail_fast)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        from rich.console import Console
+        console = Console(stderr=True)
+        console.print(f"[bold red]ArchGuard Error:[/bold red] {e}")
+        if verbose:
+            console.print_exception()
+        else:
+            console.print("[dim]Run with --verbose for full traceback[/dim]")
+        raise typer.Exit(1)
+
+def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip_explanation, full, json_output, fail_on_warn, dry_run, incremental, no_incremental, no_llm, out_file, fail_fast):
     
     if no_llm:
         skip_explanation = True
@@ -251,7 +332,7 @@ def analyze_command(
     try:
         orchestrator = AnalysisOrchestrator(repo_root)
     except Exception as e:
-        _console.print(format_error("Failed to load contract", e))
+        _console.print(format_error(f"Failed to load contract: {e}"))
         raise typer.Exit(EXIT_VIOLATION) from e
 
     # Apply profile
@@ -292,144 +373,192 @@ def analyze_command(
     quiet = ctx.obj.get("quiet", False)
     use_rich = is_tty() and not quiet
 
-    with ExitStack() as stack:
-        progress_ctx = None
-        task = None
-
-        if use_rich:
-            from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-            progress_ctx = stack.enter_context(
-                Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                    TimeElapsedColumn(),
-                    console=_console
-                )
-            )
-            total_steps = 4 + (0 if skip_explanation else 1)
-            task = progress_ctx.add_task("Analyzing...", total=total_steps)
-
-        def progress_cb(desc: str) -> None:
-            if progress_ctx and task is not None:
-                progress_ctx.update(task, description=f"[cyan]{desc}[/cyan]")
-                progress_ctx.advance(task)
-
-        try:
-            vprint(f"Analyzing {len(py_changed)} changed files...", ctx, level="debug")
-            result = orchestrator.run(
-                py_changed, commit_sha, skip_explanation=skip_explanation,
-                progress_callback=progress_cb
-            )
-            vprint("Analysis core completed.", ctx, level="debug")
-            
-            # Merge incremental results
-            if incremental and not no_incremental and unchanged:
-                last_run = AuditLogger(repo_root / "audit.jsonl").read_last_run()
-                if last_run:
-                    unchanged_rel = {str(f.relative_to(repo_root)).replace("\\", "/") for f in unchanged}
-                    from archguard.analysis.layers import ViolationDetail
-                    from archguard.analysis.scoring import compute_archdebt, LayerScores
-                    
-                    # Extract previous violations
-                    for v in last_run.get("violations", []):
-                        if v.get("file") in unchanged_rel:
-                            result.violations.append(ViolationDetail(
-                                layer=v.get("layer", 0),
-                                module=v.get("module", ""),
-                                message=v.get("message", ""),
-                                commit_sha=commit_sha[:7],
-                                file_path=v.get("file", ""),
-                                explanation=v.get("explanation", "")
-                            ))
-                    
-                    # Restore previous metrics to avoid skewed scores
-                    metrics = last_run.get("metrics", {})
-                    if metrics:
-                        scores = LayerScores(
-                            layer1_violation=metrics.get("layer_score", 0) / 100.0,
-                            layer2_coupling=metrics.get("coupling_score", 0) / 100.0,
-                            layer3_drift=metrics.get("semantic_score", 0) / 100.0,
-                            layer4_duplication=metrics.get("duplication_score", 0) / 100.0,
-                        )
-                        
-                        weights_cfg = orchestrator.contract.get("weights", {})
-                        weights = (
-                            float(weights_cfg.get("layer1", 0.25)),
-                            float(weights_cfg.get("layer2", 0.25)),
-                            float(weights_cfg.get("layer3", 0.25)),
-                            float(weights_cfg.get("layer4", 0.25)),
-                        )
-                        
-                        result.layer_scores = scores
-                        result.archdebt = compute_archdebt(
-                            scores,
-                            weights=weights,
-                            fail_threshold=float(orchestrator.contract.get("fail_threshold", 0.75)),
-                            warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
-                        )
-                    
-                    # Combine changed files
-                    result.changed_files.extend(list(unchanged_rel))
-            
-            # Save incremental cache on success
-            if incremental and not no_incremental:
-                from datetime import datetime, timezone
-                now = datetime.now(timezone.utc).isoformat()
-                cache_records = load_cache(repo_root)
-                for f in py_changed + unchanged:
-                    rel = str(f.relative_to(repo_root)).replace("\\", "/")
-                    cache_records[rel] = FileRecord(
-                        path=rel,
-                        sha256=compute_hash(f),
-                        last_analyzed=now
-                    )
-                save_cache(repo_root, cache_records)
+    try:
+        vprint(f"Analyzing {len(py_changed)} changed files...", ctx, level="debug")
+        result = orchestrator.run(
+            py_changed, commit_sha, skip_explanation=skip_explanation,
+            progress_callback=None, fail_fast=fail_fast
+        )
+        vprint("Analysis core completed.", ctx, level="debug")
+        
+        # Merge incremental results
+        if incremental and not no_incremental and unchanged:
+            last_run = AuditLogger(repo_root / "audit.jsonl").read_last_run()
+            if last_run:
+                unchanged_rel = {str(f.relative_to(repo_root)).replace("\\", "/") for f in unchanged}
+                from archguard.analysis.layers import ViolationDetail
+                from archguard.analysis.scoring import compute_archdebt, LayerScores
                 
-        except ArchGuardError as e:
-            _console.print(format_error(e.message))
-            sys.exit(1)
-        except Exception as exc:
+                # Extract previous violations
+                for v in last_run.get("violations", []):
+                    if v.get("file") in unchanged_rel:
+                        result.violations.append(ViolationDetail(
+                            layer=v.get("layer", 0),
+                            module=v.get("module", ""),
+                            message=v.get("message", ""),
+                            commit_sha=commit_sha[:7],
+                            file_path=v.get("file", ""),
+                            explanation=v.get("explanation", "")
+                        ))
+                
+                # Restore previous metrics to avoid skewed scores
+                metrics = last_run.get("metrics", {})
+                if metrics:
+                    scores = LayerScores(
+                        layer1_violation=metrics.get("layer_score", 0) / 100.0,
+                        layer2_coupling=metrics.get("coupling_score", 0) / 100.0,
+                        layer3_drift=metrics.get("semantic_score", 0) / 100.0,
+                        layer4_duplication=metrics.get("duplication_score", 0) / 100.0,
+                    )
+                    
+                    weights_cfg = orchestrator.contract.get("weights", {})
+                    weights = (
+                        float(weights_cfg.get("layer1", 0.25)),
+                        float(weights_cfg.get("layer2", 0.25)),
+                        float(weights_cfg.get("layer3", 0.25)),
+                        float(weights_cfg.get("layer4", 0.25)),
+                    )
+                    
+                    result.layer_scores = scores
+                    result.archdebt = compute_archdebt(
+                        scores,
+                        weights=weights,
+                        fail_threshold=float(orchestrator.contract.get("fail_threshold", 0.75)),
+                        warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
+                    )
+                
+                # Combine changed files
+                result.changed_files.extend(list(unchanged_rel))
+        
+        # Save incremental cache on success
+        if incremental and not no_incremental:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            cache_records = load_cache(repo_root)
+            for f in py_changed + unchanged:
+                rel = str(f.relative_to(repo_root)).replace("\\", "/")
+                cache_records[rel] = FileRecord(
+                    path=rel,
+                    sha256=compute_hash(f),
+                    last_analyzed=now
+                )
+            save_cache(repo_root, cache_records)
+            
+    except ArchGuardError as e:
+        _console.print(format_error(e.message))
+        sys.exit(1)
+    except RuntimeError as exc:
+        if "ML dependencies" in str(exc):
+            _console.print(
+                "\n[bold red]Missing Dependencies[/bold red]\n"
+                "Layer 3 requires ML libraries. Install with:\n"
+                "  pip install archguard\\[ml]\n"
+                "Or skip this layer by adding to .archguard.yml:\n"
+                "  skip_layers: [semantic]"
+            )
+            raise typer.Exit(2)
+        else:
             _console.print(format_error(f"Analysis failed: {exc}"))
             raise typer.Exit(2) from exc
+    except Exception as exc:
+        _console.print(format_error(f"Analysis failed: {exc}"))
+        raise typer.Exit(2) from exc
 
-        # LLM explanation (unless skipped)
-        if (
-            not skip_explanation
-            and result.archdebt.should_fail_ci
-            and result.violations
-        ):
-            if progress_ctx and task is not None:
-                progress_ctx.update(task, description="[yellow]LLM Explanations[/yellow]")
-            vprint(f"Requesting LLM explanations for {len(result.violations)} violations...", ctx, level="debug")
-            try:
-                from archguard.llm.cloud import CloudLLMExplainer
+    # LLM explanation (unless skipped)
+    if (
+        not skip_explanation
+        and result.archdebt.should_fail_ci
+        and result.violations
+    ):
+        vprint(f"Requesting LLM explanations for {len(result.violations)} violations...", ctx, level="debug")
+        
+        progress = None
+        task = None
+        if use_rich:
+            from rich.progress import Progress, SpinnerColumn, TextColumn
+            progress = Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=_console,
+                transient=True
+            )
+            progress.start()
+            task = progress.add_task("[yellow]Generating LLM Explanations...[/yellow]", total=None)
 
-                explainer = CloudLLMExplainer()
-                llm_result = explainer.explain(result, orchestrator.contract)
-                if llm_result.unavailable:
-                    if not quiet:
-                        _console.print(format_warning(
-                            "LLM explanation unavailable. "
-                            "Violation report will be posted without explanations."
-                        ))
+        try:
+            from archguard.llm.cloud import CloudLLMExplainer
+            import asyncio
+
+            explainer = CloudLLMExplainer()
+            
+            raw_explanations = asyncio.run(explainer.explain_violations_concurrent(
+                result.violations, orchestrator.contract, result.changed_files
+            ))
+            
+            explanations = []
+            for exp in raw_explanations:
+                if isinstance(exp, Exception):
+                    import logging
+                    logging.getLogger(__name__).warning(f"Concurrent explanation failed: {exp}")
+                    explanations.append("[Explanation unavailable]")
                 else:
-                    vprint("LLM explanations received and attached.", ctx, level="debug")
-                    result = attach_explanations(result, llm_result.explanations)
-            except Exception:  # noqa: BLE001
-                if not quiet:
-                    _console.print(format_warning(
-                        "LLM explanation failed. Continuing without explanations."
-                    ))
-            if progress_ctx and task is not None:
-                progress_ctx.advance(task)
-        elif not skip_explanation:
-            if progress_ctx and task is not None:
-                progress_ctx.advance(task)
-
+                    explanations.append(exp)
+                    
+            vprint("LLM explanations received and attached.", ctx, level="debug")
+            result = attach_explanations(result, explanations)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in LLM explanation: {e}")
+            if not quiet:
+                _console.print(format_warning(
+                    "LLM explanation failed. Continuing without explanations."
+                ))
+        finally:
+            if progress:
+                if task is not None:
+                    progress.update(task, description="[green]✓ Explanations Generated[/green]")
+                progress.stop()
 
     # Output
+    if out_file is not None:
+        import json
+        
+        v_list_out = []
+        for v in result.violations:
+            v_list_out.append({
+                "type": "layer",
+                "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
+                "message": getattr(v, "message", ""),
+                "severity": str(getattr(v, "severity", "low")),
+                "suppressed": getattr(v, "suppressed", False),
+                "explanation": getattr(v, "explanation", "")
+            })
+
+        band_val = str(result.archdebt.band.name).upper()
+        if band_val in ("HEALTHY", "WATCH"):
+            out_band = "PASS"
+        elif band_val == "WARN":
+            out_band = "WARN"
+        else:
+            out_band = "FAIL"
+
+        result_dict = {
+            "score": result.archdebt.composite_score * 100,
+            "band": out_band,
+            "violations": v_list_out,
+            "layer_results": {
+                "layer1_violation": float(result.archdebt.layer_scores.layer1_violation) * 100,
+                "layer2_coupling": float(result.archdebt.layer_scores.layer2_coupling) * 100,
+                "layer3_drift": float(result.archdebt.layer_scores.layer3_drift) * 100,
+                "layer4_duplication": float(result.archdebt.layer_scores.layer4_duplication) * 100,
+            },
+            "fail_fast_triggered": getattr(result, "fail_fast_triggered", False)
+        }
+        if getattr(result, "fail_fast_triggered", False):
+            result_dict["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": l} for l in getattr(result, "skipped_layers_names", [])]
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_text(json.dumps(result_dict, indent=2, default=str))
+
     if json_output:
         import click
         
@@ -455,6 +584,9 @@ def analyze_command(
         }
         
         report = _build_json_report(score, grade, v_list, metrics)
+        report["fail_fast_triggered"] = getattr(result, "fail_fast_triggered", False)
+        if getattr(result, "fail_fast_triggered", False):
+            report["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": l} for l in getattr(result, "skipped_layers_names", [])]
         click.echo(json.dumps(report, indent=2))
     else:
         if ctx.obj.get("quiet"):
@@ -462,6 +594,30 @@ def analyze_command(
             _console.print(f"ArchDebt Score: {result.archdebt.composite_score:.2f} | CI: {ci_str}")
         else:
             _print_rich_report(result, repo_root)
+
+    # Log analysis completion to audit log
+    try:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import AUDIT_LOG_FILENAME
+        audit = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
+        
+        band_val = str(result.archdebt.band.name).upper()
+        if band_val in ("HEALTHY", "WATCH"):
+            audit_band = "PASS"
+        elif band_val == "WARN":
+            audit_band = "WARN"
+        else:
+            audit_band = "FAIL"
+            
+        audit.log(
+            "analysis_complete",
+            score=result.archdebt.composite_score * 100,
+            band=audit_band,
+            pr_number=pr,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to log analysis_complete: {e}")
 
     # Post PR comment (if applicable)
     if repo_slug and not dry_run:
@@ -475,12 +631,15 @@ def analyze_command(
                 from archguard.github.client import GitHubClient
                 try:
                     client = GitHubClient(token=token)
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Non-critical failure in GitHubClient init: {e}")
             manager = PRCommentManager(client)  # type: ignore
             body = manager.format_report(result)
             post_comment(repo_slug, body, pr_number=pr, token=token)
-        except Exception:  # noqa: BLE001
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in PR comment posting: {e}")
             _console.print("[yellow]Warning: Failed to post PR comment.[/yellow]")
 
     # Determine exit code

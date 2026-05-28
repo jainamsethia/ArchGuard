@@ -33,7 +33,9 @@ def _count_audit_entries(repo_root: Path) -> int | None:
     try:
         with audit_path.open("r", encoding="utf-8") as f:
             return sum(1 for _ in f)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Non-critical failure counting audit entries: {e}")
         return None
 
 

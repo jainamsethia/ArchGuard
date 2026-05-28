@@ -73,6 +73,13 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
                 },
             },
         },
+        "skip_layers": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": ["semantic", "duplication", "coupling", "boundary"]
+            }
+        },
         "fail_threshold": {
             "type": "number",
             "minimum": 0.0,

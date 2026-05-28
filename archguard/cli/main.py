@@ -12,6 +12,8 @@ from archguard.cli.github_sync_cmd import github_sync_app
 from archguard.cli.trends_cmd import trends_app
 from archguard.cli.report_cmd import report_app
 from archguard.cli.profiles_cmd import profiles_app
+from archguard.cli.sync_cmd import sync_cache
+from archguard.cli.history_cmd import show_history
 
 app: typer.Typer = typer.Typer(
     name="archguard",
@@ -32,6 +34,8 @@ app.add_typer(github_sync_app, name="github-sync")
 app.add_typer(trends_app, name="trends")
 app.add_typer(report_app, name="report")
 app.add_typer(profiles_app, name="profiles")
+app.command("sync")(sync_cache)
+app.command("history")(show_history)
 
 
 @app.callback(invoke_without_command=True)

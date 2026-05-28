@@ -48,8 +48,9 @@ class PRCommentManager:
             for comment in pr.get_issue_comments():
                 if ARCHGUARD_MARKER in (comment.body or ""):
                     return int(comment.id)
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to search for existing comment")
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in find_existing_comment: {e}")
         return None
 
     def post_or_update(
@@ -76,7 +77,9 @@ class PRCommentManager:
                 comment = repo.get_comment(existing_id)
                 comment.edit(full_body)
                 return existing_id
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Non-critical failure in post_or_update PATCH: {e}")
                 logger.warning("PATCH failed, retrying after %ss", RETRY_DELAY_SECONDS)
                 time.sleep(RETRY_DELAY_SECONDS)
                 try:
@@ -84,7 +87,9 @@ class PRCommentManager:
                     comment = repo.get_comment(existing_id)
                     comment.edit(full_body)
                     return existing_id
-                except Exception:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
+                    import logging
+                    logging.getLogger(__name__).warning(f"Non-critical failure in post_or_update PATCH retry: {e}")
                     logger.warning("PATCH retry failed, posting new comment")
 
         # POST new comment
@@ -98,8 +103,9 @@ class PRCommentManager:
             repo = self._client.get_repo(repo_slug)
             comment = repo.get_comment(comment_id)
             comment.delete()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in delete_stale: {e}")
 
     def format_report(self, result: AnalysisResult) -> str:
         """Build PR comment markdown from ``AnalysisResult``."""

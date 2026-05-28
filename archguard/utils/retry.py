@@ -34,8 +34,8 @@ def with_retry(
                                 retry_after = headers.get("Retry-After") or headers.get("retry-after")
                                 if retry_after:
                                     wait = float(retry_after)
-                    except Exception:
-                        pass
+                    except Exception as parse_err:
+                        logger.warning(f"Non-critical failure in retry header parsing: {parse_err}")
                         
                     logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {wait:.1f}s...")
                     time.sleep(wait)

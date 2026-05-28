@@ -164,8 +164,10 @@ class ReinferenceEngine:
                 data: dict[str, Any] = yaml.safe_load(f)
             if not isinstance(data, dict):
                 return False
-        except Exception:  # noqa: BLE001
-            return False
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Analysis failed in accept_proposal file reading: {e}", exc_info=True)
+            raise
 
         # Build updated module fragment
         updated_module: dict[str, Any] = {
@@ -179,12 +181,18 @@ class ReinferenceEngine:
 
         if github_client is not None and repo_slug:
             # Phase 2: GitHub Contents API
+            from ruamel.yaml import YAML
+            import io
+            ryaml = YAML()
+            ryaml.preserve_quotes = True
+            ryaml.default_flow_style = False
+            ryaml.width = 4096
             try:
                 repo = github_client.get_repo(repo_slug)
                 config_path = ".archguard.yml"
                 try:
                     contents = repo.get_contents(config_path, ref=branch)
-                    existing = yaml.safe_load(contents.decoded_content)
+                    existing = ryaml.load(contents.decoded_content)
                     if not isinstance(existing, dict):
                         existing = {"schema_version": SCHEMA_VERSION, "modules": []}
                 except Exception:  # noqa: BLE001
@@ -202,9 +210,9 @@ class ReinferenceEngine:
                     modules.append(updated_module)
                 existing["modules"] = modules
 
-                new_content = yaml.dump(
-                    existing, default_flow_style=False, sort_keys=False,
-                )
+                buf = io.StringIO()
+                ryaml.dump(existing, buf)
+                new_content = buf.getvalue()
                 try:
                     repo.update_file(
                         config_path,
@@ -223,15 +231,22 @@ class ReinferenceEngine:
 
                 proposal_path.unlink()
                 return True
-            except Exception:  # noqa: BLE001
-                return False
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Analysis failed in accept_proposal github mode: {e}", exc_info=True)
+                raise
         else:
             # Local mode: write directly to .archguard.yml
             contract_path = self._repo_root / ".archguard.yml"
+            from ruamel.yaml import YAML
+            ryaml = YAML()
+            ryaml.preserve_quotes = True
+            ryaml.default_flow_style = False
+            ryaml.width = 4096
             try:
                 if contract_path.exists():
                     with contract_path.open("r", encoding="utf-8") as f:
-                        existing = yaml.safe_load(f)
+                        existing = ryaml.load(f)
                     if not isinstance(existing, dict):
                         existing = {
                             "schema_version": SCHEMA_VERSION,
@@ -252,14 +267,14 @@ class ReinferenceEngine:
                 existing["modules"] = modules
 
                 with contract_path.open("w", encoding="utf-8") as f:
-                    yaml.dump(
-                        existing, f, default_flow_style=False, sort_keys=False,
-                    )
+                    ryaml.dump(existing, f)
 
                 proposal_path.unlink()
                 return True
-            except Exception:  # noqa: BLE001
-                return False
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Analysis failed in accept_proposal local mode: {e}", exc_info=True)
+                raise
 
     def reject_proposal(self, module_name: str) -> bool:
         """Delete pending proposal file. Returns True if deleted."""
@@ -312,7 +327,9 @@ class ReinferenceEngine:
             try:
                 with last_processed_id_path.open("r", encoding="utf-8") as f:
                     state = json.load(f)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Non-critical failure in handle_deleted_comment: {e}")
                 state = {}
 
         state["last_processed_comment_id"] = 0

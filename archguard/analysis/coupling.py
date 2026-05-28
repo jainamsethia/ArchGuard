@@ -30,11 +30,25 @@ def _normalize_path(path: str) -> str:
     """Normalize path separators and strip trailing slash."""
     return path.replace("\\", "/").rstrip("/")
 
+from pathlib import Path
+
+def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
+    """
+    Check if file_path is inside module_path, with proper boundary checking.
+    Prevents false matches like api_utils matching module 'api'.
+    """
+    # Normalize both to forward-slash, strip leading slash
+    file_parts = Path(file_path.strip("/")).parts
+    module_parts = Path(module_path.strip("/")).parts
+    if len(file_parts) < len(module_parts):
+        return False
+    # Compare part-by-part, not as raw strings
+    return file_parts[:len(module_parts)] == module_parts
+
 
 def _file_belongs_to_module(file_path: str, paths: list[str]) -> bool:
     """Check if *file_path* starts with any of the module's path prefixes."""
-    normalized = _normalize_path(file_path)
-    return any(normalized.startswith(_normalize_path(p)) for p in paths)
+    return any(_path_belongs_to_module(file_path, p) for p in paths)
 
 
 def _assign_file_to_module(
@@ -60,10 +74,11 @@ def _assign_file_to_module(
     best_len: int = 0
     for mod_name, paths in module_paths.items():
         for p in paths:
-            prefix = _normalize_path(p)
-            if normalized.startswith(prefix) and len(prefix) > best_len:
-                best_match = mod_name
-                best_len = len(prefix)
+            if _path_belongs_to_module(file_path, p):
+                prefix_len = len(_normalize_path(p))
+                if prefix_len > best_len:
+                    best_match = mod_name
+                    best_len = prefix_len
 
     if best_match is None:
         warned = _warned if _warned is not None else set()
@@ -118,8 +133,8 @@ def compute_fan_in(
         # Does this import target our module?
         import_as_path = edge.imported_module.replace(".", "/")
         targets_us = any(
-            import_as_path.startswith(_normalize_path(tp))
-            or _normalize_path(tp).startswith(import_as_path)
+            _path_belongs_to_module(import_as_path, tp)
+            or _path_belongs_to_module(tp, import_as_path)
             for tp in target_paths
         )
         if not targets_us:

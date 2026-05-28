@@ -7,8 +7,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import numpy.typing as npt
+try:
+    import numpy as np
+    import numpy.typing as npt
+    from sentence_transformers import SentenceTransformer
+    _ML_AVAILABLE = True
+except Exception:
+    _ML_AVAILABLE = False
+    np = None  # type: ignore[assignment]
+    npt = None  # type: ignore[assignment]
+    SentenceTransformer = None  # type: ignore[assignment]
 
 from archguard.cache.embeddings import EmbeddingCache
 
@@ -41,6 +49,12 @@ class SemanticDriftResult:
 
 def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> float:
     """``1 - cosine_similarity``, clamped to ``[0.0, 1.0]``."""
+    if not _ML_AVAILABLE:
+        raise RuntimeError(
+            "Layer 3 (Semantic Drift) requires ML dependencies. "
+            "Install them with: pip install archguard[ml]\n"
+            "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
+        )
     norm_a = float(np.linalg.norm(a))
     norm_b = float(np.linalg.norm(b))
     if norm_a == 0.0 or norm_b == 0.0:
@@ -98,6 +112,12 @@ class SemanticAnalyzer:
         Lazy-imports ``SentenceTransformer("all-MiniLM-L6-v2")``.
         Returns ``{"{file_path}::{function_name}": embedding}``.
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "Layer 3 (Semantic Drift) requires ML dependencies. "
+                "Install them with: pip install archguard[ml]\n"
+                "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
+            )
         result: dict[str, npt.NDArray[np.float32]] = {}
         to_embed: list[FunctionChunk] = []
 
@@ -115,15 +135,10 @@ class SemanticAnalyzer:
 
         # Embed cache misses
         if to_embed:
-            try:
-                from sentence_transformers import SentenceTransformer  # lazy
-                model = SentenceTransformer("all-MiniLM-L6-v2")
-                texts = [c.source for c in to_embed]
-                embeddings = model.encode(texts, batch_size=batch_size)
-                model_name = "all-MiniLM-L6-v2"
-            except ImportError:
-                embeddings = [np.zeros(384, dtype=np.float32) for _ in to_embed]
-                model_name = "none"
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            texts = [c.source for c in to_embed]
+            embeddings = model.encode(texts, batch_size=batch_size)
+            model_name = "all-MiniLM-L6-v2"
 
             new_items = {}
             for i, chunk in enumerate(to_embed):
@@ -146,6 +161,12 @@ class SemanticAnalyzer:
 
         Raises ``ValueError`` if *embeddings* is empty.
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "Layer 3 (Semantic Drift) requires ML dependencies. "
+                "Install them with: pip install archguard[ml]\n"
+                "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
+            )
         if not embeddings:
             from archguard.utils.errors import AnalysisError
             raise AnalysisError("Cannot compute centroid of empty embeddings")
@@ -164,6 +185,12 @@ class SemanticAnalyzer:
         repo_root: Path,
     ) -> SemanticDriftResult:
         """Compute semantic drift for *module_name* given changed files."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "Layer 3 (Semantic Drift) requires ML dependencies. "
+                "Install them with: pip install archguard[ml]\n"
+                "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
+            )
         # 1. Load pre-PR centroid
         cached = self._cache.get_centroid(module_name)
         cache_hit = cached is not None

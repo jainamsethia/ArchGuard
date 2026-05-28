@@ -9,9 +9,19 @@
 Architectural drift detector for Python codebases.
 Inspects every pull request and flags when code violates defined module boundaries.
 
-## Quick Start
+## Installation
+### Full Install (recommended)
+```bash
+pip install archguard[all]
+```
+### Minimal Install (no ML layers)
 ```bash
 pip install archguard
+# Note: Layer 3 (Semantic Drift) and Layer 4 (Duplication) require `pip install archguard[ml]`
+```
+
+## Quick Start
+```bash
 cd your-python-project/
 archguard init           # Auto-detect architecture
 archguard analyze        # Check for violations
@@ -39,6 +49,22 @@ ArchGuard runs 4 analysis layers on changed Python files:
 4. **Duplication Detection**: Employs FAISS to locate excessive cross-module code duplication signaling a missed abstraction.
 
 These passes result in an aggregate **ArchDebt score** and can optionally utilize cloud LLMs to provide explanatory fixes for severe violations.
+
+## How It Works
+```mermaid
+graph TD
+A[PR opened] --> B[GitHub Action triggered]
+
+B --> C[archguard analyze]
+C --> D[L1: AST Boundary Check]
+D --> E[L2: Coupling Delta Graph]
+E --> F[L3: Semantic Drift via MiniLM]
+F --> G[L4: FAISS Duplication Check]
+G --> H[Composite ArchDebt Score]
+H --> I{Score > threshold?}
+I -- Yes --> J[CI FAIL + PR Comment]
+I -- No --> K[CI PASS + PR Comment]
+```
 
 ## Tracking Architecture Health Over Time
 
@@ -103,12 +129,24 @@ modules:
 We recommend executing ArchGuard via GitHub Actions on every pull request.
 
 ```yaml
-- uses: ./
+- name: Pull ArchGuard cache from S3
+  run: archguard sync pull --bucket my-archguard-cache
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+- name: Run ArchGuard
+  uses: your-org/archguard@v1
   with:
     pr-number: ${{ github.event.pull_request.number }}
+    skip-explanation: 'false'   # Set 'true' to skip LLM calls (faster, free)
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Optional: omit to use local Ollama
+- name: Push updated cache to S3
+  run: archguard sync push --bucket my-archguard-cache
+  env:
+    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
 **JSON Output for headless tools:**
@@ -116,6 +154,14 @@ We recommend executing ArchGuard via GitHub Actions on every pull request.
 ```bash
 archguard analyze --json | jq '.summary'
 ```
+
+## Testing
+### Unit Tests
+poetry run pytest tests/unit/ -v
+### Integration Tests  
+poetry run pytest tests/integration/ -v
+### Docker Smoke Test
+make smoke-test
 
 ## FAQ
 
@@ -135,6 +181,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and th
 ## Security
 
 See [SECURITY.md](SECURITY.md) for information on our security policy and how to report vulnerabilities.
+
+## Troubleshooting
+### `ModuleNotFoundError: No module named 'numpy'`
+Install ML dependencies: `pip install archguard[ml]`
+### GitHub Action always shows score `0` / band `Unknown`
+Ensure you're using version 2+ of the action. Older versions had an output extraction bug (fixed in v0.2.0).
+### `Permission denied` writing `.archguard-cache/`
+In GitHub Actions with Docker, ensure the workspace is writable. The action's `entrypoint.sh` handles this automatically as of v0.2.0.
+### Analysis skips all files / shows 0 changed files
+If your repo has a single commit, use `--base-ref` to specify the comparison ref, or run `archguard analyze --all-files` to analyze everything.
 
 ## License
 

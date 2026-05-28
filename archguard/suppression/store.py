@@ -95,8 +95,9 @@ class SuppressionStore:
                 module=module,
                 layer=layer,
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in audit log suppression: {e}")
 
         return suppression
 
@@ -120,7 +121,9 @@ class SuppressionStore:
                     sup = suppression_from_dict(data)
                     if include_inactive or sup.active:
                         results.append(sup)
-                except Exception:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
+                    import logging
+                    logging.getLogger(__name__).warning(f"Non-critical failure in suppression line parse: {e}")
                     logger.warning("Skipping malformed suppression line")
                     continue
 
@@ -257,7 +260,9 @@ class SuppressionStore:
                     continue
                 try:
                     results.append(suppression_from_dict(json.loads(line)))
-                except Exception:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001
+                    import logging
+                    logging.getLogger(__name__).warning(f"Non-critical failure in _read_all_raw: {e}")
                     continue
         return results
 

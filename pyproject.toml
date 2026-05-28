@@ -19,12 +19,36 @@ rich = ">=13.0"
 pyyaml = ">=6.0"
 jsonschema = ">=4.17"
 requests = ">=2.28"
+tree-sitter = ">=0.21,<0.22"
+tree-sitter-python = ">=0.21"
+networkx = ">=3.0"
+python-louvain = ">=0.16"
+pydriller = ">=2.5"
+"ruamel.yaml" = ">=0.18"
+httpx = ">=0.25"
+
+[tool.poetry.extras]
+ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
+cloud = ["anthropic"]
+cloud-cache = ["boto3"]
+all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
 mypy = ">=1.0"
 types-PyYAML = "*"
 pre-commit = ">=3.0"
+pytest-cov = ">=4.0"
+pytest-asyncio = ">=0.23"
+
+[tool.poetry.group.ml.dependencies]
+numpy = ">=1.24"
+scipy = ">=1.10"
+sentence-transformers = ">=2.2"
+faiss-cpu = ">=1.7"
+
+[tool.poetry.group.cloud.dependencies]
+anthropic = ">=0.20"
 
 [tool.mypy]
 python_version = "3.11"

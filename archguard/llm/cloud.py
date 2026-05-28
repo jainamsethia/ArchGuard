@@ -7,6 +7,13 @@ import os
 from dataclasses import dataclass, field, replace
 from typing import Any, TYPE_CHECKING
 
+try:
+    import anthropic
+    _ML_AVAILABLE = True
+except ImportError:
+    _ML_AVAILABLE = False
+    anthropic = None  # type: ignore[assignment]
+
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
     SYSTEM_PROMPT,
@@ -158,12 +165,46 @@ class CloudLLMExplainer:
             unavailable=unavailable,
         )
 
+    async def explain_violations_concurrent(
+        self,
+        violations: list[ViolationDetail],
+        contract: dict[str, Any],
+        changed_files: list[str],
+        max_concurrent: int = 5
+    ) -> list[str]:
+        """Fetch explanations for all violations concurrently."""
+        import asyncio
+        if not _ML_AVAILABLE:
+            raise RuntimeError("ML dependencies are not installed.")
+            
+        summary = build_contract_summary(contract)
+        safe_violations = self._redact_violations(violations)
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def explain_one(violation: ViolationDetail) -> str:
+            async with semaphore:
+                # Use anthropic's async client
+                prompt = build_violation_prompt([violation], summary, changed_files)
+                async with anthropic.AsyncAnthropic(api_key=self._api_key) as client:
+                    response = await client.messages.create(
+                        model="claude-3-haiku-20240307",  # Use cheapest model for explanations
+                        max_tokens=500,
+                        messages=[{"role": "user", "content": prompt}]
+                    )
+                    return response.content[0].text
+
+        tasks = [explain_one(v) for v in safe_violations]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
     from archguard.utils.retry import with_retry
 
     @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
-        import anthropic  # lazy import
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
 
         try:
             client: Any = anthropic.Anthropic(api_key=self._api_key)

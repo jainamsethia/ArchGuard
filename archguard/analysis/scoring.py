@@ -5,8 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-import numpy as np
-import numpy.typing as npt
+try:
+    import numpy as np
+    import numpy.typing as npt
+    from scipy.optimize import nnls as _nnls
+    _ML_AVAILABLE = True
+except ImportError:
+    _ML_AVAILABLE = False
+    np = None  # type: ignore[assignment]
+    npt = None  # type: ignore[assignment]
+    _nnls = None  # type: ignore[assignment]
 
 
 class ArchDebtBand(str, Enum):
@@ -79,6 +87,10 @@ def compute_archdebt(
     Per-component breach: any layer score > its per_component_threshold.
     ``should_fail_ci = composite_breach OR per_component_breach``.
     """
+    if not _ML_AVAILABLE:
+        raise RuntimeError(
+            "ML dependencies are not installed. Run: pip install archguard[ml]"
+        )
     layer_values = [
         scores.layer1_violation,
         scores.layer2_coupling,
@@ -136,12 +148,14 @@ def calibrate_weights(
 
     Falls back to ``DEFAULT_WEIGHTS`` on any failure.
     """
+    if not _ML_AVAILABLE:
+        raise RuntimeError(
+            "ML dependencies are not installed. Run: pip install archguard[ml]"
+        )
     if not historical_scores:
         return DEFAULT_WEIGHTS
 
     try:
-        from scipy.optimize import nnls as _nnls  # lazy import
-
         a_matrix = np.array(
             [
                 [

@@ -57,6 +57,7 @@ def get_seed_from_repo(repo_root: Path) -> int:
         commits = list(repo.traverse_commits())
         if commits:
             return int(commits[0].hash[:8], 16)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Non-critical failure in get_seed_from_repo: {e}")
     return 42

@@ -6,8 +6,16 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import numpy as np
-import numpy.typing as npt
+try:
+    import faiss
+    import numpy as np
+    import numpy.typing as npt
+    _ML_AVAILABLE = True
+except Exception:
+    _ML_AVAILABLE = False
+    faiss = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
+    npt = None  # type: ignore[assignment]
 
 from archguard.audit.logger import AuditLogger
 from archguard.cache.embeddings import EmbeddingCache
@@ -66,10 +74,10 @@ class DuplicationAnalyzer:
         All embeddings are unit-normalized before adding.
         Returns ``(index, ordered_keys)``.
         """
-        try:
-            import faiss  # lazy import
-        except (ImportError, AttributeError):
-            return None, []
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
 
         keys = list(embeddings.keys())
         if not keys:
@@ -96,6 +104,10 @@ class DuplicationAnalyzer:
         For unit-normalized vectors: ``cosine_sim = 1 - (L2^2 / 2)``.
         Clamped to ``[0.0, 1.0]``.
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         return np.clip(1.0 - (l2_distances ** 2) / 2.0, 0.0, 1.0)
 
     def analyze_module(
@@ -105,6 +117,10 @@ class DuplicationAnalyzer:
         k: int = 10,
     ) -> DuplicationResult:
         """Run duplication analysis for a single module."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         # 1. Check cache staleness
         if self._cache.is_cache_stale(module_name):
             reason = f"Cache stale: centroid for {module_name} exceeds max age"

@@ -2,3 +2,9 @@
 coverage.xml
 .coverage
 htmlcov/
+.venv/
+.venv-test/
+__pycache__/
+*.pyc
+.archguard-cache/
+.archguard-checkpoints/

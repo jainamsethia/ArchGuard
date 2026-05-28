@@ -7,8 +7,14 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-import numpy as np
-import numpy.typing as npt
+try:
+    import numpy as np
+    import numpy.typing as npt
+    _ML_AVAILABLE = True
+except ImportError:
+    _ML_AVAILABLE = False
+    np = None  # type: ignore[assignment]
+    npt = None  # type: ignore[assignment]
 
 from archguard.cache.db import EmbeddingDB
 
@@ -40,6 +46,10 @@ class EmbeddingCache:
         content_hash: str,
     ) -> npt.NDArray[np.float32] | None:
         """Return stored embedding if *content_hash* matches, else ``None``."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         try:
             cursor = self._db._conn.execute(
                 "SELECT embedding, content_hash FROM embeddings "
@@ -66,6 +76,10 @@ class EmbeddingCache:
         model_name: str,
     ) -> None:
         """Upsert an embedding into the cache."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         try:
             blob = embedding.astype(np.float32).tobytes()
             now = datetime.now(timezone.utc).isoformat()
@@ -85,6 +99,10 @@ class EmbeddingCache:
 
     def get_centroid(self, module_name: str) -> tuple[npt.NDArray[np.float32], str] | None:
         """Return ``(centroid_array, content_hash)`` or ``None``."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         try:
             cursor = self._db._conn.execute(
                 "SELECT centroid, content_hash FROM module_centroids "
@@ -107,6 +125,10 @@ class EmbeddingCache:
         content_hash: str,
     ) -> None:
         """Upsert a module centroid."""
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         try:
             blob = centroid.astype(np.float32).tobytes()
             now = datetime.now(timezone.utc).isoformat()
@@ -129,6 +151,10 @@ class EmbeddingCache:
         Batch retrieve embeddings. Write lock is acquired for writes; reads use SQLite WAL which allows concurrent readers.
         keys format: "file_path::function_name::content_hash"
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         if not keys:
             return {}
 
@@ -174,6 +200,10 @@ class EmbeddingCache:
         Write lock is acquired for writes; reads use SQLite WAL which allows concurrent readers.
         items format: "file_path::function_name::content_hash::model_name" -> embedding
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         if not items:
             return
 
@@ -215,6 +245,10 @@ class EmbeddingCache:
         Keys are ``"{file_path}::{function_name}"``.
         Values are ``(embedding_array, content_hash)``.
         """
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
         from archguard.cache.locking import file_lock
         from pathlib import Path
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]

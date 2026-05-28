@@ -23,6 +23,10 @@ inputs:
     description: 'Exit 1 on Watch band in addition to Critical. Stricter enforcement.'
     required: false
     default: 'false'
+  fail-fast:
+    description: 'Exit early after the first analysis layer that breaches the fail threshold.'
+    required: false
+    default: 'false'
   dry-run:
     description: 'Run full analysis but do not post PR comment. Use for testing.'
     required: false
@@ -46,5 +50,6 @@ runs:
     INPUT_PR_NUMBER: ${{ inputs.pr-number }}
     INPUT_SKIP_EXPLANATION: ${{ inputs.skip-explanation }}
     INPUT_FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+    INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
