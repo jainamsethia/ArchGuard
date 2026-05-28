@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.archguard-cache/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+tests/
+.archguard-pending-contracts/

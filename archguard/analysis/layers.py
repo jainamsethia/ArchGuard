@@ -29,6 +29,7 @@ class ViolationDetail:
     message: str
     commit_sha: str
     file_path: str
+    explanation: str = ""
 
 
 @dataclass
@@ -65,6 +66,7 @@ class AnalysisOrchestrator:
         db_path = db_path or repo_root / ".archguard-cache" / "embeddings.db"
         self.db = EmbeddingDB(db_path)
         self.cache = EmbeddingCache(self.db)
+        self._audit: Any | None = None
 
     def run(
         self,
@@ -102,8 +104,14 @@ class AnalysisOrchestrator:
         # --- Layer 3: Semantic drift ---
         layer3 = self._run_layer3(affected, py_files, commit_sha, violations)
 
+        # --- Reinference: check staleness + create proposals ---
+        self._run_reinference(affected, commit_sha)
+
         # --- Layer 4: Duplication ---
         layer4 = self._run_layer4(affected, commit_sha, violations)
+
+        # --- Filter out suppressed violations ---
+        violations = self._filter_suppressed(violations)
 
         scores = LayerScores(layer1, layer2, layer3, layer4)
 
@@ -357,6 +365,79 @@ class AnalysisOrchestrator:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _filter_suppressed(
+        self,
+        violations: list[ViolationDetail],
+    ) -> list[ViolationDetail]:
+        """Remove violations that match an active suppression."""
+        try:
+            from archguard.suppression.store import SuppressionStore
+
+            store = SuppressionStore(self.repo_root)
+            return [
+                v for v in violations
+                if not store.is_suppressed(v.module, v.layer, v.message)
+            ]
+        except Exception:  # noqa: BLE001
+            return violations
+
+    def _run_reinference(
+        self,
+        affected: dict[str, list[Path]],
+        commit_sha: str,
+    ) -> None:
+        """Run reinference staleness check and create proposals if needed."""
+        try:
+            from archguard.contract.reinference import ReinferenceEngine
+
+            engine = ReinferenceEngine(
+                self.repo_root, audit_logger=self._audit,
+            )
+            engine.check_staleness()
+
+            # Check each affected module's drift result
+            modules_cfg = self.contract.get("modules", [])
+            thresholds: dict[str, float] = {
+                m["name"]: m.get("semantic_drift_threshold", 0.25)
+                for m in modules_cfg
+            }
+            budgets: dict[str, int] = {
+                m["name"]: m.get("coupling_budget", 3)
+                for m in modules_cfg
+            }
+            module_paths: dict[str, list[str]] = {
+                m["name"]: m.get("paths", []) for m in modules_cfg
+            }
+
+            for mod_name in affected:
+                threshold = thresholds.get(mod_name, 0.25)
+                # We need the drift score — recompute from semantic analyzer
+                from archguard.analysis.semantic import SemanticAnalyzer
+
+                analyzer = SemanticAnalyzer(self.cache)
+                try:
+                    drift_result = analyzer.compute_drift(
+                        mod_name, affected[mod_name], self.repo_root,
+                    )
+                    if engine.should_propose(
+                        mod_name, drift_result.drift_score, threshold,
+                    ):
+                        engine.create_proposal(
+                            module_name=mod_name,
+                            semantic_drift=drift_result.drift_score,
+                            new_centroid_paths=module_paths.get(
+                                mod_name, [],
+                            ),
+                            current_coupling_budget=budgets.get(
+                                mod_name, 3,
+                            ),
+                            source_commit=commit_sha,
+                        )
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            logger.warning("Reinference check failed")
 
     def _get_affected_modules(
         self,

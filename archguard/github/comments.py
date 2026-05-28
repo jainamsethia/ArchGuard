@@ -127,6 +127,10 @@ class PRCommentManager:
                     f"| L{v.layer} | {v.module} | {v.message} | "
                     f"`{v.commit_sha[:7]}` |"
                 )
+                if v.explanation:
+                    lines.append(f"")
+                    lines.append(f"*{v.explanation}*")
+                    lines.append(f"")
             lines.append("")
 
         # Layer scores in collapsible section

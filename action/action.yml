@@ -1,0 +1,50 @@
+name: 'ArchGuard'
+description: 'Detect architectural drift in Python pull requests using import analysis, semantic embeddings, and LLM explanations.'
+author: 'ArchGuard'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  repo-root:
+    description: 'Path to repository root relative to workspace (default: .)'
+    required: false
+    default: '.'
+  pr-number:
+    description: 'Pull request number to analyze. Auto-detected from GITHUB_PR_NUMBER env var.'
+    required: false
+    default: ''
+  skip-explanation:
+    description: 'Skip LLM explanation generation (Layer 4). Useful for CI speed.'
+    required: false
+    default: 'false'
+  fail-on-warn:
+    description: 'Exit 1 on Watch band in addition to Critical. Stricter enforcement.'
+    required: false
+    default: 'false'
+  dry-run:
+    description: 'Run full analysis but do not post PR comment. Use for testing.'
+    required: false
+    default: 'false'
+  extra-args:
+    description: 'Additional CLI arguments passed directly to archguard analyze.'
+    required: false
+    default: ''
+
+outputs:
+  archdebt-score:
+    description: 'Composite ArchDebt score (0.0–1.0). Read from /tmp/archguard-result.json.'
+  archdebt-band:
+    description: 'ArchDebt band classification: Healthy, Watch, Warn, or Critical.'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    INPUT_REPO_ROOT: ${{ inputs.repo-root }}
+    INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+    INPUT_SKIP_EXPLANATION: ${{ inputs.skip-explanation }}
+    INPUT_FAIL_ON_WARN: ${{ inputs.fail-on-warn }}
+    INPUT_DRY_RUN: ${{ inputs.dry-run }}
+    INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}

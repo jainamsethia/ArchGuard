@@ -90,5 +90,6 @@ def acquire_lock(
             time.sleep(0.1)
         yield
     finally:
-        _unlock(f)
-        f.close()
+        if not f.closed:
+            _unlock(f)
+            f.close()

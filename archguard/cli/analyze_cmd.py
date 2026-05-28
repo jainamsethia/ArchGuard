@@ -14,7 +14,23 @@ from rich.console import Console
 from archguard.analysis.layers import AnalysisOrchestrator, AnalysisResult
 from archguard.analysis.scoring import ArchDebtBand
 from archguard.config import EXIT_OK, EXIT_VIOLATION
-from archguard.utils.errors import ConfigError, format_error
+from archguard.utils.errors import ConfigError, format_error, format_warning
+
+
+def attach_explanations(
+    result: AnalysisResult,
+    explanations: list[str],
+) -> AnalysisResult:
+    """Return a new AnalysisResult with explanations attached to violations."""
+    from dataclasses import replace as dc_replace
+
+    new_violations = []
+    for i, v in enumerate(result.violations):
+        explanation = explanations[i] if i < len(explanations) else ""
+        new_violations.append(dc_replace(v, explanation=explanation))
+
+    return dc_replace(result, violations=new_violations)
+
 
 analyze_app: typer.Typer = typer.Typer(
     name="analyze",
@@ -218,6 +234,30 @@ def analyze_command(
     except Exception as exc:
         _console.print(format_error(f"Analysis failed: {exc}"))
         raise typer.Exit(2) from exc
+
+    # LLM explanation (unless skipped)
+    if (
+        not skip_explanation
+        and result.archdebt.should_fail_ci
+        and result.violations
+    ):
+        try:
+            from archguard.llm.cloud import CloudLLMExplainer
+
+            explainer = CloudLLMExplainer()
+            llm_result = explainer.explain(result, orchestrator.contract)
+            if llm_result.unavailable:
+                _console.print(format_warning(
+                    "LLM explanation unavailable. "
+                    "Violation report will be posted without explanations."
+                ))
+            else:
+                result = attach_explanations(result, llm_result.explanations)
+        except Exception:  # noqa: BLE001
+            _console.print(format_warning(
+                "LLM explanation failed. Continuing without explanations."
+            ))
+    # LLM failure MUST NOT change exit code — handled by not re-raising
 
     # Output
     if json_output:
