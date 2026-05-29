@@ -313,8 +313,9 @@ class TestAnalyzeCommand:
             len(call_kwargs[0]) >= 3 and call_kwargs[0][2] is True
         )
 
-    def test_no_config_exit_1(self, tmp_path: Path) -> None:
-        """No .archguard.yml -> exit 1."""
+    def test_missing_contract_exits_with_config_error(self, tmp_path: Path) -> None:
+        """No .archguard.yml -> exit with CONFIG_ERROR."""
+        from archguard.config import EXIT_CONFIG_ERROR
         repo = tmp_path / "empty_repo"
         repo.mkdir()
 
@@ -322,7 +323,7 @@ class TestAnalyzeCommand:
             app,
             ["analyze", "--repo", str(repo), "--changed-files", "main.py"],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == EXIT_CONFIG_ERROR
 
     def test_github_repository_env_detected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,

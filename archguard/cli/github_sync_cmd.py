@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from archguard.config import EXIT_OK, EXIT_VIOLATION
+from archguard.config import EXIT_SUCCESS, EXIT_VIOLATION, EXIT_CONFIG_ERROR
 from archguard.github.commands import parse_commands, ArchGuardCommand
 
 github_sync_app = typer.Typer(
@@ -26,19 +26,19 @@ def github_sync(
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if not event_path:
         _console.print("GITHUB_EVENT_PATH not set. Skipping github-sync.")
-        raise typer.Exit(EXIT_OK)
+        raise typer.Exit(EXIT_SUCCESS)
 
     try:
         with open(event_path, "r", encoding="utf-8") as f:
             event = json.load(f)
     except Exception as exc:
         _console.print(f"Failed to read GITHUB_EVENT_PATH: {exc}")
-        raise typer.Exit(EXIT_VIOLATION)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
     action = event.get("action")
     if action != "created":
         _console.print(f"Ignoring issue_comment action: {action}")
-        raise typer.Exit(EXIT_OK)
+        raise typer.Exit(EXIT_SUCCESS)
 
     comment = event.get("comment", {})
     body = comment.get("body", "")
@@ -48,19 +48,19 @@ def github_sync(
     issue = event.get("issue", {})
     if "pull_request" not in issue:
         _console.print("Comment is not on a pull request. Skipping.")
-        raise typer.Exit(EXIT_OK)
+        raise typer.Exit(EXIT_SUCCESS)
         
     pr_number = issue.get("number")
     repo_slug = event.get("repository", {}).get("full_name") or os.environ.get("GITHUB_REPOSITORY")
 
     if not body.strip().startswith("/archguard"):
         _console.print("No /archguard commands found at the start of the comment.")
-        raise typer.Exit(EXIT_OK)
+        raise typer.Exit(EXIT_SUCCESS)
 
     commands = parse_commands(body, comment_id, author)
     if not commands:
         _console.print("No valid /archguard commands parsed.")
-        raise typer.Exit(EXIT_OK)
+        raise typer.Exit(EXIT_SUCCESS)
 
     repo_root = repo.resolve()
 

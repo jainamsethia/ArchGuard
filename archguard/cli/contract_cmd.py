@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from archguard.config import EXIT_VIOLATION
+from archguard.config import EXIT_VIOLATION, EXIT_CONFIG_ERROR, EXIT_AUTH_ERROR
 from archguard.contract.reinference import ReinferenceEngine
 from archguard.utils.errors import format_error
 
@@ -98,7 +98,7 @@ def contract_accept(
             _console.print(format_error(
                 "GitHub client unavailable. Use local mode (omit --repo-slug)."
             ))
-            raise typer.Exit(EXIT_VIOLATION)
+            raise typer.Exit(EXIT_AUTH_ERROR)
 
     success = engine.accept_proposal(
         module, github_client=github_client,
@@ -114,7 +114,7 @@ def contract_accept(
         _console.print(format_error(
             f"No pending proposal found for module '{module}'"
         ))
-        raise typer.Exit(EXIT_VIOLATION)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
 @contract_app.command("reject")
@@ -136,7 +136,7 @@ def contract_reject(
         _console.print(format_error(
             f"No pending proposal found for module '{module}'"
         ))
-        raise typer.Exit(EXIT_VIOLATION)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
 
 @contract_app.command("show")
@@ -174,4 +174,4 @@ def contract_show(
     _console.print(format_error(
         f"No pending proposal found for module '{module}'"
     ))
-    raise typer.Exit(EXIT_VIOLATION)
+    raise typer.Exit(EXIT_CONFIG_ERROR)

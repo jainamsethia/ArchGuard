@@ -149,6 +149,13 @@ We recommend executing ArchGuard via GitHub Actions on every pull request.
     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 ```
 
+**Exit codes:**
+- `0` - Success, no violations above threshold
+- `1` - Violations detected
+- `2` - Configuration error (missing or invalid `.archguard.yml`)
+- `3` - Analysis error
+- `4` - Authentication error
+
 **JSON Output for headless tools:**
 
 ```bash

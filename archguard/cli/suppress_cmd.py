@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from archguard.config import EXIT_OK, EXIT_VIOLATION
+from archguard.config import EXIT_SUCCESS, EXIT_VIOLATION, EXIT_CONFIG_ERROR
 from archguard.suppression.store import SuppressionStore, SuppressionValidationError
 from archguard.utils.errors import format_error
 suppress_app: typer.Typer = typer.Typer(
@@ -51,7 +51,7 @@ def suppress_add(
         last_run = logger.read_last_run()
         if not last_run:
             _console.print(format_error("No analysis run found. Run `archguard analyze` first."))
-            raise typer.Exit(EXIT_VIOLATION)
+            raise typer.Exit(EXIT_CONFIG_ERROR)
             
         violations = last_run.get("violations", [])
         active_violations = [v for v in violations if not v.get("suppressed")]
@@ -62,7 +62,7 @@ def suppress_add(
             
         if not yes and not ctx.obj.get("quiet"):
             if not typer.confirm(f"Suppress all {len(active_violations)} active violations? This cannot be undone easily."):
-                raise typer.Exit(EXIT_OK)
+                raise typer.Exit(EXIT_SUCCESS)
                 
         table = Table(title="Suppressed Violations")
         table.add_column("Status", justify="center")
@@ -85,14 +85,14 @@ def suppress_add(
                 _console.print(format_error(str(exc)))
                 
         if ctx.obj.get("quiet"):
-            raise typer.Exit(EXIT_OK)
+            raise typer.Exit(EXIT_SUCCESS)
             
         _console.print(table)
         return
 
     if not module or not layer or not message or not reason:
         _console.print(format_error("Missing required arguments. Need --module, --layer, --message, and --reason."))
-        raise typer.Exit(EXIT_VIOLATION)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
     try:
         suppression = store.add(
@@ -105,7 +105,7 @@ def suppress_add(
         )
     except SuppressionValidationError as exc:
         _console.print(format_error(str(exc)))
-        raise typer.Exit(EXIT_VIOLATION) from exc
+        raise typer.Exit(EXIT_CONFIG_ERROR) from exc
 
     _console.print(
         f"Suppression created: {suppression.id[:8]} "
@@ -183,7 +183,7 @@ def suppress_orphans(
         active_modules = [m["name"] for m in contract.get("modules", [])]
     except Exception:  # noqa: BLE001
         _console.print(format_error("Could not load contract."))
-        raise typer.Exit(EXIT_VIOLATION)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
 
     orphans = store.detect_orphans(active_modules)
     if not orphans:

@@ -53,3 +53,10 @@ runs:
     INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+
+# Exit codes:
+# 0 - Success, no violations above threshold
+# 1 - Violations detected
+# 2 - Configuration error (missing or invalid .archguard.yml)
+# 3 - Analysis error
+# 4 - Authentication error
