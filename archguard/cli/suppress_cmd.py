@@ -10,7 +10,6 @@ from rich.console import Console
 from archguard.config import EXIT_OK, EXIT_VIOLATION
 from archguard.suppression.store import SuppressionStore, SuppressionValidationError
 from archguard.utils.errors import format_error
-from archguard.utils.output import vprint
 suppress_app: typer.Typer = typer.Typer(
     name="suppress",
     help="Manage architectural violation suppressions.",

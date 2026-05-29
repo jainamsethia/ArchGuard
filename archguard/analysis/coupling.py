@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 from archguard.analysis.parser import ImportEdge
 
@@ -29,8 +30,6 @@ class ModuleCoupling:
 def _normalize_path(path: str) -> str:
     """Normalize path separators and strip trailing slash."""
     return path.replace("\\", "/").rstrip("/")
-
-from pathlib import Path
 
 def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
     """

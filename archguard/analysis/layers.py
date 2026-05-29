@@ -149,7 +149,8 @@ class AnalysisOrchestrator:
                 print(f"✓ Layer 1 complete ({l1_violations} violations)")
 
             if fail_fast and layer1 >= fail_threshold:
-                if progress: progress.stop()
+                if progress:
+                    progress.stop()
                 from rich.console import Console
                 Console().print(
                     f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
@@ -174,7 +175,8 @@ class AnalysisOrchestrator:
                 print(f"✓ Layer 2 complete ({l2_violations} violations)")
 
             if fail_fast and layer2 >= fail_threshold:
-                if progress: progress.stop()
+                if progress:
+                    progress.stop()
                 from rich.console import Console
                 Console().print(
                     f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
@@ -218,7 +220,8 @@ class AnalysisOrchestrator:
                         raise
 
             if fail_fast and layer3 >= fail_threshold:
-                if progress: progress.stop()
+                if progress:
+                    progress.stop()
                 from rich.console import Console
                 Console().print(
                     f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} "

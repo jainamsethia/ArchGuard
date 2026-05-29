@@ -6,10 +6,9 @@ Uses ``msvcrt`` on Windows and ``fcntl`` on Unix/macOS.
 from __future__ import annotations
 
 import sys
-import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO, Generator
+from typing import Generator
 
 LOCK_TIMEOUT = 30  # seconds
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -14,7 +13,7 @@ from rich.console import Console
 from archguard.analysis.layers import AnalysisOrchestrator, AnalysisResult
 from archguard.analysis.scoring import ArchDebtBand
 from archguard.config import EXIT_OK, EXIT_VIOLATION
-from archguard.utils.errors import ConfigError, format_error, format_warning
+from archguard.utils.errors import format_error, format_warning
 from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
 from archguard.profiles.defaults import apply_profile
@@ -368,7 +367,6 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
     import sys
 
     # Run analysis
-    from contextlib import ExitStack
     
     quiet = ctx.obj.get("quiet", False)
     use_rich = is_tty() and not quiet
@@ -555,7 +553,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             "fail_fast_triggered": getattr(result, "fail_fast_triggered", False)
         }
         if getattr(result, "fail_fast_triggered", False):
-            result_dict["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": l} for l in getattr(result, "skipped_layers_names", [])]
+            result_dict["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": layer} for layer in getattr(result, "skipped_layers_names", [])]
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_text(json.dumps(result_dict, indent=2, default=str))
 
@@ -586,7 +584,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
         report = _build_json_report(score, grade, v_list, metrics)
         report["fail_fast_triggered"] = getattr(result, "fail_fast_triggered", False)
         if getattr(result, "fail_fast_triggered", False):
-            report["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": l} for l in getattr(result, "skipped_layers_names", [])]
+            report["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": layer} for layer in getattr(result, "skipped_layers_names", [])]
         click.echo(json.dumps(report, indent=2))
     else:
         if ctx.obj.get("quiet"):
@@ -598,7 +596,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
     # Log analysis completion to audit log
     try:
         from archguard.audit.logger import AuditLogger
-        from archguard.config import AUDIT_LOG_FILENAME, AUDIT_EVENT_ANALYSIS
+        from archguard.config import AUDIT_EVENT_ANALYSIS
         audit = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
         
         band_val = str(result.archdebt.band.name).upper()

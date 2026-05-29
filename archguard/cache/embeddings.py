@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
 try:
     import numpy as np

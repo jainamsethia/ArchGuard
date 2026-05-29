@@ -13,8 +13,6 @@ from rich.console import Console
 
 from archguard.analysis.layers import AnalysisOrchestrator
 from archguard.analysis.parser import ImportParser
-from archguard.audit.logger import AuditLogger
-from archguard.contract.loader import load_contract
 from archguard.config import AUDIT_LOG_FILENAME
 
 report_app: typer.Typer = typer.Typer(
@@ -142,7 +140,7 @@ def report_cmd(
     ),
 ) -> None:
     """Generate a standalone HTML report with dependency graphs and trends."""
-    _console.print(f"[bold blue]Generating ArchGuard Report...[/bold blue]")
+    _console.print("[bold blue]Generating ArchGuard Report...[/bold blue]")
     
     # 1. Run Analysis
     orchestrator = AnalysisOrchestrator(root)

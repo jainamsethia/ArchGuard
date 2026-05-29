@@ -88,7 +88,7 @@ class LocalLLMExplainer:
 
         try:
             response = self._call_api(url, prompt)
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout):
             failure_msg = (
                 f"ollama is not running at {self._base_url}. "
                 f"Start it with: ollama serve"

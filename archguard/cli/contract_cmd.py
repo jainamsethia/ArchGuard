@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from archguard.config import EXIT_OK, EXIT_VIOLATION
+from archguard.config import EXIT_VIOLATION
 from archguard.contract.reinference import ReinferenceEngine
 from archguard.utils.errors import format_error
 

@@ -146,8 +146,6 @@ class DuplicationAnalyzer:
         if not keys:
             return DuplicationResult(module_name=module_name)
 
-        key_to_idx: dict[str, int] = {k: i for i, k in enumerate(keys)}
-
         # 4. Query for each function in module_files
         matches: list[DuplicationMatch] = []
         module_file_set = set(module_files)

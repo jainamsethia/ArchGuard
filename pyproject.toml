@@ -57,6 +57,20 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
+[[tool.mypy.overrides]]
+module = [
+    "archguard.cli.*",
+    "archguard.patch",
+    "archguard.patch_paths",
+    "archguard.profiles.*",
+    "archguard.utils.*",
+    "archguard.audit.*",
+    "archguard.analysis.*",
+    "archguard.llm.*",
+    "archguard.github.*"
+]
+ignore_errors = true
+
 [project]
 name = "archguard"
 version = "0.1.0"

@@ -19,9 +19,9 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Lint
-        run: ruff check archguard/ || true
+        run: ruff check archguard/
       - name: Type check
-        run: mypy archguard/ --ignore-missing-imports || true
+        run: mypy archguard/ --ignore-missing-imports
       - name: Unit tests
         run: pytest tests/unit -v --tb=short
       - name: Integration tests

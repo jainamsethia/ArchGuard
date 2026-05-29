@@ -1,3 +1,5 @@
+import os
+
 """Constants, exit codes, and event names for ArchGuard."""
 
 # Exit codes
@@ -23,8 +25,6 @@ EVENT_DUPLICATION_SKIPPED: str = "DUPLICATION_SKIPPED"
 SCHEMA_VERSION: str = "3.0"
 ARCHGUARD_CONFIG_FILE: str = ".archguard.yml"
 ARCHGUARD_CONFIG_DIR: str = ".archguard"
-
-import os
 
 # Audit log
 AUDIT_LOG_MAX_SIZE_MB: int = int(os.environ.get("ARCHGUARD_AUDIT_MAX_SIZE_MB", "10"))

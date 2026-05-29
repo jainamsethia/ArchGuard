@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
 
 INCREMENTAL_CACHE_FILE = ".archguard-cache.json"
 
