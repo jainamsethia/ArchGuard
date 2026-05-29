@@ -24,23 +24,25 @@ tree-sitter-python = ">=0.21"
 networkx = ">=3.0"
 python-louvain = ">=0.16"
 pydriller = ">=2.5"
-"ruamel.yaml" = ">=0.18"
+"ruamel.yaml" = ">=0.17"
 httpx = ">=0.25"
+PyGithub = ">=1.59.0"
 
 [tool.poetry.extras]
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
-cloud = ["anthropic"]
-cloud-cache = ["boto3"]
+cloud = ["anthropic", "boto3"]
 dashboard = ["fastapi", "uvicorn"]
 all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3", "fastapi", "uvicorn"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
-mypy = ">=1.0"
-types-PyYAML = "*"
-pre-commit = ">=3.0"
 pytest-cov = ">=4.0"
+pytest-benchmark = ">=4.0"
 pytest-asyncio = ">=0.23"
+mypy = ">=1.5"
+ruff = ">=0.1"
+pre-commit = ">=3.0"
+types-PyYAML = "*"
 watchdog = ">=3.0.0"
 
 [tool.poetry.group.ml.dependencies]
@@ -51,6 +53,11 @@ faiss-cpu = ">=1.7"
 
 [tool.poetry.group.cloud.dependencies]
 anthropic = ">=0.20"
+boto3 = ">=1.28.0"
+
+[tool.poetry.group.dashboard.dependencies]
+fastapi = ">=0.100.0"
+uvicorn = ">=0.23.0"
 
 [tool.mypy]
 python_version = "3.11"
@@ -72,57 +79,6 @@ module = [
     "archguard.github.*"
 ]
 ignore_errors = true
-
-[project]
-name = "archguard"
-version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
-    "typer>=0.9.0",
-    "rich>=13.0.0",
-    "pyyaml>=6.0",
-    "ruamel.yaml>=0.17",
-    "jsonschema>=4.0",
-    "tree-sitter>=0.21.0",
-    "tree-sitter-python>=0.21.0",
-    "networkx>=3.0",
-    "python-louvain>=0.16",
-    "pydriller>=2.5",
-    "httpx>=0.25.0",
-    "anthropic>=0.20.0",
-    "requests>=2.28",
-]
-
-[project.optional-dependencies]
-ml = [
-    "sentence-transformers>=2.2.0",
-    "faiss-cpu>=1.7.0",
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-]
-cloud = [
-    "boto3>=1.28.0",
-]
-dashboard = [
-    "fastapi>=0.100.0",
-    "uvicorn>=0.23.0",
-]
-github = [
-    "PyGithub>=1.59.0",
-]
-dev = [
-    "pytest>=7.0",
-    "pytest-benchmark>=4.0",
-    "pytest-cov>=4.0",
-    "mypy>=1.0",
-    "ruff>=0.1",
-    "click>=8.1",
-    "pre-commit>=3.0",
-    "watchdog>=3.0.0",
-]
-all = [
-    "archguard[ml,cloud,github,dev]",
-]
 
 [build-system]
 requires = ["poetry-core"]
