@@ -170,7 +170,14 @@ class AnalysisOrchestrator:
                 return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
 
             # --- Layer 3: Semantic drift ---
-            skip_layers = self.contract.get("skip_layers", [])
+            skip_layers = list(self.contract.get("skip_layers", []))
+            import os
+            SKIP_ML = os.getenv("ARCHGUARD_SKIP_ML", "").lower() in ("1", "true", "yes")
+            if SKIP_ML:
+                if "semantic" not in skip_layers:
+                    skip_layers.append("semantic")
+                if "duplication" not in skip_layers:
+                    skip_layers.append("duplication")
             
             desc3 = "Layer 3: Semantic Cohesion..."
             if progress:

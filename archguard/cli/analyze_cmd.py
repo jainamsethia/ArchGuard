@@ -373,7 +373,8 @@ def analyze_command(
 
 def _analyze_command_impl(opts: AnalyzeOptions) -> int:
     
-    if opts.no_llm:
+    SKIP_LLM = os.getenv("ARCHGUARD_SKIP_LLM", "").lower() in ("1", "true", "yes")
+    if opts.no_llm or SKIP_LLM:
         opts.skip_explanation = True
     repo_root = opts.repo.resolve()
 
