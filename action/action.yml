@@ -11,6 +11,10 @@ inputs:
     description: 'Path to repository root relative to workspace (default: .)'
     required: false
     default: '.'
+  github-sha:
+    description: 'Commit SHA for check run'
+    required: false
+    default: ${{ github.event.pull_request.head.sha }}
   pr-number:
     description: 'Pull request number to analyze. Auto-detected from GITHUB_PR_NUMBER env var.'
     required: false
@@ -53,6 +57,7 @@ runs:
     INPUT_FAIL_FAST: ${{ inputs.fail-fast }}
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+    INPUT_GITHUB_SHA: ${{ inputs.github-sha }}
 
 # Exit codes:
 # 0 - Success, no violations above threshold

@@ -682,6 +682,33 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
     # Post PR comment (if applicable)
     if opts.repo_slug and not opts.dry_run:
         try:
+            token = os.environ.get("GITHUB_TOKEN")
+            head_sha = os.environ.get("GITHUB_SHA") or commit_sha
+            
+            if token and head_sha:
+                from archguard.github.checks import ChecksAPIClient
+                from archguard.github.annotation_builder import violations_to_annotations
+                
+                checks_client = ChecksAPIClient(token=token, repo_full_name=opts.repo_slug)
+                annotations = violations_to_annotations(v_list_out)
+                
+                fail_threshold = float(orchestrator.contract.get("fail_threshold", 0.75))
+                conclusion = "failure" if result.archdebt.composite_score > fail_threshold else "success"
+                
+                checks_client.create_check_run(
+                    name="ArchGuard",
+                    head_sha=head_sha,
+                    status="completed",
+                    conclusion=conclusion,
+                    title=f"ArchDebt: {result.archdebt.composite_score:.2f} ({result.archdebt.band.value})",
+                    summary="ArchGuard analysis complete.",
+                    annotations=annotations,
+                )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in Checks API: {e}")
+
+        try:
             from archguard.github.client import post_comment
             from archguard.github.comments import PRCommentManager
 

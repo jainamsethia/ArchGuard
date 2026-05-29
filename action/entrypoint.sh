@@ -25,6 +25,10 @@ if [[ -z "${GITHUB_TOKEN:-}" ]]; then
   exit 1
 fi
 
+if [[ -n "${INPUT_GITHUB_SHA:-}" ]]; then
+  export GITHUB_SHA="${INPUT_GITHUB_SHA}"
+fi
+
 # Security fix: Use array CMD to prevent shell injection from inputs
 if [[ "${GITHUB_EVENT_NAME:-}" == "issue_comment" ]]; then
   CMD=("archguard" "github-sync" "--repo" "${REPO_ROOT}")
