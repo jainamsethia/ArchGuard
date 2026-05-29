@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-PRIMARY_MODEL: str = "claude-sonnet-4-20250514"
-FALLBACK_MODEL: str = "claude-haiku-4-5-20251001"
+PRIMARY_MODEL: str = os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514")
+FALLBACK_MODEL: str = os.getenv("ARCHGUARD_FALLBACK_MODEL", "claude-haiku-4-5-20251001")
 MAX_TOKENS: int = 2048
 
 _TERMINAL_PUNCT: frozenset[str] = frozenset({'.', '!', '?', '"', "'"})
@@ -188,7 +188,7 @@ class CloudLLMExplainer:
                 prompt = build_violation_prompt([violation], summary, changed_files)
                 async with anthropic.AsyncAnthropic(api_key=self._api_key) as client:
                     response = await client.messages.create(
-                        model="claude-3-haiku-20240307",  # Use cheapest model for explanations
+                        model=FALLBACK_MODEL,  # Use fallback model for explanations
                         max_tokens=500,
                         messages=[{"role": "user", "content": prompt}]
                     )

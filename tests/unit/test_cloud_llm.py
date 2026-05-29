@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch, call, AsyncMock
 
 import pytest
 
@@ -236,6 +236,36 @@ class TestCloudLLMExplainer:
             # Total calls = 7
             assert mock_call.call_count == 7
             assert len(llm_result.explanations) == 5
+
+    @pytest.mark.asyncio
+    async def test_concurrent_explainer_uses_configured_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Verify the model sent in API calls matches the configured FALLBACK_MODEL."""
+        monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
+        monkeypatch.setattr("archguard.llm.cloud._ML_AVAILABLE", True)
+        
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+        
+        # mock anthropic AsyncAnthropic client
+        mock_client = MagicMock()
+        mock_messages = AsyncMock()
+        mock_message_resp = MagicMock()
+        mock_message_resp.content = [MagicMock(text="response text")]
+        mock_messages.create.return_value = mock_message_resp
+        mock_client.messages = mock_messages
+        
+        mock_async_client_cls = MagicMock()
+        mock_async_client_cls.return_value.__aenter__.return_value = mock_client
+        mock_async_client_cls.return_value.__aexit__ = AsyncMock()
+        
+        monkeypatch.setattr("archguard.llm.cloud.anthropic.AsyncAnthropic", mock_async_client_cls)
+        
+        await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+        
+        mock_messages.create.assert_called_once()
+        assert mock_messages.create.call_args[1]["model"] == "test-model-123"
 
 
 class TestParseLLMResponse:
