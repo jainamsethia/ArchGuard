@@ -13,7 +13,7 @@ import yaml
 def minimal_contract() -> dict[str, Any]:
     """Return a minimal valid contract dict."""
     return {
-        "schema_version": "3.0",
+        "version": "3.0",
         "modules": [
             {
                 "name": "core",

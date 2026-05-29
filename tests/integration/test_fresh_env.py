@@ -17,7 +17,7 @@ def fixture_repo(tmp_path):
     (tmp_path / "src" / "payments" / "__init__.py").write_text("def process(): return True")
     # .archguard.yml contract
     (tmp_path / ".archguard.yml").write_text("""
-schema_version: "3.0"
+version: "3.0"
 modules:
   - name: api
     paths: [src/api/]

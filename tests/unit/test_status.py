@@ -53,5 +53,5 @@ class TestStatusCommand:
         # Parse the JSON output — strip any ANSI/Rich markup whitespace
         output_text = result.output.strip()
         parsed: dict[str, Any] = json.loads(output_text)
-        assert parsed["schema_version"] == "3.0"
+        assert parsed["version"] == "3.0"
         assert parsed["module_count"] == 1

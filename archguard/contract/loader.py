@@ -23,6 +23,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ConfigError(f"Expected a mapping in {path}, got {type(data).__name__}")
 
+    if "version" not in data:
+        data["version"] = "3.0"
+
     return data
 
 

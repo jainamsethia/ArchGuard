@@ -10,7 +10,7 @@ runner = CliRunner()
 def test_report_cmd_success(tmp_path):
     # Setup mock contract
     contract = {
-        "schema_version": "3.0",
+        "version": "3.0",
         "modules": [
             {"name": "test_mod", "paths": ["src/"]}
         ],

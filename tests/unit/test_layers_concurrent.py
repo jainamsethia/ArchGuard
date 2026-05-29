@@ -13,7 +13,7 @@ def test_parallel_layers_faster_than_sequential(benchmark, tmp_path):
     repo.mkdir()
     
     (repo / ".archguard.yml").write_text('''
-schema_version: "3.0"
+version: "3.0"
 modules:
   - name: module_a
     paths: ["a/"]

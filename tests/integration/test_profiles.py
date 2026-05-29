@@ -10,7 +10,7 @@ runner = CliRunner()
 def test_profile_strict_vs_lenient(tmp_path, monkeypatch):
     # Setup contract
     contract = {
-        "schema_version": "3.0",
+        "version": "3.0",
         "modules": [
             {"name": "test_mod", "paths": ["src/"]}
         ],

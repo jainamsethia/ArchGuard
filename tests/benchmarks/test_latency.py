@@ -34,7 +34,7 @@ def test_validator_throughput(benchmark: Any) -> None:
     from archguard.contract.validator import validate_contract
 
     contract: dict[str, Any] = {
-        "schema_version": "3.0",
+        "version": "3.0",
         "modules": [
             {"name": f"module_{i}", "paths": [f"src/module_{i}/"]}
             for i in range(10)

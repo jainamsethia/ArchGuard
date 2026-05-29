@@ -25,7 +25,7 @@ class TestLoadContract:
 
         result = load_contract(tmp_path)
 
-        assert result["schema_version"] == "3.0"
+        assert result["version"] == "3.0"
         assert len(result["modules"]) == 1
         assert result["modules"][0]["name"] == "core"
 
@@ -35,11 +35,11 @@ class TestLoadContract:
         config_dir.mkdir()
 
         file1_data: dict[str, Any] = {
-            "schema_version": "3.0",
+            "version": "3.0",
             "modules": [{"name": "core", "paths": ["src/core/"]}],
         }
         file2_data: dict[str, Any] = {
-            "schema_version": "3.0",
+            "version": "3.0",
             "modules": [{"name": "api", "paths": ["src/api/"]}],
         }
 

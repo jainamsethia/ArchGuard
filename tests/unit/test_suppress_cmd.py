@@ -18,7 +18,7 @@ runner: CliRunner = CliRunner()
 def _setup_repo(tmp_path: Path) -> Path:
     """Create a minimal repo with contract."""
     contract = {
-        "schema_version": "3.0",
+        "version": "3.0",
         "modules": [
             {"name": "payments", "paths": ["payments/"]},
             {"name": "auth", "paths": ["auth/"]},

@@ -16,7 +16,7 @@ from archguard.cli.main import app
 runner: CliRunner = CliRunner()
 
 _MINIMAL_CONTRACT: dict = {
-    "schema_version": "3.0",
+    "version": "3.0",
     "modules": [
         {
             "name": "core",

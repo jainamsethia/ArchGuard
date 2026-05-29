@@ -49,7 +49,7 @@ def _make_result(violations: list[ViolationDetail] | None = None) -> AnalysisRes
 
 
 _CONTRACT: dict = {
-    "schema_version": "3.0",
+    "version": "3.0",
     "modules": [
         {"name": "payments", "paths": ["payments/"]},
         {"name": "auth", "paths": ["auth/"]},
