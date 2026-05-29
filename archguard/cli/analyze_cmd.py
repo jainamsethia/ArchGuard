@@ -581,20 +581,20 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
                     progress.update(task, description="[green]✓ Explanations Generated[/green]")
                 progress.stop()
 
-    # Output
-    if opts.out_file is not None:
-        
-        v_list_out = []
-        for v in result.violations:
-            v_list_out.append({
-                "type": "layer",
-                "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
-                "message": getattr(v, "message", ""),
-                "severity": str(getattr(v, "severity", "low")),
-                "suppressed": getattr(v, "suppressed", False),
-                "explanation": getattr(v, "explanation", "")
-            })
+    # Always build v_list_out for output and audit
+    v_list_out = []
+    for v in result.violations:
+        v_list_out.append({
+            "type": "layer",
+            "layer": getattr(v, "layer", 0),
+            "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
+            "message": getattr(v, "message", ""),
+            "severity": str(getattr(v, "severity", "low")),
+            "suppressed": getattr(v, "suppressed", False),
+            "explanation": getattr(v, "explanation", "")
+        })
 
+    if opts.out_file is not None:
         band_val = str(result.archdebt.band.name).upper()
         if band_val in ("HEALTHY", "WATCH"):
             out_band = "PASS"
@@ -673,6 +673,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
             score=result.archdebt.composite_score * 100,
             band=audit_band,
             pr_number=opts.pr_number,
+            violations=v_list_out,
         )
     except Exception as e:
         import logging

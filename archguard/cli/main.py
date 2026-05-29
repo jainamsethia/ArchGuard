@@ -13,6 +13,7 @@ from archguard.cli.report_cmd import report_app
 from archguard.cli.profiles_cmd import profiles_app
 from archguard.cli.sync_cmd import sync_cache
 from archguard.cli.history_cmd import show_history
+from archguard.cli.diff_cmd import diff_app
 
 app: typer.Typer = typer.Typer(
     name="archguard",
@@ -34,6 +35,7 @@ app.add_typer(report_app, name="report")
 app.add_typer(profiles_app, name="profiles")
 app.command("sync")(sync_cache)
 app.command("history")(show_history)
+app.add_typer(diff_app, name="diff")
 
 @app.command("trends", hidden=True, deprecated=True)
 def trends_cmd(
