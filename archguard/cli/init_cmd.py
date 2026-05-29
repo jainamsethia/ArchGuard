@@ -177,6 +177,7 @@ def _phase3_communities(
 def _phase4_embeddings(
     communities: dict[str, list[str]],
     repo_root: Path,
+    python_files: list[str],
     no_llm: bool = False,
 ) -> dict[str, Any]:
     """Phase 4: Embedding Centroid Computation."""
@@ -601,7 +602,9 @@ def init_command(
                 "[bold cyan][4/5] Computing semantic embeddings..."
                 "[/bold cyan]", ctx
             )
-            phase4_data = _phase4_embeddings(communities, repo_root, no_llm=no_llm)
+            phase4_data = _phase4_embeddings(
+                communities, repo_root, phase1_data["python_files"], no_llm=no_llm
+            )
 
             vprint(
                 f"Embedded {phase4_data['modules_embedded']} modules | "

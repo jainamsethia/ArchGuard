@@ -231,9 +231,27 @@ class TestInitCommand:
         """_phase4_embeddings returns mock data when no_llm is True."""
         from archguard.cli.init_cmd import _phase4_embeddings
         communities = {"mod1": ["file1.py"]}
-        res = _phase4_embeddings(communities, tmp_path, no_llm=True)
+        res = _phase4_embeddings(communities, tmp_path, ["file1.py"], no_llm=True)
         assert res["modules_embedded"] == 1
         assert res["model_name"] == "none"
+
+    def test_phase4_embeddings_no_nameerror(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """_phase4_embeddings must not raise NameError."""
+        from archguard.cli.init_cmd import _phase4_embeddings
+        
+        _create_py_files(tmp_path)
+        communities = {"mod1": ["file1.py", "file2.py", "file3.py"]}
+        python_files = ["file1.py", "file2.py", "file3.py"]
+        
+        mocks = _make_mock_deps()
+        with patch.dict(sys.modules, mocks):
+            monkeypatch.setattr("archguard.cli.init_cmd._console", MagicMock())
+            monkeypatch.setattr("archguard.cli.init_cmd.Prompt.ask", lambda *args, **kwargs: "1")
+            
+            res = _phase4_embeddings(communities, tmp_path, python_files, no_llm=False)
+            
+        assert res["modules_embedded"] == 1
+        assert res["total_functions_embedded"] == 3
 
     def test_interactive_review_accept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_interactive_review handles 'y'."""
