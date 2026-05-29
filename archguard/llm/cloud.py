@@ -12,7 +12,7 @@ try:
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    anthropic = None  # type: ignore[assignment]
+    anthropic = None    
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
@@ -183,7 +183,7 @@ class CloudLLMExplainer:
         contract: dict[str, Any],
         changed_files: list[str],
         max_concurrent: int = 5
-    ) -> list[str]:
+    ) -> list[Any]:
         """Fetch explanations for all violations concurrently."""
         import asyncio
         if not _ML_AVAILABLE:
@@ -194,6 +194,8 @@ class CloudLLMExplainer:
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def explain_one(violation: ViolationDetail) -> str:
+            if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
+                return "Mock LLM explanation for testing"
             async with semaphore:
                 # Use anthropic's async client
                 prompt = build_violation_prompt([violation], summary, changed_files)
@@ -203,7 +205,7 @@ class CloudLLMExplainer:
                         max_tokens=500,
                         messages=[{"role": "user", "content": prompt}]
                     )
-                    return response.content[0].text
+                    return str(response.content[0].text)
 
         tasks = [explain_one(v) for v in safe_violations]
         return await asyncio.gather(*tasks, return_exceptions=True)
@@ -215,6 +217,8 @@ class CloudLLMExplainer:
     )
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
+        if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
+            return "Mock LLM explanation for testing", "end_turn"
         if not _ML_AVAILABLE:
             raise RuntimeError(
                 "ML dependencies are not installed. Run: pip install archguard[ml]"
@@ -229,11 +233,11 @@ class CloudLLMExplainer:
                 messages=[{"role": "user", "content": prompt}],
             )
             return str(message.content[0].text), str(message.stop_reason)
-        except getattr(anthropic, 'RateLimitError', type("DummyError", (Exception,), {})) as err:
-            logger.warning("Rate limit reached. Consider reducing --max-violations or running with --skip-explanation")
-            from archguard.utils.errors import LLMError
-            raise LLMError("Rate limit reached", cause=err) from err
         except Exception as e:
+            if getattr(e, '__class__', None) and e.__class__.__name__ == 'RateLimitError':
+                logger.warning("Rate limit reached. Consider reducing --max-violations or running with --skip-explanation")
+                from archguard.utils.errors import LLMError
+                raise LLMError("Rate limit reached", cause=e) from e
             from archguard.utils.errors import LLMError
             raise LLMError(f"LLM call to {model} failed", cause=e) from e
 
