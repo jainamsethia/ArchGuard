@@ -48,7 +48,7 @@ def apply_profile(contract: dict[str, Any], profile_name: str) -> dict[str, Any]
 
     # Global thresholds
     if "min_health_score" in thresholds:
-        contract["fail_threshold"] = thresholds["min_health_score"] / 100.0
+        contract["fail_threshold"] = 1.0 - (thresholds["min_health_score"] / 100.0)
 
     # Module thresholds
     if "modules" in contract:
