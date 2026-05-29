@@ -1,13 +1,40 @@
 # ArchGuard
+> **Architectural drift detection for Python CI pipelines**  
+> Catches import boundary violations, coupling degradation, and semantic drift before they reach main.
 
-[![CI](https://github.com/jainam-b/archguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainam-b/archguard/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/)
-[![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/)
-[![Coverage](https://codecov.io/gh/jainam-b/archguard/graph/badge.svg)](https://codecov.io/gh/jainam-b/archguard)
-[![License](https://img.shields.io/github/license/jainam-b/archguard)](LICENSE)
+[![CI](https://github.com/jainam-b/archguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainam-b/archguard/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/jainam-b/archguard/graph/badge.svg)](https://codecov.io/gh/jainam-b/archguard) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainam-b/archguard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
-Architectural drift detector for Python codebases.
-Inspects every pull request and flags when code violates defined module boundaries.
+**[📺 Live Demo](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
+
+## How It Works
+ArchGuard runs a 4-layer analysis pipeline on every PR:
+
+| Layer | Signal | Technology |
+|-------|--------|------------|
+| Boundary | Forbidden cross-module imports | tree-sitter AST |
+| Coupling | Fan-out exceeds budget | NetworkX graph |
+| Semantic | Embedding centroid drift | MiniLM + cosine similarity |
+| Duplication | Cross-module function clones | FAISS vector search |
+
+Results posted as a PR comment with an ArchDebt score and LLM-generated explanation.
+
+## Screenshots
+
+![Screenshot: rich terminal output of archguard analyze with score table and violations](docs/assets/terminal_output.png)
+*Rich terminal output of archguard analyze with score table and violations.*
+
+![Screenshot: PR comment with ArchDebt score and module breakdown](docs/assets/pr_comment.png)
+*Automated PR comment detailing ArchDebt score and architectural regressions.*
+
+![Screenshot: HTML report with trend chart](docs/assets/html_report.png)
+*Interactive HTML dashboard charting structural health trends.*
+
+## Technical Highlights
+- **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
+- **Louvain community detection** on commit co-change graph for automatic contract generation
+- **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
+- **Fallback LLM chain**: Claude (primary) → Ollama (local fallback) with concurrent async calls
+- **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
 ## Installation
 ### Full Install (recommended)
@@ -37,33 +64,6 @@ archguard analyze        # Check for violations
 │ api/service.py │ layer    │ CRITICAL │ api imports from db directly  │
 │ utils/parse.py │ coupling │ HIGH     │ instability: 0.92 (max: 0.80) │
 └────────────────┴──────────┴──────────┴───────────────────────────────┘
-```
-
-## Architecture
-
-ArchGuard runs 4 analysis layers on changed Python files:
-
-1. **Layer Enforcement**: Validates that explicit import boundaries defined in your contract aren't violated.
-2. **Coupling Delta**: Checks module "fan-out" and ensures no individual module becomes unexpectedly unstable or overly coupled to others.
-3. **Semantic Cohesion**: Employs an LLM embedding engine to look for files that have semantically drifted out of their community.
-4. **Duplication Detection**: Employs FAISS to locate excessive cross-module code duplication signaling a missed abstraction.
-
-These passes result in an aggregate **ArchDebt score** and can optionally utilize cloud LLMs to provide explanatory fixes for severe violations.
-
-## How It Works
-```mermaid
-graph TD
-A[PR opened] --> B[GitHub Action triggered]
-
-B --> C[archguard analyze]
-C --> D[L1: AST Boundary Check]
-D --> E[L2: Coupling Delta Graph]
-E --> F[L3: Semantic Drift via MiniLM]
-F --> G[L4: FAISS Duplication Check]
-G --> H[Composite ArchDebt Score]
-H --> I{Score > threshold?}
-I -- Yes --> J[CI FAIL + PR Comment]
-I -- No --> K[CI PASS + PR Comment]
 ```
 
 ## Tracking Architecture Health Over Time
@@ -188,16 +188,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and th
 ## Security
 
 See [SECURITY.md](SECURITY.md) for information on our security policy and how to report vulnerabilities.
-
-## Troubleshooting
-### `ModuleNotFoundError: No module named 'numpy'`
-Install ML dependencies: `pip install archguard[ml]`
-### GitHub Action always shows score `0` / band `Unknown`
-Ensure you're using version 2+ of the action. Older versions had an output extraction bug (fixed in v0.2.0).
-### `Permission denied` writing `.archguard-cache/`
-In GitHub Actions with Docker, ensure the workspace is writable. The action's `entrypoint.sh` handles this automatically as of v0.2.0.
-### Analysis skips all files / shows 0 changed files
-If your repo has a single commit, use `--base-ref` to specify the comparison ref, or run `archguard analyze --all-files` to analyze everything.
 
 ## License
 
