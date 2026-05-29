@@ -1,0 +1,14 @@
+version: "3.0"
+modules:
+  - name: core
+    path: src/core
+    allowed_imports:
+      - src.utils
+  - name: api
+    path: src/api
+    allowed_imports:
+      - src.core
+      - src.utils
+  - name: utils
+    path: src/utils
+    allowed_imports: []
