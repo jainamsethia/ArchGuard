@@ -39,6 +39,9 @@ inputs:
     description: 'Additional CLI arguments passed directly to archguard analyze.'
     required: false
     default: ''
+  slack-webhook:
+    description: 'Slack webhook URL for trend alerts'
+    required: false
 
 outputs:
   archdebt-score:
@@ -58,6 +61,7 @@ runs:
     INPUT_DRY_RUN: ${{ inputs.dry-run }}
     INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
     INPUT_GITHUB_SHA: ${{ inputs.github-sha }}
+    INPUT_SLACK_WEBHOOK: ${{ inputs.slack-webhook }}
 
 # Exit codes:
 # 0 - Success, no violations above threshold

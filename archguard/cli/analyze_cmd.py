@@ -782,6 +782,21 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
     ):
         should_fail = True
 
+    # Slack/Webhook Alerting
+    slack_webhook = os.getenv("ARCHGUARD_SLACK_WEBHOOK")
+    if slack_webhook:
+        try:
+            import asyncio
+            from archguard.alerting.trend_detector import detect_trends
+            from archguard.alerting.webhooks import send_slack_alert
+            
+            runs = logger.read_last_n_runs(n=10)
+            alerts = detect_trends(runs, window=10)
+            if alerts:
+                asyncio.run(send_slack_alert(slack_webhook, alerts))
+        except Exception as e:
+            _console.print(format_warning(f"Failed to send Slack alert: {e}"))
+
     if should_fail:
         return EXIT_VIOLATION, result
 

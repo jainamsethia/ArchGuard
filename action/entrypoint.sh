@@ -29,6 +29,10 @@ if [[ -n "${INPUT_GITHUB_SHA:-}" ]]; then
   export GITHUB_SHA="${INPUT_GITHUB_SHA}"
 fi
 
+if [[ -n "${INPUT_SLACK_WEBHOOK:-}" ]]; then
+  export ARCHGUARD_SLACK_WEBHOOK="${INPUT_SLACK_WEBHOOK}"
+fi
+
 # Security fix: Use array CMD to prevent shell injection from inputs
 if [[ "${GITHUB_EVENT_NAME:-}" == "issue_comment" ]]; then
   CMD=("archguard" "github-sync" "--repo" "${REPO_ROOT}")
