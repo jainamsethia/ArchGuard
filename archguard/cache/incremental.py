@@ -27,14 +27,38 @@ def load_cache(root: Path) -> dict[str, FileRecord]:
     try:
         data = json.loads(cache_file.read_text())
         return {k: FileRecord(**v) for k, v in data.items()}
-    except Exception as e:
+    except (json.JSONDecodeError, OSError) as e:
         import logging
-        logging.getLogger(__name__).warning(f"Non-critical failure in load_cache: {e}")
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Cache file corrupted ({e}), starting fresh: {cache_file}")
+        corrupt_path = cache_file.with_suffix(".corrupt")
+        try:
+            cache_file.rename(corrupt_path)
+        except OSError:
+            pass
         return {}
 
 def save_cache(root: Path, records: dict[str, FileRecord]) -> None:
+    import os
+    import tempfile
     cache_file = root / INCREMENTAL_CACHE_FILE
-    cache_file.write_text(json.dumps({k: asdict(v) for k, v in records.items()}, indent=2))
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_data = {k: asdict(v) for k, v in records.items()}
+    fd, tmp_path = tempfile.mkstemp(
+        dir=cache_file.parent,
+        prefix=".archguard_cache_",
+        suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(cache_data, f, indent=2)
+        os.replace(tmp_path, cache_file)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 def get_changed_files(files: list[Path], root: Path) -> tuple[list[Path], list[Path]]:
     """Returns (changed_files, unchanged_files) based on SHA-256 comparison."""

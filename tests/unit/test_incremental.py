@@ -74,3 +74,23 @@ def test_save_and_load_cache(tmp_path: Path) -> None:
     assert "b.py" in loaded
     assert loaded["b.py"].sha256 == "abcdef"
     assert loaded["b.py"].path == "b.py"
+
+def test_save_cache_atomic(tmp_path: Path, monkeypatch) -> None:
+    """Simulate crash during write — cache file should not be corrupted."""
+    import os
+    import pytest
+    cache_file = tmp_path / INCREMENTAL_CACHE_FILE
+    cache_file.write_text('{"old": {"path": "old", "sha256": "123", "last_analyzed": "0"}}')
+    write_count = 0
+    original_fdopen = os.fdopen
+    def crashing_fdopen(*args, **kwargs):
+        nonlocal write_count
+        write_count += 1
+        if write_count == 1:
+            raise OSError("Simulated disk full")
+        return original_fdopen(*args, **kwargs)
+    monkeypatch.setattr(os, "fdopen", crashing_fdopen)
+    with pytest.raises(OSError):
+        save_cache(tmp_path, {"new": FileRecord(path="new", sha256="456", last_analyzed="1")})
+    # Old cache must still be intact
+    assert json.loads(cache_file.read_text()) == {"old": {"path": "old", "sha256": "123", "last_analyzed": "0"}}
