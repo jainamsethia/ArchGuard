@@ -796,7 +796,7 @@ class AnalysisOrchestrator:
 
     @staticmethod
     def get_commit_sha(repo_root: Path) -> str:
-        """Read HEAD commit SHA, return 7-char short form."""
+        """Read HEAD commit SHA, return 7-char short form. Does not throw on failure."""
         try:
             result = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
@@ -804,10 +804,10 @@ class AnalysisOrchestrator:
                 text=True,
                 cwd=str(repo_root),
                 timeout=10,
+                check=False
             )
             if result.returncode == 0:
                 return result.stdout.strip()[:7]
         except Exception as e:
-            from archguard.utils.errors import AnalysisError
-            raise AnalysisError("Failed to get commit SHA", cause=e) from e
+            logger.debug(f"Failed to get commit SHA: {e}")
         return "unknown"
