@@ -5,9 +5,23 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION: str = "1.0"
+from typing import Callable
 
-SCHEMA_SQL: str = """
+CURRENT_SCHEMA_VERSION = 2  # increment when schema changes
+
+MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
+
+def migration(version: int):
+    """Decorator to register a migration function."""
+    def decorator(fn):
+        MIGRATIONS[version] = fn
+        return fn
+    return decorator
+
+@migration(1)
+def _migrate_v1(conn: sqlite3.Connection) -> None:
+    """Create initial schema."""
+    conn.executescript("""
 CREATE TABLE IF NOT EXISTS archguard_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -18,7 +32,6 @@ CREATE TABLE IF NOT EXISTS embeddings (
     function_name TEXT NOT NULL,
     embedding     BLOB NOT NULL,
     content_hash  TEXT NOT NULL,
-    model_name    TEXT NOT NULL,
     created_at    TEXT NOT NULL,
     PRIMARY KEY (file_path, function_name)
 );
@@ -29,7 +42,14 @@ CREATE TABLE IF NOT EXISTS module_centroids (
     content_hash  TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
-"""
+""")
+
+@migration(2)
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    """Add model_name column to track which embedding model was used."""
+    conn.execute("""
+ALTER TABLE embeddings ADD COLUMN model_name TEXT NOT NULL DEFAULT 'all-MiniLM-L6-v2'
+""")
 
 
 class EmbeddingDB:
@@ -61,12 +81,29 @@ class EmbeddingDB:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()
 
-        # Create schema
-        self._conn.executescript(SCHEMA_SQL)
-        self._conn.commit()
+        # Create schema and run migrations
+        self._ensure_schema()
+        
+        # Store schema version in meta as well for legacy compat
+        self.set_meta("schema_version", str(CURRENT_SCHEMA_VERSION))
 
-        # Store schema version
-        self.set_meta("schema_version", SCHEMA_VERSION)
+    def _ensure_schema(self) -> None:
+        # Create schema_version table if it doesn't exist
+        self._conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL
+        )
+        """)
+        if not self._conn.execute("SELECT 1 FROM schema_version").fetchone():
+            self._conn.execute("INSERT INTO schema_version VALUES (0)")
+            
+        current = self._conn.execute("SELECT version FROM schema_version").fetchone()[0]
+        if current < CURRENT_SCHEMA_VERSION:
+            for version in range(current + 1, CURRENT_SCHEMA_VERSION + 1):
+                if version in MIGRATIONS:
+                    MIGRATIONS[version](self._conn)
+            self._conn.execute("UPDATE schema_version SET version = ?", (CURRENT_SCHEMA_VERSION,))
+            self._conn.commit()
 
     def get_meta(self, key: str) -> str | None:
         """Get a metadata value by key.  Returns ``None`` if not found."""
