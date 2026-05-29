@@ -40,6 +40,7 @@ types-PyYAML = "*"
 pre-commit = ">=3.0"
 pytest-cov = ">=4.0"
 pytest-asyncio = ">=0.23"
+watchdog = ">=3.0.0"
 
 [tool.poetry.group.ml.dependencies]
 numpy = ">=1.24"
@@ -112,6 +113,7 @@ dev = [
     "ruff>=0.1",
     "click>=8.1",
     "pre-commit>=3.0",
+    "watchdog>=3.0.0",
 ]
 all = [
     "archguard[ml,cloud,github,dev]",

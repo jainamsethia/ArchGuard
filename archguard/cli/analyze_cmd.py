@@ -318,6 +318,9 @@ def analyze_command(
     fail_fast: bool = typer.Option(
         False, "--fail-fast", help="Exit after first layer that exceeds fail threshold"
     ),
+    watch: bool = typer.Option(
+        False, "--watch", "-w", help="Re-run on file changes",
+    ),
 ) -> None:
     """Run architectural drift analysis."""
     if verbose:
@@ -356,9 +359,13 @@ def analyze_command(
             out_file=out_file,
             fail_fast=fail_fast,
         )
-        result = _analyze_command_impl(opts)
-        if result != 0:
-            raise typer.Exit(result)
+        if watch:
+            from archguard.cli.watch_cmd import run_watch_mode
+            run_watch_mode(opts, Path(repo))
+        else:
+            result = _analyze_command_impl(opts)
+            if result != 0:
+                raise typer.Exit(result)
     except typer.Exit:
         raise
     except Exception as e:
