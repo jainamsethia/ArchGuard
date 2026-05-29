@@ -7,7 +7,10 @@ import logging
 import os
 from typing import Any
 
+import requests
+
 from archguard.utils.errors import ConfigError
+from archguard.utils.retry import with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +66,6 @@ class GitHubClient:
     def get_repo(self, repo_slug: str) -> Any:
         """Return a PyGitHub Repository object."""
         return self._gh.get_repo(repo_slug)
-
-    from archguard.utils.retry import with_retry
-    import requests
 
     @with_retry(max_attempts=3, retryable_exceptions=(requests.exceptions.RequestException,))
     def _do_post(self, repo_slug: str, body: str, pr_number: int) -> None:

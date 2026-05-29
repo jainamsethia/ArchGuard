@@ -23,6 +23,7 @@ from archguard.llm.prompts import (
 )
 from archguard.utils.content_filter import redact_secrets
 from archguard.utils.errors import LLMError
+from archguard.utils.retry import with_retry
 
 if TYPE_CHECKING:
     from archguard.analysis.layers import AnalysisResult, ViolationDetail
@@ -195,8 +196,6 @@ class CloudLLMExplainer:
 
         tasks = [explain_one(v) for v in safe_violations]
         return await asyncio.gather(*tasks, return_exceptions=True)
-
-    from archguard.utils.retry import with_retry
 
     @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
