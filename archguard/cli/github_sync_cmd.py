@@ -23,6 +23,14 @@ def github_sync(
     repo: Path = typer.Option(Path("."), "--repo", help="Repository root."),
 ) -> None:
     """Read GITHUB_EVENT_PATH, parse slash commands, and execute them."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if not event_path:
         _console.print("GITHUB_EVENT_PATH not set. Skipping github-sync.")

@@ -325,6 +325,16 @@ def analyze_command(
         logging.basicConfig(level=logging.DEBUG)
         
     try:
+        from archguard.utils.validation import validate_repo_path, validate_output_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+        if out_file is not None:
+            out_file = validate_output_path(out_file)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+
+    try:
         if json_output:
             ctx.ensure_object(dict)
             ctx.obj["quiet"] = True

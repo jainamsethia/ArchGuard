@@ -31,6 +31,14 @@ def contract_list_pending(
     ),
 ) -> None:
     """List pending contract proposals."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     engine = ReinferenceEngine(repo.resolve())
     proposals = engine.list_pending()
 
@@ -85,6 +93,14 @@ def contract_accept(
     ),
 ) -> None:
     """Accept a pending contract proposal."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     repo_root = repo.resolve()
     engine = ReinferenceEngine(repo_root)
 
@@ -125,6 +141,14 @@ def contract_reject(
     ),
 ) -> None:
     """Reject a pending contract proposal."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     engine = ReinferenceEngine(repo.resolve())
     success = engine.reject_proposal(module)
 
@@ -147,6 +171,14 @@ def contract_show(
     ),
 ) -> None:
     """Show a pending contract proposal."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     engine = ReinferenceEngine(repo.resolve())
     proposals = engine.list_pending()
 

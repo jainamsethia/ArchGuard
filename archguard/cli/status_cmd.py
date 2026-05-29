@@ -108,6 +108,14 @@ def status_command(
     ),
 ) -> None:
     """Show current ArchGuard configuration and health."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     repo_root = repo.resolve()
 
     try:

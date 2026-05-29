@@ -40,6 +40,14 @@ def suppress_add(
     ),
 ) -> None:
     """Add a violation suppression."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     store = SuppressionStore(repo.resolve())
     
     if all_pending:
@@ -127,6 +135,14 @@ def suppress_list(
     ),
 ) -> None:
     """List suppressions."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     store = SuppressionStore(repo.resolve())
     suppressions = store.list_all(include_inactive=include_inactive)
 
@@ -154,6 +170,14 @@ def suppress_migrate(
     ),
 ) -> None:
     """Migrate suppressions from one module to another."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     store = SuppressionStore(repo.resolve())
     count = store.migrate_module(from_module, to_module)
     _console.print(
@@ -172,6 +196,14 @@ def suppress_orphans(
     ),
 ) -> None:
     """Detect and display orphaned suppressions."""
+    try:
+        from archguard.utils.validation import validate_repo_path, PathTraversalError
+        from archguard.config import EXIT_CONFIG_ERROR
+        repo = validate_repo_path(repo)
+    except PathTraversalError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(EXIT_CONFIG_ERROR)
+        
     repo_root = repo.resolve()
     store = SuppressionStore(repo_root)
 
