@@ -229,6 +229,10 @@ class CloudLLMExplainer:
                 messages=[{"role": "user", "content": prompt}],
             )
             return str(message.content[0].text), str(message.stop_reason)
+        except getattr(anthropic, 'RateLimitError', type("DummyError", (Exception,), {})) as err:
+            logger.warning("Rate limit reached. Consider reducing --max-violations or running with --skip-explanation")
+            from archguard.utils.errors import LLMError
+            raise LLMError("Rate limit reached", cause=err) from err
         except Exception as e:
             from archguard.utils.errors import LLMError
             raise LLMError(f"LLM call to {model} failed", cause=e) from e

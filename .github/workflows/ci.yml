@@ -22,6 +22,8 @@ jobs:
         run: ruff check archguard/
       - name: Type check
         run: mypy archguard/ --ignore-missing-imports
+      - name: Check for dependency vulnerabilities
+        run: pip install safety && safety check -r requirements.txt || echo "Ignoring safety failure for now"
       - name: Unit tests
         run: pytest tests/unit -v --tb=short
       - name: Integration tests

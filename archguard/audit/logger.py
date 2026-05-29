@@ -37,6 +37,15 @@ class AuditLogger:
                 "event": event,
                 **kwargs,
             }
+            
+            # HMAC for integrity verification
+            entry_str = json.dumps(entry, sort_keys=True)
+            import hmac
+            import hashlib
+            import os
+            secret = os.environ.get("ARCHGUARD_AUDIT_SECRET", "archguard_default_secret").encode("utf-8")
+            signature = hmac.new(secret, entry_str.encode("utf-8"), hashlib.sha256).hexdigest()
+            entry["hmac"] = signature
 
             with self._log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, default=str) + "\n")

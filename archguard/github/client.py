@@ -35,9 +35,22 @@ class GitHubClient:
         token = token or os.environ.get("GITHUB_TOKEN")
         if not token:
             raise ConfigError("GITHUB_TOKEN environment variable not set.")
+        self._validate_token_scopes(token)
         from github import Github  # lazy import
 
         self._gh: Any = Github(token)
+
+    def _validate_token_scopes(self, token: str) -> None:
+        import requests
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.v3+json"}
+        try:
+            resp = requests.get("https://api.github.com/user", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                scopes = resp.headers.get("X-OAuth-Scopes", "")
+                if "repo" not in scopes and "public_repo" not in scopes:
+                    raise ConfigError(f"GITHUB_TOKEN has insufficient scopes: {scopes}. Needs 'repo' or 'public_repo'.")
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Could not validate GitHub token scopes: {e}")
 
     def get_pr(self, repo_slug: str, pr_number: int) -> Any:
         """Return a PyGitHub PullRequest object."""
