@@ -39,6 +39,9 @@ class AnalyzeOptions:
     no_llm: bool = False
     out_file: Path | None = None
     fail_fast: bool = False
+    monorepo: bool = False
+    watch: bool = False
+    metrics_flag: bool = False
 
 
 def attach_explanations(
@@ -316,7 +319,10 @@ def analyze_command(
         False, "--verbose", "-v", help="Show full debug logs.",
     ),
     fail_fast: bool = typer.Option(
-        False, "--fail-fast", help="Exit after first layer that exceeds fail threshold"
+        False, "--fail-fast", help="Exit immediately if a layer breaches the fail threshold"
+    ),
+    metrics_flag: bool = typer.Option(
+        False, "--metrics", help="Display performance metrics breakdown"
     ),
     watch: bool = typer.Option(
         False, "--watch", "-w", help="Re-run on file changes",
@@ -361,6 +367,9 @@ def analyze_command(
             no_llm=no_llm,
             out_file=out_file,
             fail_fast=fail_fast,
+            monorepo=monorepo,
+            watch=watch,
+            metrics_flag=metrics_flag,
         )
         if watch:
             from archguard.cli.watch_cmd import run_watch_mode
@@ -486,6 +495,16 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             py_changed, commit_sha, skip_explanation=opts.skip_explanation,
             progress_callback=None, fail_fast=opts.fail_fast
         )
+        
+        if opts.verbose or opts.metrics_flag:
+            from rich.table import Table
+            table = Table(title="Performance Metrics")
+            table.add_column("Layer", style="cyan")
+            table.add_column("Duration", justify="right", style="magenta")
+            for layer, duration in result.metrics.get("layer_durations", {}).items():
+                table.add_row(layer, f"{duration:.3f}s")
+            _console.print(table)
+
         vprint("Analysis core completed.", opts.ctx, level="debug")
         
         # Merge opts.incremental results
@@ -719,6 +738,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             band=audit_band,
             pr_number=opts.pr_number,
             violations=v_list_out,
+            metrics=result.metrics,
         )
     except Exception as e:
         import logging

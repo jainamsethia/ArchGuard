@@ -50,6 +50,7 @@ class AnalysisResult:
     skip_reason: str = ""
     fail_fast_triggered: bool = False
     skipped_layers_names: list[str] = field(default_factory=list)
+    metrics: dict = field(default_factory=dict)
 
 
 from archguard.utils.paths import normalize_path, path_belongs_to_module
@@ -122,6 +123,9 @@ class AnalysisOrchestrator:
 
             start_time = time.perf_counter()
 
+            from archguard.observability.metrics import AnalysisMetrics
+            metrics = AnalysisMetrics()
+            
             with ThreadPoolExecutor(max_workers=2) as executor:
                 desc1 = "Layer 1: Boundary Analysis..."
                 desc2 = "Layer 2: Coupling Analysis..."
@@ -133,8 +137,16 @@ class AnalysisOrchestrator:
                     print(desc1)
                     print(desc2)
                     
-                future_l1 = executor.submit(self._run_layer1, py_files, affected, commit_sha, violations)
-                future_l2 = executor.submit(self._run_layer2, affected, commit_sha, violations)
+                def run_l1():
+                    with metrics.time_layer("layer1"):
+                        return self._run_layer1(py_files, affected, commit_sha, violations)
+                        
+                def run_l2():
+                    with metrics.time_layer("layer2"):
+                        return self._run_layer2(affected, commit_sha, violations)
+                    
+                future_l1 = executor.submit(run_l1)
+                future_l2 = executor.submit(run_l2)
                 
                 layer1 = future_l1.result()
                 l1_violations = len([v for v in violations if v.layer == 1])
@@ -164,7 +176,7 @@ class AnalysisOrchestrator:
                         f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
                         f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                     )
-                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
+                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
                 
                 if layer2 >= fail_threshold:
                     if progress:
@@ -174,7 +186,7 @@ class AnalysisOrchestrator:
                         f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
                         f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                     )
-                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
+                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
 
             # --- Layer 3: Semantic drift ---
             skip_layers = list(self.contract.get("skip_layers", []))
@@ -202,7 +214,8 @@ class AnalysisOrchestrator:
                     print("⚠ Layer 3 Skipped (config)")
             else:
                 try:
-                    layer3, module_drifts = self._run_layer3(affected, py_files, commit_sha, violations)
+                    with metrics.time_layer("layer3"):
+                        layer3, module_drifts = self._run_layer3(affected, py_files, commit_sha, violations)
                     l3_violations = len([v for v in violations if v.layer == 3])
                     if progress:
                         progress.update(task3, description=f"[green]✓ Layer 3:[/green] {l3_violations} violations")
@@ -226,7 +239,7 @@ class AnalysisOrchestrator:
                     f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} "
                     f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                 )
-                return self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha)
+                return self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
 
             # --- Reinference: check staleness + create proposals ---
             self._run_reinference(affected, commit_sha, drift_results=module_drifts)
@@ -247,7 +260,8 @@ class AnalysisOrchestrator:
                     print("⚠ Layer 4 Skipped (config)")
             else:
                 try:
-                    layer4 = self._run_layer4(affected, commit_sha, violations)
+                    with metrics.time_layer("layer4"):
+                        layer4 = self._run_layer4(affected, commit_sha, violations)
                     l4_violations = len([v for v in violations if v.layer == 4])
                     if progress:
                         progress.update(task4, description=f"[green]✓ Layer 4:[/green] {l4_violations} violations")
@@ -294,6 +308,7 @@ class AnalysisOrchestrator:
                 modules_analyzed=len(affected),
                 changed_files=rel_files,
                 commit_sha=commit_sha,
+                metrics=metrics.to_dict(),
             )
         finally:
             if progress:
@@ -309,7 +324,8 @@ class AnalysisOrchestrator:
         violations: list[ViolationDetail], 
         affected: dict, 
         rel_files: list[str], 
-        commit_sha: str
+        commit_sha: str,
+        metrics: dict
     ) -> AnalysisResult:
         violations = self._filter_suppressed(violations)
         scores = LayerScores(l1, l2, l3, l4)
@@ -341,6 +357,7 @@ class AnalysisOrchestrator:
             modules_analyzed=len(affected),
             changed_files=rel_files,
             commit_sha=commit_sha,
+            metrics=metrics,
         )
         res.fail_fast_triggered = True
         res.skipped_layers_names = skipped_layers
