@@ -40,8 +40,11 @@ COPY action/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Create non-root user
-RUN useradd -m -u 1000 archguard
-# USER archguard
+RUN useradd -m -u 1000 archguard \
+    && mkdir -p /github/workspace \
+    && chown -R archguard:archguard /github/workspace
+
+USER archguard
 
 WORKDIR /github/workspace
 

@@ -39,3 +39,21 @@ jobs:
           name: test-results-${{ github.sha }}
           path: .pytest_cache/
           if-no-files-found: ignore
+
+  docker-test:
+    name: Docker Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker Image
+        run: docker build -t archguard:test .
+      - name: Test Non-Root User
+        run: |
+          USER=$(docker run --rm archguard:test whoami)
+          if [ "$USER" != "archguard" ]; then
+            echo "Expected user archguard, got $USER"
+            exit 1
+          fi
+          echo "Running as correct user: $USER"
+      - name: Test ArchGuard Command
+        run: docker run --rm archguard:test archguard --version
