@@ -1,4 +1,4 @@
 schema_version: "3.0"
 modules:
   - name: dummy
-    include: ["dummy.py"]
+    paths: ["dummy.py"]

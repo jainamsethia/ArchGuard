@@ -7,6 +7,7 @@ EXIT_VIOLATION: int = 1
 EXIT_INTERNAL_ERROR: int = 2
 
 # Audit event names (string constants)
+AUDIT_EVENT_ANALYSIS: str = "analysis_run"
 EVENT_INIT_STARTED: str = "INIT_STARTED"
 EVENT_INIT_COMPLETED: str = "INIT_COMPLETED"
 EVENT_ANALYZE_STARTED: str = "ANALYZE_STARTED"

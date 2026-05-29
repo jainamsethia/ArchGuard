@@ -11,6 +11,7 @@ from archguard.config import (
     AUDIT_LOG_FILENAME,
     AUDIT_LOG_MAX_BYTES,
     AUDIT_LOG_MAX_ENTRIES,
+    AUDIT_EVENT_ANALYSIS,
 )
 
 
@@ -84,7 +85,7 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                     continue
                 try:
                     event = json.loads(line)
-                    if event.get("event") == "analysis_run":
+                    if event.get("event") == AUDIT_EVENT_ANALYSIS:
                         return event
                 except json.JSONDecodeError:
                     continue

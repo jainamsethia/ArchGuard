@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from archguard.config import AUDIT_LOG_FILENAME
+from archguard.config import AUDIT_LOG_FILENAME, AUDIT_EVENT_ANALYSIS
 
 trends_app: typer.Typer = typer.Typer(
     name="trends",
@@ -59,7 +59,7 @@ def trends_cmd(
                     continue
                 try:
                     event = json.loads(line)
-                    if event.get("event") == "analysis_run":
+                    if event.get("event") == AUDIT_EVENT_ANALYSIS:
                         # Required fields: timestamp, score, grade, violation_count
                         # Sometimes structure might vary slightly, fallback if missing
                         ts_str = event.get("timestamp")

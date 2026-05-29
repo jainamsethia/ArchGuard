@@ -3,6 +3,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 import json
+from archguard.config import AUDIT_EVENT_ANALYSIS
 
 def _print_sparkline(console, values: list[float]):
     chars = " ▂▃▄▅▆▇█"
@@ -33,7 +34,7 @@ def show_history(
                 continue
                 
     # Filter to analysis events and take last N
-    analysis_runs = [e for e in entries if e.get("event") == "analysis_complete"][-limit:]
+    analysis_runs = [e for e in entries if e.get("event") == AUDIT_EVENT_ANALYSIS][-limit:]
     
     if not analysis_runs:
         console.print("[yellow]No completed analysis runs in audit log.[/yellow]")

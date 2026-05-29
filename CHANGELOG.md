@@ -4,6 +4,10 @@ All notable changes to archguard are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- Unified audit event name to restore trends and history functionality.
+  **Migration Note**: Existing `.archguard-cache/audit.jsonl` files containing `analysis_complete` events will not be read by the new constant. Old cache data is lost.
+
 ## [0.1.0] - 2026-05-27
 
 ### Added

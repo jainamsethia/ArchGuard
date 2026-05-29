@@ -598,7 +598,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
     # Log analysis completion to audit log
     try:
         from archguard.audit.logger import AuditLogger
-        from archguard.config import AUDIT_LOG_FILENAME
+        from archguard.config import AUDIT_LOG_FILENAME, AUDIT_EVENT_ANALYSIS
         audit = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
         
         band_val = str(result.archdebt.band.name).upper()
@@ -610,7 +610,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             audit_band = "FAIL"
             
         audit.log(
-            "analysis_complete",
+            AUDIT_EVENT_ANALYSIS,
             score=result.archdebt.composite_score * 100,
             band=audit_band,
             pr_number=pr,
