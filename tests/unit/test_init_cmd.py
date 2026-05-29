@@ -71,6 +71,11 @@ def _make_mock_deps(
 class TestInitCommand:
     """Tests for archguard init."""
 
+    @pytest.fixture(autouse=True)
+    def mock_prompt(self):
+        with patch("archguard.cli.init_cmd.Prompt.ask", return_value="1"):
+            yield
+
     def test_empty_dir_exit_1(self, tmp_path: Path) -> None:
         """--confirm-all on empty dir -> exit 1 (no Python files)."""
         mocks = _make_mock_deps()
@@ -90,6 +95,10 @@ class TestInitCommand:
             result = runner.invoke(
                 app, ["init", "--confirm-all", "--repo", str(tmp_path)],
             )
+        if result.exit_code != 0:
+            print("OUTPUT:", result.output)
+            if result.exception:
+                print("EXCEPTION:", repr(result.exception))
         assert result.exit_code == 0
         assert (tmp_path / ".archguard.yml").exists()
 
