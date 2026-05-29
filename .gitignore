@@ -8,3 +8,9 @@ __pycache__/
 *.pyc
 .archguard-cache/
 .archguard-checkpoints/
+
+# Development debugging scripts (never commit these)
+patch.py
+patch_paths.py
+search_*.py
+fix_*.py
