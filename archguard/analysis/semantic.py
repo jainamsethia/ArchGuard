@@ -14,9 +14,10 @@ try:
     _ML_AVAILABLE = True
 except Exception:
     _ML_AVAILABLE = False
-    np = None  # type: ignore[assignment]
-    npt = None  # type: ignore[assignment]
-    SentenceTransformer = None  # type: ignore[assignment]
+    import typing
+    np: typing.Any = None  # type: ignore[no-redef]
+    npt: typing.Any = None  # type: ignore[no-redef]
+    SentenceTransformer: typing.Any = None  # type: ignore[no-redef]
 
 from archguard.cache.embeddings import EmbeddingCache
 
@@ -100,15 +101,27 @@ def extract_module_text(file_path: Path) -> str:
     if module_doc:
         texts.append(module_doc)
 
+    MAX_FUNCTIONS = 100
+    MAX_CHARS = 50000
+    functions_processed = 0
+    total_chars = len(module_doc) if module_doc else 0
+
     # Class and function docstrings + names
     for node in ast.walk(tree):
+        if functions_processed >= MAX_FUNCTIONS or total_chars >= MAX_CHARS:
+            break
+            
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             texts.append(node.name)  # function/class name as semantic signal
+            total_chars += len(node.name)
+            functions_processed += 1
+            
             doc = ast.get_docstring(node)
             if doc:
                 texts.append(doc)
+                total_chars += len(doc)
 
-    return " ".join(texts)
+    return " ".join(texts)[:MAX_CHARS]
 
 class SemanticAnalyzer:
     """Embedding pipeline + drift detection using all-MiniLM-L6-v2."""
@@ -224,8 +237,13 @@ class SemanticAnalyzer:
             pre_centroid = np.zeros(384, dtype=np.float32)
 
         # 2. Extract + embed functions from changed files
+        MAX_FILES = 500
+        processed_files = 0
         all_embeddings: dict[str, npt.NDArray[np.float32]] = {}
         for fpath in changed_files:
+            if processed_files >= MAX_FILES:
+                break
+            processed_files += 1
             try:
                 rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
                 source = extract_module_text(fpath)
