@@ -117,57 +117,64 @@ class AnalysisOrchestrator:
             progress.start()
 
         try:
-            # --- Layer 1: Import boundary violations ---
-            desc1 = "Layer 1: Boundary Analysis..."
-            if progress:
-                task1 = progress.add_task(desc1, total=None)
-            else:
-                print(desc1)
+            import time
+            from concurrent.futures import ThreadPoolExecutor
+
+            start_time = time.perf_counter()
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                desc1 = "Layer 1: Boundary Analysis..."
+                desc2 = "Layer 2: Coupling Analysis..."
                 
-            layer1 = self._run_layer1(py_files, affected, commit_sha, violations)
-            
-            l1_violations = len([v for v in violations if v.layer == 1])
-            if progress:
-                progress.update(task1, description=f"[green]✓ Layer 1:[/green] {l1_violations} violations")
-                progress.stop_task(task1)
-            else:
-                print(f"✓ Layer 1 complete ({l1_violations} violations)")
-
-            if fail_fast and layer1 >= fail_threshold:
                 if progress:
-                    progress.stop()
-                from rich.console import Console
-                Console().print(
-                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
-                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
-                )
-                return self._build_partial_result(layer1, 0.0, 0.0, 0.0, ["coupling", "semantic", "duplication"], violations, affected, rel_files, commit_sha)
-
-            # --- Layer 2: Coupling delta ---
-            desc2 = "Layer 2: Coupling Analysis..."
-            if progress:
-                task2 = progress.add_task(desc2, total=None)
-            else:
-                print(desc2)
+                    task1 = progress.add_task(desc1, total=None)
+                    task2 = progress.add_task(desc2, total=None)
+                else:
+                    print(desc1)
+                    print(desc2)
+                    
+                future_l1 = executor.submit(self._run_layer1, py_files, affected, commit_sha, violations)
+                future_l2 = executor.submit(self._run_layer2, affected, commit_sha, violations)
                 
-            layer2 = self._run_layer2(affected, commit_sha, violations)
-            
-            l2_violations = len([v for v in violations if v.layer == 2])
-            if progress:
-                progress.update(task2, description=f"[green]✓ Layer 2:[/green] {l2_violations} violations")
-                progress.stop_task(task2)
-            else:
-                print(f"✓ Layer 2 complete ({l2_violations} violations)")
-
-            if fail_fast and layer2 >= fail_threshold:
+                layer1 = future_l1.result()
+                l1_violations = len([v for v in violations if v.layer == 1])
                 if progress:
-                    progress.stop()
-                from rich.console import Console
-                Console().print(
-                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
-                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
-                )
-                return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
+                    progress.update(task1, description=f"[green]✓ Layer 1:[/green] {l1_violations} violations")
+                    progress.stop_task(task1)
+                else:
+                    print(f"✓ Layer 1 complete ({l1_violations} violations)")
+                    
+                layer2 = future_l2.result()
+                l2_violations = len([v for v in violations if v.layer == 2])
+                if progress:
+                    progress.update(task2, description=f"[green]✓ Layer 2:[/green] {l2_violations} violations")
+                    progress.stop_task(task2)
+                else:
+                    print(f"✓ Layer 2 complete ({l2_violations} violations)")
+
+            elapsed = time.perf_counter() - start_time
+            logger.debug(f"Layer 1 and 2 concurrent execution time: {elapsed:.2f}s")
+            
+            if fail_fast:
+                if layer1 >= fail_threshold:
+                    if progress:
+                        progress.stop()
+                    from rich.console import Console
+                    Console().print(
+                        f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
+                        f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+                    )
+                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
+                
+                if layer2 >= fail_threshold:
+                    if progress:
+                        progress.stop()
+                    from rich.console import Console
+                    Console().print(
+                        f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
+                        f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+                    )
+                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha)
 
             # --- Layer 3: Semantic drift ---
             skip_layers = list(self.contract.get("skip_layers", []))
