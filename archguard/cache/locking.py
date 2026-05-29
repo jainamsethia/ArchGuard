@@ -5,18 +5,22 @@ Uses ``msvcrt`` on Windows and ``fcntl`` on Unix/macOS.
 
 from __future__ import annotations
 
+import os
 import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-LOCK_TIMEOUT = 30  # seconds
+LOCK_TIMEOUT = float(os.getenv("ARCHGUARD_LOCK_TIMEOUT", "30.0"))
+LOCK_RETRY_INTERVAL = 0.05
+
 
 @contextmanager
-def file_lock(lock_path: Path, timeout: float = LOCK_TIMEOUT) -> Generator[None, None, None]:
+def file_lock(lock_path: Path | str, timeout: float = LOCK_TIMEOUT) -> Generator[None, None, None]:
     """
     OS-level file lock. Automatically released on process death.
-    Uses fcntl on Unix, msvcrt on Windows.
+    Uses fcntl with a spin loop on Unix, msvcrt on Windows.
+    Thread-safe (unlike SIGALRM). Works in containerized runtimes.
     """
     lock_path = Path(lock_path)
     lock_path.touch(exist_ok=True)
@@ -32,26 +36,36 @@ def file_lock(lock_path: Path, timeout: float = LOCK_TIMEOUT) -> Generator[None,
                     break
                 except OSError:
                     if time.monotonic() > deadline:
-                        raise TimeoutError(f"Could not acquire lock {lock_path} within {timeout}s")
-                    time.sleep(0.1)
+                        raise TimeoutError(
+                            f"Could not acquire file lock on {lock_path} within {timeout}s. "
+                            "Another archguard process may be running."
+                        )
+                    time.sleep(LOCK_RETRY_INTERVAL)
             try:
                 yield
             finally:
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
         else:
-            # Unix: fcntl blocking lock with timeout via SIGALRM
-            import signal
+            # Unix: fcntl non-blocking lock with spin loop
+            import time
             import fcntl
-            def _timeout_handler(signum, frame):
-                raise TimeoutError(f"Could not acquire lock {lock_path} within {timeout}s")
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(int(timeout))
+            deadline = time.monotonic() + timeout
+            acquired = False
+            while time.monotonic() < deadline:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    time.sleep(LOCK_RETRY_INTERVAL)
+            if not acquired:
+                raise TimeoutError(
+                    f"Could not acquire file lock on {lock_path} within {timeout}s. "
+                    "Another archguard process may be running."
+                )
             try:
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-                signal.alarm(0)
                 yield
             finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                if acquired:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
