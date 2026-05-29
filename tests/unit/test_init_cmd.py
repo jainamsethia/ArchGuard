@@ -287,3 +287,29 @@ class TestInitCommand:
         res = _interactive_review(communities)
         assert "mod2" in res
         assert "mod1" not in res
+
+    def test_init_fallback_on_empty_repo(self, tmp_path: Path) -> None:
+        """Test fallback to directory modules when commit history is sparse."""
+        import subprocess
+        import yaml
+        
+        # Create a git repo with 1 commit
+        subprocess.run(["git", "init", str(tmp_path)])
+        (tmp_path / "main.py").write_text("def hello(): pass")
+        (tmp_path / "utils").mkdir()
+        (tmp_path / "utils" / "helper.py").write_text("def help(): pass")
+        subprocess.run(["git", "add", "."], cwd=tmp_path)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path)
+
+        mocks = _make_mock_deps()
+        with patch.dict(sys.modules, mocks):
+            result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--confirm-all"])
+
+        assert result.exit_code == 0
+        contract_path = tmp_path / ".archguard.yml"
+        assert contract_path.exists()
+        
+        with contract_path.open(encoding="utf-8") as f:
+            contract = yaml.safe_load(f)
+            
+        assert len(contract["modules"]) >= 1  # At least one module detected

@@ -87,6 +87,40 @@ def count_loc(file_path: Path) -> int:
     except OSError:
         return 0
 
+def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
+    """Detect modules from directory structure when commit history is sparse."""
+    modules: dict[str, list[Path]] = {}
+    for py_file in repo_path.rglob("*.py"):
+        if any(part.startswith(".") for part in py_file.parts):
+            continue  # Skip hidden dirs
+            
+        relative = py_file.relative_to(repo_path)
+        parts = relative.parts
+        
+        if "test" in parts or "tests" in parts:
+            modules.setdefault("tests", []).append(relative)
+            continue
+            
+        # Use top-level package as module name
+        if len(parts) >= 2:
+            module_name = parts[0]
+        else:
+            module_name = "root"
+        modules.setdefault(module_name, []).append(relative)
+        
+    # Merge tiny modules into 'misc'
+    small_modules = [k for k, v in modules.items() if len(v) < 3]
+    if small_modules:
+        misc_files = []
+        for k in small_modules:
+            misc_files.extend(modules.pop(k))
+        if misc_files:
+            modules["misc"] = misc_files
+            
+    if not modules:
+        return {"main": [str(p.relative_to(repo_path)).replace("\\", "/") for p in repo_path.rglob("*.py") if not any(part.startswith(".") for part in p.parts)]}
+        
+    return {k: [str(p).replace("\\", "/") for p in v] for k, v in modules.items()}
 
 # ------------------------------------------------------------------
 # Phase implementations
@@ -119,8 +153,13 @@ def _phase2_commits(repo_root: Path) -> dict[str, Any]:
     from pydriller import Repository  # lazy import
     import networkx as nx  # lazy import
 
-    repo = Repository(str(repo_root))
-    commits = list(repo.traverse_commits())
+    try:
+        repo = Repository(str(repo_root))
+        commits = list(repo.traverse_commits())
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Git history extraction failed: {e}")
+        commits = []
 
     if len(commits) > 1000:
         commits = commits[-500:]
@@ -152,6 +191,8 @@ def _phase3_communities(
     graph_data: dict[str, Any],
     repo_root: Path,
     python_files: list[str],
+    commit_count: int,
+    min_history: int,
 ) -> dict[str, Any]:
     """Phase 3: Louvain Community Detection."""
     import networkx as nx  # lazy import
@@ -160,11 +201,22 @@ def _phase3_communities(
     graph = nx.node_link_graph(graph_data)
     seed = get_seed_from_repo(repo_root)
 
-    communities = detect_communities(graph, seed=seed, min_community_size=2)
+    if commit_count < min_history:
+        _console.print(
+            f"\n[yellow]⚠ Insufficient commit history ({commit_count} < {min_history}). "
+            "Falling back to directory-structure-based module detection.[/yellow]"
+        )
+        communities = _fallback_directory_modules(repo_root)
+    else:
+        communities = detect_communities(graph, seed=seed, min_community_size=2)
 
-    # Fallback: if no communities detected, create a single module
-    if not communities:
-        communities = {"module_0": sorted(python_files)}
+        # Fallback: if no communities detected, create a single module
+        if not communities or len(communities) < 2:
+            _console.print(
+                "\n[yellow]⚠ Insufficient community diversity detected in co-change graph. "
+                "Falling back to directory-structure-based module detection.[/yellow]"
+            )
+            communities = _fallback_directory_modules(repo_root)
 
     return {
         "seed": seed,
@@ -436,6 +488,12 @@ def init_command(
     no_llm: bool = typer.Option(
         False, "--no-llm", help="Skip LLM API calls entirely.",
     ),
+    min_history_commits: int = typer.Option(
+        5,
+        "--min-history-commits",
+        help="Minimum commits needed for co-change analysis (default: 5). "
+             "Below this, falls back to directory-structure detection.",
+    ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     repo_root = repo.resolve()
@@ -562,12 +620,16 @@ def init_command(
                         phase2_data["graph_data"],
                         repo_root,
                         phase1_data["python_files"],
+                        commit_count=phase2_data.get("commit_count", 0),
+                        min_history=min_history_commits,
                     )
             else:
                 phase3_data = _phase3_communities(
                     phase2_data["graph_data"],
                     repo_root,
                     phase1_data["python_files"],
+                    commit_count=phase2_data.get("commit_count", 0),
+                    min_history=min_history_commits,
                 )
 
             seed_hex = hex(phase3_data["seed"])
