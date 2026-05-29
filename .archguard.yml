@@ -1,10 +1,10 @@
-schema_version: "3.0"
+version: "3.0"
 modules:
   - name: archguard
-    paths: ["archguard/"]
+    path: ["archguard/"]
     coupling_budget: 15
     semantic_drift_threshold: 0.30
   - name: tests
-    paths: ["tests/"]
+    path: ["tests/"]
 fail_threshold: 0.75
 warn_threshold: 0.50

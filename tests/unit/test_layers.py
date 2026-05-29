@@ -10,7 +10,7 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
         "modules": [
             {
                 "name": "api",
-                "paths": ["src/api/"],
+                "path": "src/api/",
             },
             {
                 "name": "core",
@@ -18,7 +18,7 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
             },
             {
                 "name": "utils",
-                "paths": ["src/utils/"],
+                "path": "src/utils/",
                 "module_names": ["utils.helpers"]
             }
         ]
@@ -67,7 +67,7 @@ def test_drift_computed_once_per_run(tmp_path):
         "modules": [
             {
                 "name": "core",
-                "paths": ["src/core/"],
+                "path": "src/core/",
             }
         ]
     }

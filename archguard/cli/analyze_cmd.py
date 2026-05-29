@@ -42,6 +42,7 @@ class AnalyzeOptions:
     monorepo: bool = False
     watch: bool = False
     metrics_flag: bool = False
+    verbose: bool = False
 
 
 def attach_explanations(
@@ -141,8 +142,8 @@ def _resolve_changed_files(
             logging.warning(f"git diff failed: {diff_result.stderr}. Analyzing all Python files.")
             return list(repo_root.rglob("*.py"))
             
-        files = [Path(f) for f in diff_result.stdout.strip().splitlines() if f.endswith(".py")]
-        return [repo_root / f for f in files if (repo_root / f).exists()]
+        diff_files = [Path(f) for f in diff_result.stdout.strip().splitlines() if f.endswith(".py")]
+        return [repo_root / f for f in diff_files if (repo_root / f).exists()]
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Analysis failed in _resolve_changed_files git fallback: {e}", exc_info=True)
@@ -163,6 +164,11 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     _console.print(f"Repo:    {repo_root}")
     _console.print(f"Commit:  {result.commit_sha}")
     _console.print(f"Files:   {len(result.changed_files)} changed Python files")
+    
+    if getattr(result, "partial_analysis", False):
+        failures = getattr(result, "parse_failures", [])
+        _console.print(f"[bold yellow]⚠ Analysis Partial: {len(failures)} files could not be parsed[/bold yellow]")
+        
     _console.print()
     
     from rich.table import Table
@@ -370,6 +376,7 @@ def analyze_command(
             monorepo=monorepo,
             watch=watch,
             metrics_flag=metrics_flag,
+            verbose=verbose,
         )
         if watch:
             from archguard.cli.watch_cmd import run_watch_mode
@@ -404,6 +411,7 @@ def analyze_command(
                     no_llm=no_llm,
                     out_file=out_file,
                     fail_fast=fail_fast,
+                    verbose=verbose,
                 )
                 exit_code, result = _analyze_command_impl(pkg_opts)
                 if exit_code not in (0, 1) or result is None:
@@ -470,7 +478,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
     from archguard.cache.incremental import get_changed_files, save_cache, load_cache, FileRecord, compute_hash
     from archguard.audit.logger import AuditLogger
     
-    unchanged = []
+    unchanged: list[Path] = []
     if opts.incremental and not opts.no_incremental:
         py_changed, unchanged = get_changed_files(py_changed, repo_root)
 
@@ -493,7 +501,8 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         vprint(f"Analyzing {len(py_changed)} changed files...", opts.ctx, level="debug")
         result = orchestrator.run(
             py_changed, commit_sha, skip_explanation=opts.skip_explanation,
-            progress_callback=None, fail_fast=opts.fail_fast
+            progress_callback=None, fail_fast=opts.fail_fast,
+            quiet=opts.json_output
         )
         
         if opts.verbose or opts.metrics_flag:
@@ -554,7 +563,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
                     )
                 
                 # Combine changed files
-                result.opts.changed_files.extend(list(unchanged_rel))
+                result.changed_files.extend(list(unchanged_rel))
         
         # Save opts.incremental cache on success
         if opts.incremental and not opts.no_incremental:
@@ -618,7 +627,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             explainer = CloudLLMExplainer()
             
             raw_explanations = asyncio.run(explainer.explain_violations_concurrent(
-                result.violations, orchestrator.contract, result.opts.changed_files
+                result.violations, orchestrator.contract, result.changed_files
             ))
             
             explanations = []
@@ -758,7 +767,8 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
                 annotations = violations_to_annotations(v_list_out)
                 
                 fail_threshold = float(orchestrator.contract.get("fail_threshold", 0.75))
-                conclusion = "failure" if result.archdebt.composite_score > fail_threshold else "success"
+                from typing import Literal
+                conclusion: Literal['success', 'failure'] = "failure" if result.archdebt.composite_score > fail_threshold else "success"
                 
                 checks_client.create_check_run(
                     name="ArchGuard",
@@ -795,9 +805,16 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             _console.print("[yellow]Warning: Failed to post PR comment.[/yellow]")
 
     # Determine exit code
+    has_critical_parse_failures = any(f.is_critical for f in getattr(result, "parse_failures", []))
+    if has_critical_parse_failures:
+        if not quiet:
+            _console.print("[bold red]Critical parse failures detected. Analysis is invalid.[/bold red]")
+        return 3, result
+
     should_fail = result.archdebt.should_fail_ci
     if opts.fail_on_warn and result.archdebt.band in (
         ArchDebtBand.WATCH,
+
         ArchDebtBand.WARN,
     ):
         should_fail = True
@@ -810,7 +827,9 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             from archguard.alerting.trend_detector import detect_trends
             from archguard.alerting.webhooks import send_slack_alert
             
-            runs = logger.read_last_n_runs(n=10)
+            from archguard.audit.logger import AuditLogger
+            audit_logger = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
+            runs = audit_logger.read_last_n_runs(n=10)
             alerts = detect_trends(runs, window=10)
             if alerts:
                 asyncio.run(send_slack_alert(slack_webhook, alerts))

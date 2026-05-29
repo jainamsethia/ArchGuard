@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import typing
 import json
 import webbrowser
 from datetime import datetime, timezone
@@ -37,7 +38,7 @@ def _read_template() -> str:
             return fallback.read_text("utf-8")
         raise RuntimeError("Could not locate report_template.html")
 
-def _get_trend_data() -> dict:
+def _get_trend_data() -> typing.Any:
     """Read audit log and return last 10 scores and labels."""
     log_path = Path(AUDIT_LOG_FILENAME)
     scores = []
@@ -72,7 +73,7 @@ def _get_trend_data() -> dict:
             logging.getLogger(__name__).warning(f"Non-critical failure generating trend data: {e}")
     return {"labels": labels, "scores": scores}
 
-def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> dict:
+def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> typing.Any:
     """Build nodes and edges for vis.js by parsing imports."""
     parser = ImportParser()
     edges_raw = parser.parse_repo(repo_root, module_paths)
@@ -87,7 +88,8 @@ def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> di
     # This is a simplified approach mimicking the coupling analyzer
     from archguard.utils.paths import path_belongs_to_module
 
-    for edge in edges_raw:
+    edges_list = getattr(edges_raw, "edges", edges_raw)
+    for edge in edges_list:  # type: ignore
         if edge.is_stdlib or edge.is_relative:
             continue
             

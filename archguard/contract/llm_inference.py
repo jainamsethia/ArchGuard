@@ -2,6 +2,7 @@ import os
 import ast
 from pathlib import Path
 import asyncio
+import typing
 
 CONTRACT_GENERATION_PROMPT = """
 You are an expert software architect analyzing a Python codebase.
@@ -45,7 +46,7 @@ def _build_directory_tree(repo_path: Path, max_depth: int = 3) -> str:
     """Build a text representation of the directory tree."""
     tree = []
     
-    def walk(directory: Path, depth: int, prefix: str = ""):
+    def walk(directory: Path, depth: int, prefix: str = "") -> None:
         if depth > max_depth:
             return
         
@@ -94,7 +95,7 @@ def _read_readme_excerpt(repo_path: Path, max_chars: int = 2000) -> str:
                 continue
     return ""
 
-async def generate_contract_from_llm(repo_path: Path) -> dict:
+async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
     try:
         import anthropic
     except ImportError:
@@ -136,9 +137,9 @@ async def generate_contract_from_llm(repo_path: Path) -> dict:
     contract = json.loads(response_text.strip())
     
     # We could validate here, but skipping rigorous validation so we can merge it
-    return contract
+    return typing.cast(dict[str, typing.Any], contract)
 
-def _merge_contracts(louvain: dict, llm: dict) -> dict:
+def _merge_contracts(louvain: dict[str, typing.Any], llm: dict[str, typing.Any]) -> dict[str, typing.Any]:
     """Prefer LLM module boundaries, use Louvain to refine coupling budgets."""
     import copy
     merged = copy.deepcopy(llm)

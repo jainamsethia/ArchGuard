@@ -1,0 +1,128 @@
+<USER_REQUEST>
+# EXECUTION INSTRUCTIONS — FOLLOW THE ROADMAP BELOW EXACTLY
+
+You are now entering EXECUTION MODE.
+
+The markdown content provided below is the complete implementation roadmap and source-of-truth execution document for the ArchGuard production hardening project.
+
+Your task is NOT to analyze, summarize, critique, redesign, or rewrite the roadmap.
+
+Your task is to EXECUTE the roadmap prompts one-by-one in strict sequential order exactly as written.
+
+## CORE EXECUTION RULES
+
+1. Treat every BLOCKER section as a real engineering task.
+2. Execute ONLY ONE blocker/task at a time.
+3. Do NOT jump ahead to later phases until the current blocker is fully completed.
+4. For each blocker:
+
+   * Read the full context carefully
+   * Understand architecture implications
+   * Follow every implementation step precisely
+   * Generate production-quality code only
+   * Preserve existing architecture unless explicitly instructed otherwise
+   * Minimize regressions
+   * Maintain backward compatibility where possible
+
+## REQUIRED OUTPUT FORMAT FOR EVERY BLOCKER
+
+For each blocker execution, follow this exact structure:
+
+### 1. ANALYSIS
+
+* Explain what is broken
+* Explain root cause
+* Explain risks
+* Explain affected files/modules
+
+### 2. IMPLEMENTATION PLAN
+
+* Break the task into concrete engineering steps
+* Mention all files to modify/create
+* Mention dependencies and regression risks
+
+### 3. CODE CHANGES
+
+Provide:
+
+* Full updated code
+* Precise diffs
+* New files
+* Refactored functions
+* Updated configs
+* Updated tests
+* CI updates if required
+
+### 4. VALIDATION
+
+Provide:
+
+* Commands to run
+* Expected outputs
+* Manual verification steps
+* Security validation
+* Edge case testing
+
+### 5. REGRESSION CHECKS
+
+Explain:
+
+* What could break
+* How to test for regressions
+* Compatibility considerations
+
+### 6. COMMIT MESSAGE
+
+Provide the exact git commit message.
+
+## IMPORTANT EXECUTION CONSTRAINTS
+
+* Never skip validation steps.
+* Never use placeholders 
+<truncated 45215 bytes>
+eadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(load_model) for _ in range(10)]
+        [f.result() for f in futures]
+    
+    # All threads should get the same instance
+    assert all(r is results[0] for r in results), "Model was loaded multiple times"
+    assert len(results) == 10
+
+def test_model_load_failure_raises_clear_error():
+    with pytest.raises(ModelLoadError, match="Cannot load embedding model"):
+        _get_model("nonexistent-model-xyz")
+
+def test_fallback_model_used_when_primary_fails():
+    with patch("archguard.analysis.semantic._get_model", side_effect=ModelLoadError):
+        model, is_fallback = _get_model_with_fallback("all-MiniLM-L6-v2")
+        assert is_fallback is True
+```
+
+REGRESSION RISKS:
+- Low: The lock only affects model initialization, not inference. No behavioral change.
+- Tests that patch SentenceTransformer will need to be reviewed to ensure they still work.
+
+COMMIT MESSAGE:
+fix(semantic): make SentenceTransformer model cache thread-safe with double-checked locking
+```
+
+---
+
+## BLOCKER-09: Docker `USER` Issue and Container Security
+
+### Current Architecture
+The evaluation notes Docker non-root user was added, but a "Docker USER issue" was called out as critical. The likely issue is that the `USER` directive is set too early in the multi-stage Dockerfile, causing file permission problems — or the non-root user doesn't have access to the working directory, causing runtime failures when trying to write cache files or audit logs.
+
+### Antigravity IDE Implementation Prompt
+
+```
+TASK: Fix Docker USER and container security issues in Dockerfile
+
+FILE: Dockerfile
+
+STEP 1 — Review current Dockerfile structure. Common issues:
+A) USER set before WORKDIR → files owned by root, user can't write
+B) Cache/output directories not owned by the user → permission denied at r
+<truncated 21707 bytes>
+
+NOTE: The output was truncated because it was too long. Use a more targeted query or a smaller range to get the information you need.

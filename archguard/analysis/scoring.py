@@ -12,9 +12,10 @@ try:
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    np = None  # type: ignore[assignment]
-    npt = None  # type: ignore[assignment]
-    _nnls = None  # type: ignore[assignment]
+    import typing
+    np: typing.Any = None  # type: ignore[no-redef]
+    npt: typing.Any = None  # type: ignore[no-redef]
+    _nnls: typing.Any = None  # type: ignore[no-redef]
 
 
 class ArchDebtBand(str, Enum):

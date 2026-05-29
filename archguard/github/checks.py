@@ -69,7 +69,8 @@ class ChecksAPIClient:
             timeout=30.0,
         )
         response.raise_for_status()
-        result = response.json()
+        from typing import cast
+        result = cast(Dict[str, Any], response.json())
         
         # If more than 50 annotations, paginate with PATCH
         if len(annotations) > self.ANNOTATION_BATCH_SIZE:

@@ -20,8 +20,8 @@ def _setup_repo(tmp_path: Path) -> Path:
     contract = {
         "version": "3.0",
         "modules": [
-            {"name": "payments", "paths": ["payments/"]},
-            {"name": "auth", "paths": ["auth/"]},
+            {"name": "payments", "path": "payments/"},
+            {"name": "auth", "path": "auth/"},
         ],
         "fail_threshold": 0.75,
         "warn_threshold": 0.50,

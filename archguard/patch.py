@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-def patch_cloud():
+def patch_cloud() -> None:
     p = Path("llm/cloud.py")
     text = p.read_text(encoding="utf-8")
     
@@ -24,7 +24,7 @@ def patch_cloud():
     
     p.write_text(text, encoding="utf-8")
 
-def patch_duplication():
+def patch_duplication() -> None:
     p = Path("analysis/duplication.py")
     text = p.read_text(encoding="utf-8")
     
@@ -63,7 +63,7 @@ def patch_duplication():
     
     p.write_text(text, encoding="utf-8")
 
-def patch_semantic():
+def patch_semantic() -> None:
     p = Path("analysis/semantic.py")
     text = p.read_text(encoding="utf-8")
     
@@ -112,7 +112,7 @@ def patch_semantic():
     
     p.write_text(text, encoding="utf-8")
 
-def patch_cache_embeddings():
+def patch_cache_embeddings() -> None:
     p = Path("cache/embeddings.py")
     text = p.read_text(encoding="utf-8")
     
@@ -160,7 +160,7 @@ def patch_cache_embeddings():
     
     p.write_text(text, encoding="utf-8")
 
-def patch_scoring():
+def patch_scoring() -> None:
     p = Path("analysis/scoring.py")
     text = p.read_text(encoding="utf-8")
     

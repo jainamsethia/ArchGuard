@@ -12,7 +12,7 @@ def test_profile_strict_vs_lenient(tmp_path, monkeypatch):
     contract = {
         "version": "3.0",
         "modules": [
-            {"name": "test_mod", "paths": ["src/"]}
+            {"name": "test_mod", "path": "src/"}
         ],
     }
     contract_file = tmp_path / ".archguard.yml"

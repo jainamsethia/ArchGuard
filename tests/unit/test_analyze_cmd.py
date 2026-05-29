@@ -20,7 +20,7 @@ _MINIMAL_CONTRACT: dict = {
     "modules": [
         {
             "name": "core",
-            "paths": ["src/core/"],
+            "path": "src/core/",
             "allowed_imports": ["utils"],
             "disallowed_imports": ["forbidden"],
             "coupling_budget": 5,

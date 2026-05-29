@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-def patch_coupling():
+def patch_coupling() -> None:
     p = Path("analysis/coupling.py")
     text = p.read_text(encoding="utf-8")
     
@@ -61,7 +61,7 @@ def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
     
     p.write_text(text, encoding="utf-8")
 
-def patch_layers():
+def patch_layers() -> None:
     p = Path("analysis/layers.py")
     text = p.read_text(encoding="utf-8")
     

@@ -52,9 +52,9 @@ def fixture_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     (base / ".archguard.yml").write_text(
         'version: "3.0"\n'
         "modules:\n"
-        "  - name: payments\n    paths: [src/payments/]\n"
-        "  - name: orders\n    paths: [src/orders/]\n"
-        "  - name: core\n    paths: [src/core/]\n"
+        "  - name: payments\n    path: src/payments/\n"
+        "  - name: orders\n    path: src/orders/\n"
+        "  - name: core\n    path: src/core/\n"
         "fail_threshold: 0.75\nwarn_threshold: 0.50\n"
     )
 

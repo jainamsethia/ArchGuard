@@ -1,8 +1,3 @@
-.archguard-cache.json
-coverage.xml
-.coverage
-htmlcov/
-
 # Virtual environments
 .venv/
 .venv-test/
@@ -10,36 +5,49 @@ test_venv/
 venv/
 env/
 
-# Python cache files
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Pytest / mypy caches
+# Pytest / mypy
 .pytest_cache/
 .mypy_cache/
+mypy_output.txt
 
-# ArchGuard runtime/cache files
+# Coverage
+coverage.xml
+.coverage
+htmlcov/
+
+# ArchGuard runtime/cache
 .archguard-cache/
 .archguard-checkpoints/
-
-# OS / editor files
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
+.archguard-cache.json
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
 
+# IDE/editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
 # Logs
 *.log
 
-# Development debugging scripts (never commit these)
+# Temp/test files
+temp_*.txt
+test_repo/
+
+# Local debugging scripts
 patch.py
-patch_paths.py
+patch_*.py
 search_*.py
 fix_*.py

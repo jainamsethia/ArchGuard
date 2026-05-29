@@ -11,7 +11,8 @@ def violations_to_annotations(violations: List[Dict[str, Any]]) -> List[CheckAnn
             continue
             
         line = v.get("line", 1)
-        level = "failure" if v.get("severity") == "critical" else "warning"
+        from typing import Literal
+        level: Literal["failure", "warning"] = "failure" if v.get("severity") == "critical" else "warning"
         
         annotations.append(CheckAnnotation(
             path=file_path,

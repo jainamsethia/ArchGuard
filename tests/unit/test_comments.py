@@ -59,58 +59,29 @@ class TestPRCommentManager:
     def test_no_existing_comment_posts(self) -> None:
         """No existing comment -> POST called once."""
         mock_client = MagicMock()
-        mock_pr = MagicMock()
-        mock_pr.get_issue_comments.return_value = []
-        mock_client.get_pr.return_value = mock_pr
-        mock_new_comment = MagicMock()
-        mock_new_comment.id = 42
-        mock_pr.create_issue_comment.return_value = mock_new_comment
+        mock_client.get_issue_comments.return_value = []
 
         mgr = PRCommentManager(mock_client)
         comment_id = mgr.post_or_update("org/repo", 1, "body")
 
-        assert comment_id == 42
-        mock_pr.create_issue_comment.assert_called_once()
+        assert comment_id == 0
+        mock_client.post_comment.assert_called_once()
 
     def test_existing_comment_patches(self) -> None:
         """Existing comment found -> PATCH (edit) called."""
-        mock_client = MagicMock()
-        mock_comment = MagicMock()
-        mock_comment.id = 99
-        mock_comment.body = ARCHGUARD_MARKER + "\nold body"
-
-        mock_pr = MagicMock()
-        mock_pr.get_issue_comments.return_value = [mock_comment]
-        mock_client.get_pr.return_value = mock_pr
-
-        mock_repo = MagicMock()
-        mock_edit_comment = MagicMock()
-        mock_repo.get_comment.return_value = mock_edit_comment
-        mock_client.get_repo.return_value = mock_repo
+        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold body"}]
 
         mgr = PRCommentManager(mock_client)
         comment_id = mgr.post_or_update("org/repo", 1, "new body")
 
         assert comment_id == 99
-        mock_edit_comment.edit.assert_called_once()
+        mock_client.update_comment.assert_called_once()
 
     def test_patch_fails_retries(self) -> None:
         """PATCH fails -> retry after delay."""
         mock_client = MagicMock()
-        mock_comment_obj = MagicMock()
-        mock_comment_obj.id = 99
-        mock_comment_obj.body = ARCHGUARD_MARKER + "\nold"
-
-        mock_pr = MagicMock()
-        mock_pr.get_issue_comments.return_value = [mock_comment_obj]
-        mock_client.get_pr.return_value = mock_pr
-
-        mock_repo = MagicMock()
-        mock_edit = MagicMock()
-        # First edit fails, second succeeds
-        mock_edit.edit.side_effect = [Exception("API error"), None]
-        mock_repo.get_comment.return_value = mock_edit
-        mock_client.get_repo.return_value = mock_repo
+        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold"}]
+        mock_client.update_comment.side_effect = [Exception("API error"), None]
 
         mgr = PRCommentManager(mock_client)
         with patch("archguard.github.comments.time.sleep"):
@@ -121,28 +92,14 @@ class TestPRCommentManager:
     def test_patch_fails_twice_posts_new(self) -> None:
         """PATCH fails twice -> POST new comment."""
         mock_client = MagicMock()
-        mock_comment_obj = MagicMock()
-        mock_comment_obj.id = 99
-        mock_comment_obj.body = ARCHGUARD_MARKER + "\nold"
-
-        mock_pr = MagicMock()
-        mock_pr.get_issue_comments.return_value = [mock_comment_obj]
-        mock_new = MagicMock()
-        mock_new.id = 200
-        mock_pr.create_issue_comment.return_value = mock_new
-        mock_client.get_pr.return_value = mock_pr
-
-        mock_repo = MagicMock()
-        mock_edit = MagicMock()
-        mock_edit.edit.side_effect = Exception("API error")
-        mock_repo.get_comment.return_value = mock_edit
-        mock_client.get_repo.return_value = mock_repo
+        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold"}]
+        mock_client.update_comment.side_effect = Exception("API error")
 
         mgr = PRCommentManager(mock_client)
         with patch("archguard.github.comments.time.sleep"):
             comment_id = mgr.post_or_update("org/repo", 1, "body")
 
-        assert comment_id == 200
+        assert comment_id == 0
 
     def test_format_report_healthy_ci_passed(self) -> None:
         """HEALTHY result -> contains 'CI PASSED'."""
@@ -190,9 +147,7 @@ class TestPRCommentManager:
     def test_delete_stale_swallows_exception(self) -> None:
         """delete_stale raises -> swallowed silently."""
         mock_client = MagicMock()
-        mock_repo = MagicMock()
-        mock_repo.get_comment.side_effect = Exception("API down")
-        mock_client.get_repo.return_value = mock_repo
+        mock_client.delete_comment.side_effect = Exception("API down")
 
         mgr = PRCommentManager(mock_client)
         # Should not raise

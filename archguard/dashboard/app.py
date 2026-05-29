@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from archguard.audit.logger import AuditLogger
 from archguard.config import AUDIT_LOG_FILENAME
+from typing import Any
 import os
 from pathlib import Path
 
@@ -14,7 +15,7 @@ def get_audit_path() -> Path:
     return Path.cwd() / AUDIT_LOG_FILENAME
 
 @app.get("/api/runs")
-def get_runs(limit: int = 50, module: str | None = None):
+def get_runs(limit: int = 50, module: str | None = None) -> Any:
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=limit)
     if module:
@@ -22,12 +23,12 @@ def get_runs(limit: int = 50, module: str | None = None):
     return {"runs": runs, "total": len(runs)}
 
 @app.get("/api/runs/latest")
-def get_latest_run():
+def get_latest_run() -> Any:
     logger = AuditLogger(get_audit_path())
     return logger.read_last_run() or {}
 
 @app.get("/api/modules")
-def get_modules():
+def get_modules() -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=100)
@@ -38,7 +39,7 @@ def get_modules():
     return {"modules": modules}
 
 @app.get("/api/trends/{module}")
-def get_module_trends(module: str, limit: int = 30):
+def get_module_trends(module: str, limit: int = 30) -> Any:
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=limit)
     trend = [

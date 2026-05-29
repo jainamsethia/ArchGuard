@@ -19,7 +19,7 @@ class TestValidateContract:
     def test_missing_version(self) -> None:
         """Missing version raises ContractValidationError."""
         data: dict[str, Any] = {
-            "modules": [{"name": "core", "paths": ["src/"]}],
+            "modules": [{"name": "core", "path": "src/"}],
         }
         with pytest.raises(ContractError) as exc_info:
             validate_contract(data)
@@ -29,7 +29,7 @@ class TestValidateContract:
         """fail_threshold = 1.0 is invalid (exclusive max < 1.0)."""
         data: dict[str, Any] = {
             "version": "3.0",
-            "modules": [{"name": "core", "paths": ["src/"]}],
+            "modules": [{"name": "core", "path": "src/"}],
             "fail_threshold": 1.0,
         }
         with pytest.raises(ContractError) as exc_info:
@@ -40,7 +40,7 @@ class TestValidateContract:
         """fail_threshold = 0.8 is valid."""
         data: dict[str, Any] = {
             "version": "3.0",
-            "modules": [{"name": "core", "paths": ["src/"]}],
+            "modules": [{"name": "core", "path": "src/"}],
             "fail_threshold": 0.8,
         }
         validate_contract(data)  # Should not raise
@@ -59,7 +59,7 @@ class TestValidateContract:
         """Module without a name raises ContractValidationError."""
         data: dict[str, Any] = {
             "version": "3.0",
-            "modules": [{"paths": ["src/"]}],
+            "modules": [{"path": "src/"}],
         }
         with pytest.raises(ContractError) as exc_info:
             validate_contract(data)

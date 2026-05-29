@@ -6,7 +6,8 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+import typing
+from typing import Any, cast
 
 import typer
 from rich.console import Console
@@ -277,7 +278,7 @@ def _phase4_embeddings(
         profile_name = choices[answer]
 
         contract: dict[str, Any] = {
-            "schema_version": "3.0",
+            "version": "3.0",
         }
         
         if profile_name != "custom":
@@ -751,14 +752,14 @@ def init_command(
                 budget = max(3, math.ceil(fan_out * 1.5))
                 louvain_modules.append({
                     "name": name,
-                    "paths": [_infer_path(files)],
+                    "path": _infer_path(files),
                     "fan_out_at_init": fan_out,
                     "coupling_budget": budget,
                     "semantic_drift_threshold": 0.25,
                 })
             
             louvain_contract = {
-                "schema_version": "3.0",
+                "version": "3.0",
                 "model_weights_version": _model_weights_version(),
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "generated_by": "archguard init",
@@ -802,7 +803,7 @@ def init_command(
 
             save_checkpoint(repo_root, 5, {
                 "output_path": str(output),
-                "modules_written": len(final_contract.get("modules", [])),
+                "modules_written": len(cast(list[Any], final_contract.get("modules", []))),
             })
 
         # Write summary

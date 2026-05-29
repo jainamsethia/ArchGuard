@@ -13,9 +13,10 @@ try:
     _ML_AVAILABLE = True
 except Exception:
     _ML_AVAILABLE = False
-    faiss = None  # type: ignore[assignment]
-    np = None  # type: ignore[assignment]
-    npt = None  # type: ignore[assignment]
+    import typing
+    faiss: typing.Any = None  # type: ignore[no-redef]
+    np: typing.Any = None  # type: ignore[no-redef]
+    npt: typing.Any = None  # type: ignore[no-redef]
 
 from archguard.audit.logger import AuditLogger
 from archguard.cache.embeddings import EmbeddingCache

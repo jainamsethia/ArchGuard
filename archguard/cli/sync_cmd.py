@@ -14,7 +14,7 @@ def sync_cache(
     prefix: str = typer.Option("archguard-cache/", help="S3 key prefix"),
     cache_dir: Path = typer.Option(Path(".archguard-cache"), help="Local cache directory"),
     profile: str = typer.Option(None, envvar="AWS_PROFILE", help="AWS profile"),
-):
+) -> None:
     """Sync the embedding cache with S3 for persistent CI caching."""
     try:
         import boto3

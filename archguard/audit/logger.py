@@ -83,8 +83,8 @@ class AuditLogger:
         """Read the audit log from the end to find the last 'analysis_run' event."""
         return read_last_run(self._log_path)
 
-    def read_last_n_runs(self, n: int = 2) -> list[dict]:
-        runs = []
+    def read_last_n_runs(self, n: int = 2) -> list[dict[str, Any]]:
+        runs: list[dict[str, Any]] = []
         if not self._log_path.exists():
             return runs
         from archguard.config import AUDIT_EVENT_ANALYSIS
@@ -110,7 +110,8 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                 try:
                     event = json.loads(line)
                     if event.get("event") == AUDIT_EVENT_ANALYSIS:
-                        return event
+                        from typing import cast
+                        return cast(dict[str, Any], event)
                 except json.JSONDecodeError:
                     continue
     except Exception as e:

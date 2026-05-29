@@ -42,7 +42,7 @@ def _count_audit_entries(repo_root: Path) -> int | None:
 def _render_table(data: dict[str, Any], audit_count: int | None) -> None:
     """Render the status output as a Rich table."""
     _console.print()
-    _console.print(f"[bold cyan]Schema version:[/bold cyan] {data['schema_version']}")
+    _console.print(f"[bold cyan]Schema version:[/bold cyan] {data['version']}")
 
     modules: list[dict[str, Any]] = data.get("modules", [])
     _console.print(f"[bold cyan]Modules defined:[/bold cyan] {len(modules)}")
@@ -50,12 +50,12 @@ def _render_table(data: dict[str, Any], audit_count: int | None) -> None:
 
     table = Table(title="Modules", show_header=True, header_style="bold magenta")
     table.add_column("Name", style="green")
-    table.add_column("Paths", style="dim")
+    table.add_column("Path", style="dim")
 
     for module in modules:
         table.add_row(
-            module.get("name", "—"),
-            ", ".join(module.get("paths", [])),
+            module.get("name", ""),
+            module.get("path", ""),
         )
 
     _console.print(table)
@@ -79,10 +79,10 @@ def _render_table(data: dict[str, Any], audit_count: int | None) -> None:
 def _render_json(data: dict[str, Any], audit_count: int | None) -> None:
     """Render the status output as JSON."""
     output: dict[str, Any] = {
-        "schema_version": data.get("schema_version"),
+        "version": data.get("version"),
         "module_count": len(data.get("modules", [])),
         "modules": [
-            {"name": m.get("name"), "paths": m.get("paths", [])}
+            {"name": m.get("name"), "path": m.get("path", "")}
             for m in data.get("modules", [])
         ],
         "fail_threshold": data.get("fail_threshold"),

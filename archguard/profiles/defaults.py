@@ -2,7 +2,7 @@
 
 from typing import Any
 
-PROFILES = {
+PROFILES: dict[str, Any] = {
     "strict": {
         "thresholds": {
             "max_instability": 0.6,

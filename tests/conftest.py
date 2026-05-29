@@ -17,7 +17,7 @@ def minimal_contract() -> dict[str, Any]:
         "modules": [
             {
                 "name": "core",
-                "paths": ["src/core/"],
+                "path": "src/core/",
             }
         ],
     }

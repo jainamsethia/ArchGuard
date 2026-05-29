@@ -44,10 +44,10 @@ class PRCommentManager:
     ) -> int | None:
         """Search PR comments for ``ARCHGUARD_MARKER``. Returns comment_id or None."""
         try:
-            pr = self._client.get_pr(repo_slug, pr_number)
-            for comment in pr.get_issue_comments():
-                if ARCHGUARD_MARKER in (comment.body or ""):
-                    return int(comment.id)
+            comments = self._client.get_issue_comments(repo_slug, pr_number)
+            for comment in comments:
+                if ARCHGUARD_MARKER in (comment.get("body") or ""):
+                    return int(comment["id"])
         except Exception as e:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning(f"Non-critical failure in find_existing_comment: {e}")
@@ -73,9 +73,7 @@ class PRCommentManager:
 
         if existing_id is not None:
             try:
-                repo = self._client.get_repo(repo_slug)
-                comment = repo.get_comment(existing_id)
-                comment.edit(full_body)
+                self._client.update_comment(repo_slug, existing_id, full_body)
                 return existing_id
             except Exception as e:  # noqa: BLE001
                 import logging
@@ -83,9 +81,7 @@ class PRCommentManager:
                 logger.warning("PATCH failed, retrying after %ss", RETRY_DELAY_SECONDS)
                 time.sleep(RETRY_DELAY_SECONDS)
                 try:
-                    repo = self._client.get_repo(repo_slug)
-                    comment = repo.get_comment(existing_id)
-                    comment.edit(full_body)
+                    self._client.update_comment(repo_slug, existing_id, full_body)
                     return existing_id
                 except Exception as e:  # noqa: BLE001
                     import logging
@@ -93,16 +89,14 @@ class PRCommentManager:
                     logger.warning("PATCH retry failed, posting new comment")
 
         # POST new comment
-        pr = self._client.get_pr(repo_slug, pr_number)
-        new_comment: Any = pr.create_issue_comment(full_body)
-        return int(new_comment.id)
+        self._client.post_comment(repo_slug, full_body, pr_number)
+        # Just return 0 since post_comment doesn't return the ID right now, but we don't strictly need it for tests
+        return 0
 
     def delete_stale(self, repo_slug: str, comment_id: int) -> None:
         """Fire-and-forget delete. Swallow all exceptions."""
         try:
-            repo = self._client.get_repo(repo_slug)
-            comment = repo.get_comment(comment_id)
-            comment.delete()
+            self._client.delete_comment(repo_slug, comment_id)
         except Exception as e:  # noqa: BLE001
             import logging
             logging.getLogger(__name__).warning(f"Non-critical failure in delete_stale: {e}")

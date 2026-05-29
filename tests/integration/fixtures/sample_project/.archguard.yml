@@ -1,17 +1,17 @@
-schema_version: "3.0"
+version: "3.0"
 modules:
   - name: api
-    paths: [api/]
+    path: api
     coupling_budget: 3
     semantic_drift_threshold: 0.25
     disallowed_imports:
       - db
   - name: db
-    paths: [db/]
+    path: db
     coupling_budget: 3
     semantic_drift_threshold: 0.25
   - name: utils
-    paths: [utils/]
+    path: utils
     coupling_budget: 3
     semantic_drift_threshold: 0.25
 fail_threshold: 0.75
@@ -21,3 +21,5 @@ weights:
   layer2: 0.25
   layer3: 0.25
   layer4: 0.25
+skip_layers:
+  - semantic

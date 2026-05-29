@@ -1,3 +1,4 @@
+import typing
 import json
 import typer
 from pathlib import Path
@@ -14,16 +15,17 @@ diff_app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-def get_key(v: dict) -> str:
+def get_key(v: typing.Any) -> str:
     """Generate a unique key for a violation."""
     return f"{v.get('layer', '')}:{v.get('file', '')}:{v.get('message', '')}"
 
 @diff_app.callback(invoke_without_command=True)
 def diff_cmd(
+
     repo: str = typer.Option(".", "--repo", help="Path to the repository root."),
     runs: int = typer.Option(2, help="Compare last N runs (default: last 2)"),
     json_output: bool = typer.Option(False, "--json", help="Output in JSON format"),
-):
+) -> None:
     """Show what changed between the last two analysis runs."""
     try:
         repo_path = validate_repo_path(repo)

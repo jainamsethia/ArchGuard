@@ -46,7 +46,7 @@ types-PyYAML = "*"
 watchdog = ">=3.0.0"
 
 [tool.poetry.group.ml.dependencies]
-numpy = ">=1.24"
+numpy = ">=1.24,<2.0.0"
 scipy = ">=1.10"
 sentence-transformers = ">=2.2"
 faiss-cpu = ">=1.7"

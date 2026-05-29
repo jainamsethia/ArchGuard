@@ -31,7 +31,7 @@ class ContractProposal:
     """A pending contract change proposal for a single module."""
 
     module_name: str
-    proposed_paths: list[str]
+    proposed_path: str
     proposed_drift_threshold: float
     proposed_coupling_budget: int
     semantic_drift_score: float
@@ -69,7 +69,7 @@ class ReinferenceEngine:
         self,
         module_name: str,
         semantic_drift: float,
-        new_centroid_paths: list[str],
+        new_centroid_path: str,
         current_coupling_budget: int,
         source_commit: str,
     ) -> ContractProposal:
@@ -80,7 +80,7 @@ class ReinferenceEngine:
 
         proposal = ContractProposal(
             module_name=module_name,
-            proposed_paths=new_centroid_paths,
+            proposed_path=new_centroid_path,
             proposed_drift_threshold=0.25,
             proposed_coupling_budget=current_coupling_budget,
             semantic_drift_score=semantic_drift,
@@ -96,7 +96,7 @@ class ReinferenceEngine:
 
         data: dict[str, Any] = {
             "module_name": proposal.module_name,
-            "proposed_paths": proposal.proposed_paths,
+            "proposed_path": proposal.proposed_path,
             "proposed_drift_threshold": proposal.proposed_drift_threshold,
             "proposed_coupling_budget": proposal.proposed_coupling_budget,
             "semantic_drift_score": proposal.semantic_drift_score,
@@ -172,7 +172,7 @@ class ReinferenceEngine:
         # Build updated module fragment
         updated_module: dict[str, Any] = {
             "name": module_name,
-            "paths": data.get("proposed_paths", []),
+            "path": data.get("proposed_path", ""),
             "coupling_budget": data.get("proposed_coupling_budget", 3),
             "semantic_drift_threshold": data.get(
                 "proposed_drift_threshold", 0.25,
@@ -194,9 +194,9 @@ class ReinferenceEngine:
                     contents = repo.get_contents(config_path, ref=branch)
                     existing = ryaml.load(contents.decoded_content)
                     if not isinstance(existing, dict):
-                        existing = {"schema_version": SCHEMA_VERSION, "modules": []}
+                        existing = {"version": SCHEMA_VERSION, "modules": []}
                 except Exception:  # noqa: BLE001
-                    existing = {"schema_version": SCHEMA_VERSION, "modules": []}
+                    existing = {"version": SCHEMA_VERSION, "modules": []}
 
                 # Update or add module
                 modules = existing.get("modules", [])
@@ -249,11 +249,11 @@ class ReinferenceEngine:
                         existing = ryaml.load(f)
                     if not isinstance(existing, dict):
                         existing = {
-                            "schema_version": SCHEMA_VERSION,
+                            "version": SCHEMA_VERSION,
                             "modules": [],
                         }
                 else:
-                    existing = {"schema_version": SCHEMA_VERSION, "modules": []}
+                    existing = {"version": SCHEMA_VERSION, "modules": []}
 
                 modules = existing.get("modules", [])
                 found = False
@@ -300,7 +300,7 @@ class ReinferenceEngine:
                     continue
                 results.append(ContractProposal(
                     module_name=str(data["module_name"]),
-                    proposed_paths=list(data.get("proposed_paths", [])),
+                    proposed_path=data.get("proposed_path", ""),
                     proposed_drift_threshold=float(
                         data.get("proposed_drift_threshold", 0.25),
                     ),

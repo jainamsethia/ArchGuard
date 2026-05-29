@@ -2,6 +2,7 @@
 
 import json
 import os
+import typing
 from pathlib import Path
 
 import typer
@@ -74,13 +75,13 @@ def github_sync(
 
     for cmd in commands:
         if cmd.command == ArchGuardCommand.SUPPRESS:
-            _execute_suppress(cmd, repo_root, repo_slug, pr_number)
+            _execute_suppress(cmd, repo_root, repo_slug or "", pr_number or 0)
         elif cmd.command == ArchGuardCommand.RE_ANALYZE:
-            _execute_re_analyze(repo_root, repo_slug, pr_number)
+            _execute_re_analyze(repo_root, repo_slug or "", pr_number or 0, None)  # type: ignore[arg-type]
         else:
             _console.print(f"Command {cmd.command} is not implemented in github-sync yet.")
 
-def _execute_suppress(cmd, repo_root: Path, repo_slug: str, pr_number: int) -> None:
+def _execute_suppress(cmd: typing.Any, repo_root: Path, repo_slug: str, pr_number: int) -> None:
     from archguard.suppression.store import SuppressionStore, SuppressionValidationError
     from archguard.github.client import post_comment
     
@@ -105,9 +106,9 @@ def _execute_suppress(cmd, repo_root: Path, repo_slug: str, pr_number: int) -> N
     if repo_slug and pr_number:
         post_comment(repo_slug, msg, pr_number=pr_number)
 
-def _execute_re_analyze(repo_root: Path, repo_slug: str, pr_number: int) -> None:
+def _execute_re_analyze(repo_root: Path, repo_slug: str, pr_number: int, ctx: typer.Context) -> None:
     from archguard.cli.analyze_cmd import analyze_command
     try:
-        analyze_command(repo=repo_root, pr=pr_number, repo_slug=repo_slug, json_output=False, dry_run=False)
+        analyze_command(ctx=ctx, repo=repo_root, pr=pr_number, repo_slug=repo_slug, json_output=False, dry_run=False)
     except typer.Exit:
         pass

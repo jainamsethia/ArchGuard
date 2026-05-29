@@ -20,10 +20,10 @@ def fixture_repo(tmp_path):
 version: "3.0"
 modules:
   - name: api
-    paths: [src/api/]
+    path: src/api/
     allowed_imports: []
   - name: payments
-    paths: [src/payments/]
+    path: src/payments/
 fail_threshold: 0.5
 skip_layers: [semantic, duplication]
 """)
@@ -56,6 +56,6 @@ def test_path_matching_no_false_positives(fixture_repo):
     """api_utils should NOT be assigned to the api module."""
     (fixture_repo / "src" / "api_utils").mkdir()
     (fixture_repo / "src" / "api_utils" / "helpers.py").write_text("x = 1")
-    from archguard.analysis.coupling import _path_belongs_to_module
-    assert not _path_belongs_to_module("src/api_utils/helpers.py", "src/api")
-    assert _path_belongs_to_module("src/api/views.py", "src/api")
+    from archguard.utils.paths import path_belongs_to_module
+    assert not path_belongs_to_module("src/api_utils/helpers.py", ["src/api"])
+    assert path_belongs_to_module("src/api/views.py", ["src/api"])

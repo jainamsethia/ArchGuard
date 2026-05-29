@@ -1,6 +1,8 @@
 """Exit codes and error message helpers for ArchGuard."""
 
 
+from typing import Any
+
 class ArchGuardError(Exception):
     """Base exception for all ArchGuard errors."""
 
@@ -37,6 +39,15 @@ class AnalysisError(ArchGuardError):
 
     def __init__(self, message: str, cause: Exception | None = None) -> None:
         super().__init__(message=message, exit_code=4, cause=cause)
+
+
+class AnalysisPartialError(ArchGuardError):
+    """Raised when analysis could only complete partially."""
+
+    def __init__(self, message: str, failures: list[Any] | None = None, cause: Exception | None = None) -> None:
+        self.failures = failures or []
+        super().__init__(message=message, exit_code=3, cause=cause)
+
 
 
 class LLMError(ArchGuardError):

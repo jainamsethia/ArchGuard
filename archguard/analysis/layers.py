@@ -81,6 +81,7 @@ class AnalysisOrchestrator:
         skip_explanation: bool = False,
         progress_callback: Any = None,
         fail_fast: bool = False,
+        quiet: bool = False,
     ) -> AnalysisResult:
         """Run the full Layer 1–4 pipeline."""
         py_files = [f for f in changed_files if str(f).endswith(".py")]
@@ -106,7 +107,7 @@ class AnalysisOrchestrator:
         fail_threshold = float(self.contract.get("fail_threshold", 0.75))
 
         import sys
-        is_tty = sys.stdout.isatty()
+        is_tty = sys.stdout.isatty() and not quiet
         progress = None
         if is_tty:
             from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -137,8 +138,9 @@ class AnalysisOrchestrator:
                     task1 = progress.add_task(desc1, total=None)
                     task2 = progress.add_task(desc2, total=None)
                 else:
-                    print(desc1)
-                    print(desc2)
+                    if not quiet:
+                        print(desc1)
+                        print(desc2)
                     
                 l1_failures: list[Any] = []
                 l2_failures: list[Any] = []
@@ -160,7 +162,8 @@ class AnalysisOrchestrator:
                     progress.update(task1, description=f"[green]✓ Layer 1:[/green] {l1_violations} violations")
                     progress.stop_task(task1)
                 else:
-                    print(f"✓ Layer 1 complete ({l1_violations} violations)")
+                    if not quiet:
+                        print(f"✓ Layer 1 complete ({l1_violations} violations)")
                     
                 layer2 = future_l2.result()
                 l2_violations = len([v for v in violations if v.layer == 2])
@@ -168,7 +171,8 @@ class AnalysisOrchestrator:
                     progress.update(task2, description=f"[green]✓ Layer 2:[/green] {l2_violations} violations")
                     progress.stop_task(task2)
                 else:
-                    print(f"✓ Layer 2 complete ({l2_violations} violations)")
+                    if not quiet:
+                        print(f"✓ Layer 2 complete ({l2_violations} violations)")
 
             elapsed = time.perf_counter() - start_time
             logger.debug(f"Layer 1 and 2 concurrent execution time: {elapsed:.2f}s")
@@ -233,7 +237,8 @@ class AnalysisOrchestrator:
             if progress:
                 task3 = progress.add_task(desc3, total=None)
             else:
-                print(desc3)
+                if not quiet:
+                    print(desc3)
                 
             if "semantic" in skip_layers:
                 layer3 = 0.0
@@ -242,7 +247,8 @@ class AnalysisOrchestrator:
                     progress.update(task3, description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]")
                     progress.stop_task(task3)
                 else:
-                    print("⚠ Layer 3 Skipped (config)")
+                    if not quiet:
+                        print("⚠ Layer 3 Skipped (config)")
             else:
                 try:
                     with metrics.time_layer("layer3"):
@@ -252,7 +258,8 @@ class AnalysisOrchestrator:
                         progress.update(task3, description=f"[green]✓ Layer 3:[/green] {l3_violations} violations")
                         progress.stop_task(task3)
                     else:
-                        print(f"✓ Layer 3 complete ({l3_violations} violations)")
+                        if not quiet:
+                            print(f"✓ Layer 3 complete ({l3_violations} violations)")
                 except RuntimeError as e:
                     if "ML dependencies" in str(e):
                         if progress:
@@ -283,7 +290,8 @@ class AnalysisOrchestrator:
             if progress:
                 task4 = progress.add_task(desc4, total=None)
             else:
-                print(desc4)
+                if not quiet:
+                    print(desc4)
                 
             if "duplication" in skip_layers:
                 layer4 = 0.0
@@ -291,7 +299,8 @@ class AnalysisOrchestrator:
                     progress.update(task4, description="[yellow]⚠ Layer 4: Skipped (config)[/yellow]")
                     progress.stop_task(task4)
                 else:
-                    print("⚠ Layer 4 Skipped (config)")
+                    if not quiet:
+                        print("⚠ Layer 4 Skipped (config)")
             else:
                 try:
                     with metrics.time_layer("layer4"):
@@ -301,7 +310,8 @@ class AnalysisOrchestrator:
                         progress.update(task4, description=f"[green]✓ Layer 4:[/green] {l4_violations} violations")
                         progress.stop_task(task4)
                     else:
-                        print(f"✓ Layer 4 complete ({l4_violations} violations)")
+                        if not quiet:
+                            print(f"✓ Layer 4 complete ({l4_violations} violations)")
                 except RuntimeError as e:
                     if "ML dependencies" in str(e):
                         if progress:
@@ -416,7 +426,7 @@ class AnalysisOrchestrator:
         parser = ImportParser()
         modules_cfg = self.contract.get("modules", [])
         module_paths: dict[str, list[str]] = {
-            m["name"]: m.get("paths", []) for m in modules_cfg
+            m["name"]: [m.get("path")] if "path" in m else m.get("paths", []) for m in modules_cfg
         }
 
         # Build disallowed/allowed maps
@@ -519,7 +529,7 @@ class AnalysisOrchestrator:
         parser = ImportParser()
         modules_cfg = self.contract.get("modules", [])
         module_paths: dict[str, list[str]] = {
-            m["name"]: m.get("paths", []) for m in modules_cfg
+            m["name"]: [m.get("path")] if "path" in m else m.get("paths", []) for m in modules_cfg
         }
         budgets: dict[str, int] = {
             m["name"]: m.get("coupling_budget", 3) for m in modules_cfg
@@ -703,8 +713,8 @@ class AnalysisOrchestrator:
                 m["name"]: m.get("coupling_budget", 3)
                 for m in modules_cfg
             }
-            module_paths: dict[str, list[str]] = {
-                m["name"]: m.get("paths", []) for m in modules_cfg
+            module_paths: dict[str, str] = {
+                m["name"]: m.get("path", "") for m in modules_cfg
             }
 
             for mod_name in affected:
@@ -735,7 +745,7 @@ class AnalysisOrchestrator:
                         engine.create_proposal(
                             module_name=mod_name,
                             semantic_drift=drift_score,
-                            new_centroid_paths=module_paths.get(mod_name, []),
+                            new_centroid_path=module_paths.get(mod_name, ""),
                             current_coupling_budget=budgets.get(mod_name, 3),
                             source_commit=commit_sha,
                         )
@@ -773,7 +783,7 @@ class AnalysisOrchestrator:
 
             for mod in modules_cfg:
                 mod_name: str = mod["name"]
-                paths: list[str] = mod.get("paths", [])
+                paths: list[str] = [mod.get("path")] if "path" in mod else mod.get("paths", [])
                 module_names: list[str] = mod.get("module_names", [])
 
                 matched = False

@@ -86,14 +86,14 @@ def write_contract(
 
         modules.append({
             "name": name,
-            "paths": [path],
+            "path": path,
             "fan_out_at_init": fan_out,
             "coupling_budget": budget,
             "semantic_drift_threshold": 0.25,
         })
 
     contract: dict[str, Any] = {
-        "schema_version": "3.0",
+        "version": "3.0",
         "model_weights_version": _model_weights_version(),
         "generated_at": now.isoformat(),
         "generated_by": "archguard init",

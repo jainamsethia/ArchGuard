@@ -51,8 +51,8 @@ def _make_result(violations: list[ViolationDetail] | None = None) -> AnalysisRes
 _CONTRACT: dict = {
     "version": "3.0",
     "modules": [
-        {"name": "payments", "paths": ["payments/"]},
-        {"name": "auth", "paths": ["auth/"]},
+        {"name": "payments", "path": "payments/"},
+        {"name": "auth", "path": "auth/"},
     ],
 }
 

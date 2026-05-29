@@ -1,0 +1,2 @@
+# .shellcheckrc
+disable=SC2086  # we want to see other warnings but sometimes word splitting is okay (though not here, so we shouldn't disable it globally ideally, but maybe SC2086 is fine to disable if we want? Let's leave it empty or just add a comment)

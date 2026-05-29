@@ -11,9 +11,9 @@ CURRENT_SCHEMA_VERSION = 2  # increment when schema changes
 
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {}
 
-def migration(version: int):
+def migration(version: int) -> Callable[[Callable[[sqlite3.Connection], None]], Callable[[sqlite3.Connection], None]]:
     """Decorator to register a migration function."""
-    def decorator(fn):
+    def decorator(fn: Callable[[sqlite3.Connection], None]) -> Callable[[sqlite3.Connection], None]:
         MIGRATIONS[version] = fn
         return fn
     return decorator

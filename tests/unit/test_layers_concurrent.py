@@ -16,13 +16,14 @@ def test_parallel_layers_faster_than_sequential(benchmark, tmp_path):
 version: "3.0"
 modules:
   - name: module_a
-    paths: ["a/"]
+    path: "a/"
     coupling_budget: 1
-    allowed_imports: ["b"]
+    allowed_imports: []
   - name: module_b
-    paths: ["b/"]
+    path: "b/"
     coupling_budget: 1
-    allowed_imports: ["a"]
+    allowed_imports: []
+
 ''')
     
     # Create fake codebase

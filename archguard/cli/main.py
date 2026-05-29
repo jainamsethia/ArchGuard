@@ -1,6 +1,7 @@
 """Root Typer application — registers all subcommands."""
 
 import typer
+from pathlib import Path
 from rich.console import Console
 
 from archguard.cli.analyze_cmd import analyze_app
@@ -40,7 +41,7 @@ app.add_typer(diff_app, name="diff")
 app.add_typer(dashboard_app, name="dashboard")
 
 @app.command("cache-check")
-def cache_check_cmd(repair: bool = typer.Option(False, "--repair")):
+def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
     """Check and optionally repair the embedding cache."""
     from archguard.cache.db import EmbeddingDB
     from pathlib import Path

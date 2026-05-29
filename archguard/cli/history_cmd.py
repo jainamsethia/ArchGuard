@@ -20,7 +20,7 @@ def show_history(
     since: int = typer.Option(None, help="Filter to the last N days of runs"),
     module: str | None = typer.Option(None, help="Filter by module name"),
     audit_log: Path = typer.Option(Path(AUDIT_LOG_FILENAME), help="Path to audit log"),
-):
+) -> None:
     """Show ArchDebt score trend across recent analysis runs."""
     console = Console()
     

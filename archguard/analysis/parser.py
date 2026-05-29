@@ -2,16 +2,33 @@
 
 from __future__ import annotations
 
+import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
+
+logger = logging.getLogger(__name__)
 
 STDLIB_MODULES: frozenset[str] = frozenset(sys.stdlib_module_names)
 
 _SKIP_DIRS: frozenset[str] = frozenset({
     "__pycache__", ".venv", "venv", ".git", "node_modules",
 })
+
+@dataclass
+class ParseFailure:
+    file_path: Path
+    error_type: str
+    error_message: str
+    is_critical: bool = False
+
+@dataclass
+class ParseResult:
+    edges: list[ImportEdge]
+    failures: list[ParseFailure]
+    is_partial: bool
+
 
 
 @dataclass(frozen=True)
@@ -39,6 +56,11 @@ class ImportParser:
         import tree_sitter_python as tspython
 
         self._parser: Any = Parser(Language(tspython.language()))
+        self._parse_failures: list[ParseFailure] = []
+
+    @property
+    def parse_failures(self) -> list[ParseFailure]:
+        return self._parse_failures.copy()
 
     def parse_file(
         self,
@@ -47,7 +69,34 @@ class ImportParser:
         module_paths: dict[str, list[str]] | None = None,
     ) -> list[ImportEdge]:
         """Parse Python source string, return all ImportEdge objects."""
-        tree: Any = self._parser.parse(source.encode("utf-8"))
+        try:
+            tree: Any = self._parser.parse(source.encode("utf-8"))
+        except SyntaxError as e:
+            self._parse_failures.append(ParseFailure(
+                file_path=Path(file_path),
+                error_type="SyntaxError",
+                error_message=str(e),
+                is_critical=False
+            ))
+            return []
+        except UnicodeDecodeError as e:
+            self._parse_failures.append(ParseFailure(
+                file_path=Path(file_path),
+                error_type="UnicodeDecodeError",
+                error_message=str(e),
+                is_critical=False
+            ))
+            return []
+        except Exception as e:
+            self._parse_failures.append(ParseFailure(
+                file_path=Path(file_path),
+                error_type=type(e).__name__,
+                error_message=str(e),
+                is_critical=True
+            ))
+            logger.warning("Unexpected parse failure in %s: %s", file_path, e, exc_info=True)
+            return []
+
         first_party_roots = self._get_first_party_roots(module_paths or {})
         edges: list[ImportEdge] = []
 
@@ -67,11 +116,13 @@ class ImportParser:
         self,
         repo_root: Path,
         module_paths: dict[str, list[str]],
-    ) -> list[ImportEdge]:
-        """Walk repo_root for *.py files, parse each, return all edges.
+        allow_partial: bool = True,
+    ) -> ParseResult:
+        """Walk repo_root for *.py files, parse each, return ParseResult.
 
         Skips: __pycache__, .venv, venv, .git, node_modules
         """
+        self._parse_failures.clear()
         edges: list[ImportEdge] = []
         for py_file in sorted(repo_root.rglob("*.py")):
             if any(skip in py_file.parts for skip in _SKIP_DIRS):
@@ -80,9 +131,49 @@ class ImportParser:
                 source = py_file.read_text(encoding="utf-8")
                 rel_path = str(py_file.relative_to(repo_root)).replace("\\", "/")
                 edges.extend(self.parse_file(source, rel_path, module_paths))
-            except Exception:  # noqa: BLE001
-                continue
-        return edges
+            except SyntaxError as e:
+                self._parse_failures.append(ParseFailure(
+                    file_path=py_file,
+                    error_type="SyntaxError",
+                    error_message=str(e),
+                    is_critical=False
+                ))
+            except UnicodeDecodeError as e:
+                self._parse_failures.append(ParseFailure(
+                    file_path=py_file,
+                    error_type="UnicodeDecodeError",
+                    error_message=str(e),
+                    is_critical=False
+                ))
+            except Exception as e:
+                self._parse_failures.append(ParseFailure(
+                    file_path=py_file,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    is_critical=True
+                ))
+                logger.warning("Unexpected parse failure in %s: %s", py_file, e, exc_info=True)
+                
+        if self._parse_failures:
+            critical_failures = [f for f in self._parse_failures if f.is_critical]
+            logger.warning(
+                "Parse failures: %d files skipped (%d critical). "
+                "Analysis may be incomplete. Run with --verbose for details.",
+                len(self._parse_failures),
+                len(critical_failures)
+            )
+            if critical_failures and not allow_partial:
+                from archguard.utils.errors import AnalysisPartialError
+                raise AnalysisPartialError(
+                    f"Critical parse failures in {len(critical_failures)} files",
+                    failures=critical_failures
+                )
+
+        return ParseResult(
+            edges=edges,
+            failures=self.parse_failures,
+            is_partial=bool(self._parse_failures)
+        )
 
     # ------------------------------------------------------------------
     # Private helpers

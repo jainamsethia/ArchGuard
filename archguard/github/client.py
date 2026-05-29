@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -109,7 +109,7 @@ class GitHubClient:
             resp = requests.get(url, headers=self._headers, timeout=5)
             if resp.status_code == 403 and "rate limit" in resp.text.lower():
                 raise RateLimitExceededException("Rate limit exceeded")
-            return resp.status_code == 204
+            return bool(resp.status_code == 204)
         except Exception as e:
             logger.warning(f"Non-critical failure in is_collaborator: {e}")
             return False
@@ -133,6 +133,40 @@ class GitHubClient:
             url,
             headers=self._headers,
             json={"body": body},
+            timeout=10,
+        )
+        if resp.status_code == 403 and "rate limit" in resp.text.lower():
+            raise RateLimitExceededException("Rate limit exceeded")
+        resp.raise_for_status()
+        return True
+
+    @exponential_backoff(max_retries=3)
+    def get_issue_comments(self, repo_slug: str, pr_number: int) -> list[dict[str, Any]]:
+        url = f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
+        return cast(list[dict[str, Any]], self._get_api(url))
+
+    @exponential_backoff(max_retries=3)
+    def update_comment(self, repo_slug: str, comment_id: int, body: str) -> bool:
+        self._check_rate_limit()
+        url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+        resp = requests.patch(
+            url,
+            headers=self._headers,
+            json={"body": body},
+            timeout=10,
+        )
+        if resp.status_code == 403 and "rate limit" in resp.text.lower():
+            raise RateLimitExceededException("Rate limit exceeded")
+        resp.raise_for_status()
+        return True
+
+    @exponential_backoff(max_retries=3)
+    def delete_comment(self, repo_slug: str, comment_id: int) -> bool:
+        self._check_rate_limit()
+        url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+        resp = requests.delete(
+            url,
+            headers=self._headers,
             timeout=10,
         )
         if resp.status_code == 403 and "rate limit" in resp.text.lower():

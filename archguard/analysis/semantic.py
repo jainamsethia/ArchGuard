@@ -79,7 +79,7 @@ def _get_model(model_name: str) -> "SentenceTransformer":
             )
         from sentence_transformers import SentenceTransformer
         _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-    return _GLOBAL_MODEL_CACHE[model_name]
+    return _GLOBAL_MODEL_CACHE[model_name]  # type: ignore
 
 
 def extract_module_text(file_path: Path) -> str:

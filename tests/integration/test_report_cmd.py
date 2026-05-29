@@ -12,7 +12,7 @@ def test_report_cmd_success(tmp_path):
     contract = {
         "version": "3.0",
         "modules": [
-            {"name": "test_mod", "paths": ["src/"]}
+            {"name": "test_mod", "path": "src/"}
         ],
         "fail_threshold": 0.75,
         "warn_threshold": 0.50

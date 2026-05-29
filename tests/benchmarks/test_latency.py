@@ -36,7 +36,7 @@ def test_validator_throughput(benchmark: Any) -> None:
     contract: dict[str, Any] = {
         "version": "3.0",
         "modules": [
-            {"name": f"module_{i}", "paths": [f"src/module_{i}/"]}
+            {"name": f"module_{i}", "path": [f"src/module_{i}/"]}
             for i in range(10)
         ],
         "fail_threshold": 0.75,

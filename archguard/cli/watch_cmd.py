@@ -1,3 +1,4 @@
+import typing
 import time
 import threading
 from pathlib import Path
@@ -14,18 +15,18 @@ class AnalysisEventHandler(FileSystemEventHandler):
         self._last_score: float | None = None
         self._debounce_timer: threading.Timer | None = None
 
-    def on_modified(self, event):
+    def on_modified(self, event: typing.Any) -> None:
         if event.src_path.endswith(".py") and not event.is_directory:
             self._schedule_analysis()
 
-    def _schedule_analysis(self):
+    def _schedule_analysis(self) -> None:
         if self._debounce_timer:
             self._debounce_timer.cancel()
         # Debounce: wait 500ms after last change before re-running
         self._debounce_timer = threading.Timer(0.5, self._run_analysis)
         self._debounce_timer.start()
 
-    def _run_analysis(self):
+    def _run_analysis(self) -> None:
         self.console.rule("[bold blue]File changed — re-analyzing...[/bold blue]")
         
         # We need to capture the score from the command execution.
@@ -58,7 +59,7 @@ class AnalysisEventHandler(FileSystemEventHandler):
             pass
 
 
-def run_watch_mode(opts: AnalyzeOptions, repo_path: Path):
+def run_watch_mode(opts: AnalyzeOptions, repo_path: Path) -> None:
     console = Console()
     handler = AnalysisEventHandler(opts, console)
     observer = Observer()

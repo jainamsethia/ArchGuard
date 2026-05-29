@@ -18,7 +18,7 @@ class StructuredFormatter(logging.Formatter):
             log_data["exception"] = self.formatException(record.exc_info)
         return json.dumps(log_data)
 
-def configure_logging(verbose: bool = False, json_logs: bool = False):
+def configure_logging(verbose: bool = False, json_logs: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     handler = logging.StreamHandler(sys.stderr)
     

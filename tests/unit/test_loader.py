@@ -36,11 +36,11 @@ class TestLoadContract:
 
         file1_data: dict[str, Any] = {
             "version": "3.0",
-            "modules": [{"name": "core", "paths": ["src/core/"]}],
+            "modules": [{"name": "core", "path": "src/core/"}],
         }
         file2_data: dict[str, Any] = {
             "version": "3.0",
-            "modules": [{"name": "api", "paths": ["src/api/"]}],
+            "modules": [{"name": "api", "path": "src/api/"}],
         }
 
         with (config_dir / "01_core.yml").open("w", encoding="utf-8") as f:

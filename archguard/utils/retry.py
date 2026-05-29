@@ -52,14 +52,14 @@ def exponential_backoff(
     base_delay: float = 1.0,
     max_delay: float = 60.0,
     jitter: bool = True,
-    retryable_exceptions: tuple = (Exception,),
+    retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
     retryable_status_codes: tuple[int, ...] = (429, 500, 502, 503, 504),
-) -> Callable:
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator for exponential backoff retry logic."""
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_exception: Exception | None = None
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
@@ -98,6 +98,8 @@ def exponential_backoff(
                         attempt + 1, max_retries, func.__name__, status, delay
                     )
                     time.sleep(delay)
-            raise last_exception
+            if last_exception is not None:
+                raise last_exception
+            raise RuntimeError("Max retries exceeded")
         return wrapper
     return decorator

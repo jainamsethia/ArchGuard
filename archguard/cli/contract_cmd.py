@@ -186,7 +186,7 @@ def contract_show(
         if p.module_name == module:
             data = {
                 "module_name": p.module_name,
-                "proposed_paths": p.proposed_paths,
+                "proposed_path": p.proposed_path,
                 "proposed_drift_threshold": p.proposed_drift_threshold,
                 "proposed_coupling_budget": p.proposed_coupling_budget,
                 "semantic_drift_score": p.semantic_drift_score,

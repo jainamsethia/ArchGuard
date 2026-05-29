@@ -25,7 +25,7 @@ modules:
     return tmp_path
 
 def test_full_analysis_detects_boundary_violation(tmp_path, sample_repo):
-    result = runner.invoke(app, ["analyze", "--repo", str(sample_repo)])
+    result = runner.invoke(app, ["analyze", "--repo", str(sample_repo), "--all"])
     assert result.exit_code == 1  # violations found
     assert "boundary" in result.output.lower()
 
