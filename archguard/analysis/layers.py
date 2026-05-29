@@ -193,6 +193,7 @@ class AnalysisOrchestrator:
                 
             if "semantic" in skip_layers:
                 layer3 = 0.0
+                module_drifts = {}
                 if progress:
                     progress.update(task3, description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]")
                     progress.stop_task(task3)
@@ -200,7 +201,7 @@ class AnalysisOrchestrator:
                     print("⚠ Layer 3 Skipped (config)")
             else:
                 try:
-                    layer3 = self._run_layer3(affected, py_files, commit_sha, violations)
+                    layer3, module_drifts = self._run_layer3(affected, py_files, commit_sha, violations)
                     l3_violations = len([v for v in violations if v.layer == 3])
                     if progress:
                         progress.update(task3, description=f"[green]✓ Layer 3:[/green] {l3_violations} violations")
@@ -226,7 +227,7 @@ class AnalysisOrchestrator:
                 return self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha)
 
             # --- Reinference: check staleness + create proposals ---
-            self._run_reinference(affected, commit_sha)
+            self._run_reinference(affected, commit_sha, drift_results=module_drifts)
 
             # --- Layer 4: Duplication ---
             desc4 = "Layer 4: Duplication Detection..."
@@ -491,7 +492,7 @@ class AnalysisOrchestrator:
         py_files: list[Path],
         commit_sha: str,
         violations: list[ViolationDetail],
-    ) -> float:
+    ) -> tuple[float, dict[str, float]]:
         """Layer 3: Semantic drift."""
         from archguard.analysis.semantic import SemanticAnalyzer
 
@@ -503,9 +504,11 @@ class AnalysisOrchestrator:
         }
 
         max_drift = 0.0
+        module_drifts: dict[str, float] = {}
         for mod_name, files in affected.items():
             try:
                 result = analyzer.compute_drift(mod_name, files, self.repo_root)
+                module_drifts[mod_name] = result.drift_score
                 if result.drift_score > thresholds.get(mod_name, 0.25):
                     violations.append(ViolationDetail(
                         layer=3,
@@ -526,7 +529,7 @@ class AnalysisOrchestrator:
                 from archguard.utils.errors import AnalysisError
                 raise AnalysisError(f"Layer 3 analysis failed on module {mod_name}", cause=e) from e
 
-        return max_drift
+        return max_drift, module_drifts
 
     def _run_layer4(
         self,
@@ -614,6 +617,7 @@ class AnalysisOrchestrator:
         self,
         affected: dict[str, list[Path]],
         commit_sha: str,
+        drift_results: dict[str, float] | None = None,
     ) -> None:
         """Run reinference staleness check and create proposals if needed."""
         try:
@@ -640,32 +644,36 @@ class AnalysisOrchestrator:
 
             for mod_name in affected:
                 threshold = thresholds.get(mod_name, 0.25)
-                # We need the drift score — recompute from semantic analyzer
-                from archguard.analysis.semantic import SemanticAnalyzer
+                
+                if drift_results is not None and mod_name in drift_results:
+                    drift_score = drift_results[mod_name]
+                else:
+                    # We need the drift score — recompute from semantic analyzer
+                    from archguard.analysis.semantic import SemanticAnalyzer
+    
+                    analyzer = SemanticAnalyzer(self.cache)
+                    try:
+                        drift_result = analyzer.compute_drift(
+                            mod_name, affected[mod_name], self.repo_root,
+                        )
+                        drift_score = drift_result.drift_score
+                    except RuntimeError as e:
+                        if "ML dependencies" in str(e):
+                            continue
+                        raise
+                    except Exception as e:
+                        from archguard.utils.errors import AnalysisError
+                        raise AnalysisError(f"Reinference proposal failed on module {mod_name}", cause=e) from e
 
-                analyzer = SemanticAnalyzer(self.cache)
                 try:
-                    drift_result = analyzer.compute_drift(
-                        mod_name, affected[mod_name], self.repo_root,
-                    )
-                    if engine.should_propose(
-                        mod_name, drift_result.drift_score, threshold,
-                    ):
+                    if engine.should_propose(mod_name, drift_score, threshold):
                         engine.create_proposal(
                             module_name=mod_name,
-                            semantic_drift=drift_result.drift_score,
-                            new_centroid_paths=module_paths.get(
-                                mod_name, [],
-                            ),
-                            current_coupling_budget=budgets.get(
-                                mod_name, 3,
-                            ),
+                            semantic_drift=drift_score,
+                            new_centroid_paths=module_paths.get(mod_name, []),
+                            current_coupling_budget=budgets.get(mod_name, 3),
                             source_commit=commit_sha,
                         )
-                except RuntimeError as e:
-                    if "ML dependencies" in str(e):
-                        continue
-                    raise
                 except Exception as e:
                     from archguard.utils.errors import AnalysisError
                     raise AnalysisError(f"Reinference proposal failed on module {mod_name}", cause=e) from e

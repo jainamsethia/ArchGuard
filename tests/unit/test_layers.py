@@ -53,3 +53,55 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
     assert util_file2 in affected["utils"]  # Matched via module_names
     
     assert "unknown" not in affected
+
+
+def test_drift_computed_once_per_run(tmp_path):
+    from unittest.mock import patch, MagicMock
+    from archguard.analysis.semantic import SemanticDriftResult
+    import numpy as np
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    
+    contract = {
+        "modules": [
+            {
+                "name": "core",
+                "paths": ["src/core/"],
+            }
+        ]
+    }
+    
+    class MockOrchestrator(AnalysisOrchestrator):
+        def __init__(self):
+            self.repo_root = repo_root
+            self.contract = contract
+            self.db = MagicMock()
+            self.cache = MagicMock()
+            self._audit = None
+            
+    orchestrator = MockOrchestrator()
+    core_file = repo_root / "src" / "core" / "test.py"
+    core_file.parent.mkdir(parents=True)
+    core_file.touch()
+    
+    fake_result = SemanticDriftResult(
+        module_name="core",
+        drift_score=0.4, # > 0.25 to trigger proposal
+        pre_pr_centroid=np.zeros(384, dtype=np.float32),
+        post_pr_centroid=np.zeros(384, dtype=np.float32),
+        functions_analyzed=1,
+        cache_hit=False
+    )
+    
+    with patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer1", return_value=0.0), \
+         patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer2", return_value=0.0), \
+         patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer4", return_value=0.0), \
+         patch("archguard.analysis.semantic.SemanticAnalyzer.compute_drift", return_value=fake_result) as mock_drift, \
+         patch("archguard.contract.reinference.ReinferenceEngine.create_proposal") as mock_propose, \
+         patch("builtins.print"):
+         
+         orchestrator.run([core_file], "fake_sha")
+         
+         assert mock_drift.call_count == 1, "compute_drift must be called exactly once"
+         assert mock_propose.call_count == 1, "create_proposal should have been called"
