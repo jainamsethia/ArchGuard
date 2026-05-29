@@ -1,4 +1,10 @@
 schema_version: "3.0"
 modules:
-  - name: dummy
-    paths: ["dummy.py"]
+  - name: archguard
+    paths: ["archguard/"]
+    coupling_budget: 15
+    semantic_drift_threshold: 0.30
+  - name: tests
+    paths: ["tests/"]
+fail_threshold: 0.75
+warn_threshold: 0.50
