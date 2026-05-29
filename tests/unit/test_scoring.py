@@ -35,12 +35,12 @@ class TestComputeArchdebt:
         assert result.composite_breach is True
 
     def test_watch_band(self) -> None:
-        """composite=0.60, warn=0.50, fail=0.75 -> WATCH."""
+        """composite=0.60, warn=0.50, fail=0.75 -> WARN."""
         scores = LayerScores(0.60, 0.60, 0.60, 0.60)
         result = compute_archdebt(
             scores, warn_threshold=0.50, fail_threshold=0.75,
         )
-        assert result.band == ArchDebtBand.WATCH
+        assert result.band == ArchDebtBand.WARN
 
     def test_per_component_breach(self) -> None:
         """layer1=0.90, composite=0.30 -> per_component_breach, should_fail_ci."""
@@ -84,12 +84,31 @@ class TestClassifyBand:
     """Tests for classify_band."""
 
     def test_healthy(self) -> None:
-        assert classify_band(0.49, 0.50, 0.75) == ArchDebtBand.HEALTHY
+        assert classify_band(0.24, 0.50, 0.75) == ArchDebtBand.HEALTHY
+
+    def test_warn_boundary(self) -> None:
+        """warn_threshold is inclusive."""
+        assert classify_band(0.50, 0.50, 0.75) == ArchDebtBand.WARN
 
     def test_watch_boundary(self) -> None:
-        """warn_threshold is inclusive."""
-        assert classify_band(0.50, 0.50, 0.75) == ArchDebtBand.WATCH
+        """warn_threshold / 2 is inclusive."""
+        assert classify_band(0.25, 0.50, 0.75) == ArchDebtBand.WATCH
 
     def test_critical_boundary(self) -> None:
         """fail_threshold is inclusive."""
         assert classify_band(0.75, 0.50, 0.75) == ArchDebtBand.CRITICAL
+
+def test_compute_archdebt_no_ml_deps(monkeypatch):
+    """compute_archdebt must work even if numpy/scipy are not importable."""
+    import sys
+    # Simulate numpy not being installed
+    monkeypatch.setitem(sys.modules, 'numpy', None)
+    monkeypatch.setitem(sys.modules, 'scipy', None)
+    from archguard.analysis.scoring import compute_archdebt, LayerScores
+    result = compute_archdebt(LayerScores(0.3, 0.5, 0.2, 0.4), [1.0, 1.0, 1.0, 1.0])
+    assert result.composite_score == pytest.approx(0.35, abs=0.01)
+
+def test_compute_archdebt_clamping():
+    from archguard.analysis.scoring import compute_archdebt, LayerScores
+    result = compute_archdebt(LayerScores(2.0, 2.0, 2.0, 2.0), [1.0, 1.0, 1.0, 1.0])   # over 1.0
+    assert result.composite_score == 1.0

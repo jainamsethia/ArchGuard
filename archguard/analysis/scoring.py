@@ -68,7 +68,9 @@ def classify_band(
     """Classify a composite score into a band."""
     if score >= fail_threshold:
         return ArchDebtBand.CRITICAL
-    if score >= warn_threshold:
+    elif score >= warn_threshold:
+        return ArchDebtBand.WARN
+    elif score >= warn_threshold / 2.0:
         return ArchDebtBand.WATCH
     return ArchDebtBand.HEALTHY
 
@@ -87,10 +89,6 @@ def compute_archdebt(
     Per-component breach: any layer score > its per_component_threshold.
     ``should_fail_ci = composite_breach OR per_component_breach``.
     """
-    if not _ML_AVAILABLE:
-        raise RuntimeError(
-            "ML dependencies are not installed. Run: pip install archguard[ml]"
-        )
     layer_values = [
         scores.layer1_violation,
         scores.layer2_coupling,
@@ -98,8 +96,12 @@ def compute_archdebt(
         scores.layer4_duplication,
     ]
 
-    composite = sum(w * v for w, v in zip(weights, layer_values))
-    composite = float(np.clip(composite, 0.0, 1.0))
+    total_weight = sum(weights)
+    if total_weight == 0:
+        raise ValueError("weights must sum to a non-zero value")
+
+    raw_score = sum(w * v for w, v in zip(weights, layer_values)) / total_weight
+    composite = float(max(0.0, min(1.0, raw_score)))
 
     band = classify_band(composite, warn_threshold, fail_threshold)
     composite_breach = composite >= fail_threshold
@@ -145,6 +147,8 @@ def calibrate_weights(
     target_composite: list[float],
 ) -> tuple[float, float, float, float]:
     """Fit weights via NNLS. Normalize to sum=1.0.
+
+    Requires ML extras: pip install archguard[ml]
 
     Falls back to ``DEFAULT_WEIGHTS`` on any failure.
     """
