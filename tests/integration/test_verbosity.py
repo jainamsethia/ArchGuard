@@ -8,7 +8,7 @@ import subprocess
 
 from archguard.cli.main import app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 def test_version_flag() -> None:
     """Test that --version outputs the version and exits."""

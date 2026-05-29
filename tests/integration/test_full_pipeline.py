@@ -8,7 +8,7 @@ from archguard.cli.main import app
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SAMPLE_PROJECT = FIXTURES_DIR / "sample_project"
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 @pytest.fixture
 def git_repo(tmp_path):

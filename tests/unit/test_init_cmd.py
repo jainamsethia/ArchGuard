@@ -19,7 +19,7 @@ from archguard.cli.init_cmd import (
     save_checkpoint,
 )
 
-runner: CliRunner = CliRunner(mix_stderr=False)
+runner: CliRunner = CliRunner()
 
 
 def _create_py_files(tmp_path: Path) -> None:
