@@ -2,12 +2,41 @@
 coverage.xml
 .coverage
 htmlcov/
+
+# Virtual environments
 .venv/
 .venv-test/
+test_venv/
+venv/
+env/
+
+# Python cache files
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Pytest / mypy caches
+.pytest_cache/
+.mypy_cache/
+
+# ArchGuard runtime/cache files
 .archguard-cache/
 .archguard-checkpoints/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
 
 # Development debugging scripts (never commit these)
 patch.py
