@@ -57,6 +57,12 @@ def analyzer(cache: EmbeddingCache) -> SemanticAnalyzer:
     return SemanticAnalyzer(cache)
 
 
+@pytest.fixture(autouse=True)
+def clear_global_model_cache() -> None:
+    from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE
+    _GLOBAL_MODEL_CACHE.clear()
+
+
 class TestExtractModuleText:
     """Tests for extract_module_text."""
 
@@ -176,3 +182,35 @@ class TestComputeDrift:
 
         assert result.drift_score == pytest.approx(0.0, abs=1e-5)
         assert result.cache_hit is True
+
+    def test_model_loaded_only_once(
+        self, analyzer: SemanticAnalyzer, cache: EmbeddingCache, tmp_path: Path,
+    ) -> None:
+        """Model should only be loaded once per analyzer (and globally shared)."""
+        import sys
+        from archguard.analysis.semantic import FunctionChunk
+        
+        mock_st = MagicMock()
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.zeros((1, 384), dtype=np.float32)
+        mock_st.SentenceTransformer.return_value = mock_model
+        
+        chunk1 = FunctionChunk("file1.py", "f1", "def f1(): pass", "h1")
+        chunk2 = FunctionChunk("file2.py", "f2", "def f2(): pass", "h2")
+        
+        with patch.dict(sys.modules, {"sentence_transformers": mock_st}):
+            # Clear global cache for test
+            from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE
+            _GLOBAL_MODEL_CACHE.clear()
+            
+            # First call
+            analyzer.embed_chunks([chunk1])
+            # Second call
+            analyzer.embed_chunks([chunk2])
+            
+            # Create a second analyzer to test global cache
+            analyzer2 = SemanticAnalyzer(cache)
+            analyzer2.embed_chunks([FunctionChunk("file3.py", "f3", "pass", "h3")])
+
+        # Assert SentenceTransformer(model_name) was called exactly once
+        mock_st.SentenceTransformer.assert_called_once_with(SemanticAnalyzer.MODEL_NAME)

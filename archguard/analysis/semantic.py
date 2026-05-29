@@ -67,6 +67,20 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 # Analyzer
 # ------------------------------------------------------------------
 
+_GLOBAL_MODEL_CACHE: dict[str, Any] = {}
+
+def _get_model(model_name: str) -> "SentenceTransformer":
+    if model_name not in _GLOBAL_MODEL_CACHE:
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "Layer 3 (Semantic Drift) requires ML dependencies. "
+                "Install them with: pip install archguard[ml]"
+            )
+        from sentence_transformers import SentenceTransformer
+        _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+    return _GLOBAL_MODEL_CACHE[model_name]
+
+
 def extract_module_text(file_path: Path) -> str:
     """
     Extract meaningful text from a Python module for semantic analysis.
@@ -99,8 +113,17 @@ def extract_module_text(file_path: Path) -> str:
 class SemanticAnalyzer:
     """Embedding pipeline + drift detection using all-MiniLM-L6-v2."""
 
+    MODEL_NAME = "all-MiniLM-L6-v2"
+
     def __init__(self, cache: EmbeddingCache) -> None:
         self._cache: EmbeddingCache = cache
+        self._model: "SentenceTransformer | None" = None
+
+    @property
+    def _sentence_transformer(self) -> "SentenceTransformer":
+        if self._model is None:
+            self._model = _get_model(self.MODEL_NAME)
+        return self._model
 
     def embed_chunks(
         self,
@@ -135,10 +158,10 @@ class SemanticAnalyzer:
 
         # Embed cache misses
         if to_embed:
-            model = SentenceTransformer("all-MiniLM-L6-v2")
+            model = self._sentence_transformer
             texts = [c.source for c in to_embed]
             embeddings = model.encode(texts, batch_size=batch_size)
-            model_name = "all-MiniLM-L6-v2"
+            model_name = self.MODEL_NAME
 
             new_items = {}
             for i, chunk in enumerate(to_embed):
