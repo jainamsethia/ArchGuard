@@ -68,17 +68,13 @@ disallow_untyped_defs = true
 
 [[tool.mypy.overrides]]
 module = [
-    "archguard.cli.*",
-    "archguard.patch",
-    "archguard.patch_paths",
-    "archguard.profiles.*",
-    "archguard.utils.*",
-    "archguard.audit.*",
-    "archguard.analysis.*",
-    "archguard.llm.*",
-    "archguard.github.*"
+    "tree_sitter.*",
+    "faiss.*",
+    "sentence_transformers.*",
+    "community.*",
+    "pydriller.*",
 ]
-ignore_errors = true
+ignore_missing_imports = true
 
 [build-system]
 requires = ["poetry-core"]

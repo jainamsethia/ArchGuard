@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
+import requests
 
 from archguard.github.client import _get_pr_number, post_comment, GitHubClient
 
@@ -60,20 +61,23 @@ def test_post_comment_no_pr_number(monkeypatch: pytest.MonkeyPatch) -> None:
     assert post_comment("org/repo", "test body", pr_number=None) is False
 
 
-@patch("archguard.github.comments.PRCommentManager")
+@patch("archguard.github.client.requests.post")
+@patch("archguard.github.client.requests.get")
 def test_post_comment_method_success(
-    mock_manager_class: MagicMock,
+    mock_get: MagicMock,
+    mock_post: MagicMock,
 ) -> None:
     """GitHubClient.post_comment succeeds when dependencies are correct."""
-    mock_manager = mock_manager_class.return_value
-    mock_manager.post_or_update.return_value = 12345
+    mock_get.return_value.status_code = 200
+    mock_get.return_value.json.return_value = {"resources": {"core": {"remaining": 5000}}}
+    
+    mock_post.return_value.status_code = 201
 
-    with patch.dict("sys.modules", {"github": MagicMock()}):
-        with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
-            client = GitHubClient()
-            res = client.post_comment("org/repo", "test body", pr_number=55)
-            assert res is True
-            mock_manager.post_or_update.assert_called_once_with("org/repo", 55, "test body")
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
+        client = GitHubClient()
+        res = client.post_comment("org/repo", "test body", pr_number=55)
+        assert res is True
+        mock_post.assert_called_once()
 
 
 @patch("archguard.github.client.GitHubClient")
