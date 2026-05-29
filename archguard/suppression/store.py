@@ -34,6 +34,8 @@ class SuppressionStore:
     def __init__(self, repo_root: Path) -> None:
         self._path: Path = repo_root / SUPPRESSION_FILE
         self._lock_path: Path = self._path.with_suffix(".lock")
+        self._cache: list[Suppression] | None = None
+        self._cache_mtime: float = 0.0
 
     def add(
         self,
@@ -99,18 +101,20 @@ class SuppressionStore:
             import logging
             logging.getLogger(__name__).warning(f"Non-critical failure in audit log suppression: {e}")
 
+        self._cache = None  # Force reload on next access
         return suppression
 
-    def list_all(self, include_inactive: bool = False) -> list[Suppression]:
-        """Read all suppressions from the JSONL file.
-
-        Skips malformed lines. Filters active=True unless *include_inactive*.
-        Returns sorted by created_at descending.
-        """
-        if not self._path.exists():
+    def _load_cache(self) -> list[Suppression]:
+        """Load suppressions from JSONL, using mtime to detect changes."""
+        try:
+            mtime = self._path.stat().st_mtime
+        except FileNotFoundError:
             return []
 
-        results: list[Suppression] = []
+        if self._cache is not None and mtime == self._cache_mtime:
+            return self._cache
+
+        suppressions: list[Suppression] = []
         with self._path.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -118,15 +122,25 @@ class SuppressionStore:
                     continue
                 try:
                     data: dict[str, Any] = json.loads(line)
-                    sup = suppression_from_dict(data)
-                    if include_inactive or sup.active:
-                        results.append(sup)
+                    suppressions.append(suppression_from_dict(data))
                 except Exception as e:  # noqa: BLE001
                     import logging
                     logging.getLogger(__name__).warning(f"Non-critical failure in suppression line parse: {e}")
                     logger.warning("Skipping malformed suppression line")
                     continue
 
+        self._cache = suppressions
+        self._cache_mtime = mtime
+        return self._cache
+
+    def list_all(self, include_inactive: bool = False) -> list[Suppression]:
+        """Read all suppressions from the JSONL file.
+
+        Skips malformed lines. Filters active=True unless *include_inactive*.
+        Returns sorted by created_at descending.
+        """
+        all_sups = self._load_cache()
+        results = [sup for sup in all_sups if include_inactive or sup.active]
         results.sort(key=lambda s: s.created_at, reverse=True)
         return results
 
@@ -135,7 +149,7 @@ class SuppressionStore:
         target_hash = make_violation_hash(module, layer, message)
         now = datetime.now(timezone.utc)
 
-        for sup in self.list_all():
+        for sup in self._load_cache():
             if sup.violation_hash != target_hash:
                 continue
             if not sup.active:
@@ -250,24 +264,11 @@ class SuppressionStore:
 
     def _read_all_raw(self) -> list[Suppression]:
         """Read all lines without filtering."""
-        results: list[Suppression] = []
-        if not self._path.exists():
-            return results
-        with self._path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    results.append(suppression_from_dict(json.loads(line)))
-                except Exception as e:  # noqa: BLE001
-                    import logging
-                    logging.getLogger(__name__).warning(f"Non-critical failure in _read_all_raw: {e}")
-                    continue
-        return results
+        return self._load_cache()
 
     def _write_all_raw(self, suppressions: list[Suppression]) -> None:
         """Overwrite entire file with given suppressions."""
         with self._path.open("w", encoding="utf-8") as f:
             for s in suppressions:
                 f.write(suppression_to_jsonl(s) + "\n")
+        self._cache = None  # Force reload on next access

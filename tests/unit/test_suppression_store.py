@@ -100,6 +100,23 @@ class TestIsSuppressed:
         store.mark_orphans([s.id])
         assert store.is_suppressed("payments", 1, "bad import") is False
 
+    def test_is_suppressed_reads_file_once_for_multiple_violations(
+        self, tmp_path: Path
+    ) -> None:
+        from unittest.mock import patch
+        import builtins
+        from archguard.config import SUPPRESSION_FILE
+
+        store = _make_store(tmp_path)
+        store.add("mod", 1, "msg", "reason")
+
+        with patch("builtins.open", wraps=builtins.open) as spy:
+            for _ in range(100):
+                store.is_suppressed("mod", 1, "msg")
+
+            store_opens = [c for c in spy.call_args_list if str(SUPPRESSION_FILE) in str(c)]
+            assert len(store_opens) <= 2
+
 
 class TestOrphans:
     def test_detect_orphans(self, tmp_path: Path) -> None:
