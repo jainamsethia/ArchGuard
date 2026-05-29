@@ -50,9 +50,14 @@ class TestSuppressionAdd:
     def test_invalid_layer(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         with pytest.raises(
-            SuppressionValidationError, match="layer must be 1, 2, 3, or 4",
+            SuppressionValidationError, match="layer must be 1, 2, or 3",
         ):
             store.add("mod", 5, "msg", "reason")
+
+    def test_layer_4_unsuppressable(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        with pytest.raises(SuppressionValidationError, match="Layer 4 violations cannot be suppressed"):
+            store.add("mod", 4, "msg", "reason")
 
 
 class TestSuppressionList:

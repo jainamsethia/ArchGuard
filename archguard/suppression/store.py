@@ -61,9 +61,11 @@ class SuppressionStore:
             raise SuppressionValidationError(
                 "reason must not contain newlines"
             )
-        if layer not in {1, 2, 3, 4}:
+        if layer == 4:
+            raise SuppressionValidationError("Layer 4 violations cannot be suppressed.")
+        if layer not in {1, 2, 3}:
             raise SuppressionValidationError(
-                "layer must be 1, 2, 3, or 4"
+                "layer must be 1, 2, or 3"
             )
 
         suppression = Suppression(
@@ -146,6 +148,9 @@ class SuppressionStore:
 
     def is_suppressed(self, module: str, layer: int, message: str) -> bool:
         """Return True if an active, non-expired suppression matches."""
+        if layer == 4:
+            return False
+            
         target_hash = make_violation_hash(module, layer, message)
         now = datetime.now(timezone.utc)
 

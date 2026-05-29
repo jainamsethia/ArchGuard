@@ -50,7 +50,10 @@ class AnalysisResult:
     skip_reason: str = ""
     fail_fast_triggered: bool = False
     skipped_layers_names: list[str] = field(default_factory=list)
-    metrics: dict = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
+    parse_failures: list[Any] = field(default_factory=list)
+    partial_analysis: bool = False
+
 
 
 from archguard.utils.paths import normalize_path, path_belongs_to_module
@@ -137,13 +140,16 @@ class AnalysisOrchestrator:
                     print(desc1)
                     print(desc2)
                     
-                def run_l1():
+                l1_failures: list[Any] = []
+                l2_failures: list[Any] = []
+                    
+                def run_l1() -> float:
                     with metrics.time_layer("layer1"):
-                        return self._run_layer1(py_files, affected, commit_sha, violations)
+                        return self._run_layer1(py_files, affected, commit_sha, violations, l1_failures)
                         
-                def run_l2():
+                def run_l2() -> float:
                     with metrics.time_layer("layer2"):
-                        return self._run_layer2(affected, commit_sha, violations)
+                        return self._run_layer2(affected, commit_sha, violations, l2_failures)
                     
                 future_l1 = executor.submit(run_l1)
                 future_l2 = executor.submit(run_l2)
@@ -167,6 +173,25 @@ class AnalysisOrchestrator:
             elapsed = time.perf_counter() - start_time
             logger.debug(f"Layer 1 and 2 concurrent execution time: {elapsed:.2f}s")
             
+            parse_failures = l1_failures + l2_failures
+            # De-duplicate by file_path and error_type
+            unique_failures = []
+            seen = set()
+            for f in parse_failures:
+                key = (str(f.file_path), f.error_type)
+                if key not in seen:
+                    seen.add(key)
+                    unique_failures.append(f)
+            
+            if unique_failures and self._audit:
+                for f in unique_failures:
+                    self._audit.log_event("parse_failure", {
+                        "file": str(f.file_path),
+                        "error_type": f.error_type,
+                        "error_message": f.error_message,
+                        "is_critical": f.is_critical
+                    })
+
             if fail_fast:
                 if layer1 >= fail_threshold:
                     if progress:
@@ -176,7 +201,10 @@ class AnalysisOrchestrator:
                         f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
                         f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                     )
-                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                    res = self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                    res.parse_failures = unique_failures
+                    res.partial_analysis = bool(unique_failures)
+                    return res
                 
                 if layer2 >= fail_threshold:
                     if progress:
@@ -186,7 +214,10 @@ class AnalysisOrchestrator:
                         f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
                         f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                     )
-                    return self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                    res = self._build_partial_result(layer1, layer2, 0.0, 0.0, ["semantic", "duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                    res.parse_failures = unique_failures
+                    res.partial_analysis = bool(unique_failures)
+                    return res
 
             # --- Layer 3: Semantic drift ---
             skip_layers = list(self.contract.get("skip_layers", []))
@@ -206,7 +237,7 @@ class AnalysisOrchestrator:
                 
             if "semantic" in skip_layers:
                 layer3 = 0.0
-                module_drifts = {}
+                module_drifts: dict[str, float] = {}
                 if progress:
                     progress.update(task3, description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]")
                     progress.stop_task(task3)
@@ -239,7 +270,10 @@ class AnalysisOrchestrator:
                     f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} "
                     f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
                 )
-                return self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                res = self._build_partial_result(layer1, layer2, layer3, 0.0, ["duplication"], violations, affected, rel_files, commit_sha, metrics.to_dict())
+                res.parse_failures = unique_failures
+                res.partial_analysis = bool(unique_failures)
+                return res
 
             # --- Reinference: check staleness + create proposals ---
             self._run_reinference(affected, commit_sha, drift_results=module_drifts)
@@ -309,6 +343,8 @@ class AnalysisOrchestrator:
                 changed_files=rel_files,
                 commit_sha=commit_sha,
                 metrics=metrics.to_dict(),
+                parse_failures=unique_failures,
+                partial_analysis=bool(unique_failures),
             )
         finally:
             if progress:
@@ -322,10 +358,10 @@ class AnalysisOrchestrator:
         self, l1: float, l2: float, l3: float, l4: float, 
         skipped_layers: list[str], 
         violations: list[ViolationDetail], 
-        affected: dict, 
+        affected: dict[str, list[Path]], 
         rel_files: list[str], 
         commit_sha: str,
-        metrics: dict
+        metrics: dict[str, Any]
     ) -> AnalysisResult:
         violations = self._filter_suppressed(violations)
         scores = LayerScores(l1, l2, l3, l4)
@@ -369,9 +405,13 @@ class AnalysisOrchestrator:
         affected: dict[str, list[Path]],
         commit_sha: str,
         violations: list[ViolationDetail],
+        parse_failures: list[Any] | None = None,
     ) -> float:
         """Layer 1: Import boundary violations."""
         from archguard.analysis.parser import ImportParser
+
+        if parse_failures is None:
+            parse_failures = []
 
         parser = ImportParser()
         modules_cfg = self.contract.get("modules", [])
@@ -460,6 +500,7 @@ class AnalysisOrchestrator:
                 from archguard.utils.errors import AnalysisError
                 raise AnalysisError(f"Layer 1 analysis failed on {fpath}", cause=e) from e
 
+        parse_failures.extend(parser.parse_failures)
         return violation_count / max(total_imports, 1)
 
     def _run_layer2(
@@ -467,8 +508,11 @@ class AnalysisOrchestrator:
         affected: dict[str, list[Path]],
         commit_sha: str,
         violations: list[ViolationDetail],
+        parse_failures: list[Any] | None = None,
     ) -> float:
         """Layer 2: Coupling delta."""
+        if parse_failures is None:
+            parse_failures = []
         from archguard.analysis.coupling import compute_coupling_delta, compute_fan_out
         from archguard.analysis.parser import ImportParser
 
@@ -481,7 +525,9 @@ class AnalysisOrchestrator:
             m["name"]: m.get("coupling_budget", 3) for m in modules_cfg
         }
 
-        edges = parser.parse_repo(self.repo_root, module_paths)
+        parse_result = parser.parse_repo(self.repo_root, module_paths, allow_partial=True)
+        edges = parse_result.edges
+        parse_failures.extend(parse_result.failures)
         max_delta = 0.0
 
         for mod_name in affected:
@@ -626,7 +672,7 @@ class AnalysisOrchestrator:
             store = SuppressionStore(self.repo_root)
             return [
                 v for v in violations
-                if not store.is_suppressed(v.module, v.layer, v.message)
+                if v.layer == 4 or not store.is_suppressed(v.module, v.layer, v.message)
             ]
         except Exception as e:
             from archguard.utils.errors import AnalysisError
