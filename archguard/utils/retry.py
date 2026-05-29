@@ -11,6 +11,7 @@ def with_retry(
     backoff_base: float = 1.0,
     backoff_max: float = 30.0,
     retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
+    non_retryable_exceptions: tuple[Type[Exception], ...] = (),
 ):
     """Exponential backoff decorator with jitter."""
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
@@ -19,6 +20,8 @@ def with_retry(
             for attempt in range(max_attempts):
                 try:
                     return func(*args, **kwargs)
+                except non_retryable_exceptions:
+                    raise
                 except retryable_exceptions as e:
                     if attempt == max_attempts - 1:
                         raise

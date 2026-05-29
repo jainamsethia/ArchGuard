@@ -37,6 +37,17 @@ MAX_TOKENS: int = 2048
 
 _TERMINAL_PUNCT: frozenset[str] = frozenset({'.', '!', '?', '"', "'"})
 
+_CLOUD_RETRYABLE = (
+    (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError)
+    if _ML_AVAILABLE
+    else (Exception,)
+)
+_CLOUD_NON_RETRYABLE = (
+    (anthropic.AuthenticationError, anthropic.PermissionDeniedError, ValueError, TypeError)
+    if _ML_AVAILABLE
+    else (ValueError, TypeError)
+)
+
 
 @dataclass
 class LLMExplanationResult:
@@ -197,7 +208,11 @@ class CloudLLMExplainer:
         tasks = [explain_one(v) for v in safe_violations]
         return await asyncio.gather(*tasks, return_exceptions=True)
 
-    @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
+    @with_retry(
+        max_attempts=3,
+        retryable_exceptions=_CLOUD_RETRYABLE,
+        non_retryable_exceptions=_CLOUD_NON_RETRYABLE
+    )
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
         if not _ML_AVAILABLE:
