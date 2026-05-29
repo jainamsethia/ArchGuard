@@ -139,3 +139,19 @@ class TestEmbeddingCache:
         
         # Exactly one SELECT query
         assert len(queries) == 1
+
+    def test_iter_embeddings_does_not_load_all_at_once(self, cache: EmbeddingCache) -> None:
+        """Verify iter_embeddings streams in batches instead of fetching all at once."""
+        # Insert 2000 embeddings
+        for i in range(2000):
+            emb = np.zeros(384, dtype=np.float32)
+            cache.store_embedding(f"file_{i}.py", "func", emb, "hash", "model")
+        
+        # Call iter_embeddings with batch_size=100
+        batches = list(cache.iter_embeddings(batch_size=100))
+        
+        # Verify it yields 20 batches
+        assert len(batches) == 20
+        # Verify each batch has length 100
+        for batch in batches:
+            assert len(batch) == 100

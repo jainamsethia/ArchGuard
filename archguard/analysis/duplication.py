@@ -131,31 +131,48 @@ class DuplicationAnalyzer:
                 skip_reason=reason,
             )
 
-        # 2. Get all embeddings from cache
-        all_emb_data = self._cache.get_all_embeddings()
-        if not all_emb_data:
-            return DuplicationResult(module_name=module_name)
-
-        # Extract just the arrays (drop hashes) for indexing
-        all_embeddings: dict[str, npt.NDArray[np.float32]] = {
-            key: v[0] for key, v in all_emb_data.items()
-        }
-
-        # 3. Build FAISS index from ALL embeddings
-        index, keys = self.build_index(all_embeddings)
-        if not keys:
+        # 2 & 3. Build FAISS index from ALL embeddings via streaming
+        from archguard.config import EMBEDDING_BATCH_SIZE
+        
+        index = None
+        keys: list[str] = []
+        module_file_set = set(module_files)
+        module_embeddings: dict[str, npt.NDArray[np.float32]] = {}
+        
+        for batch in self._cache.iter_embeddings(batch_size=EMBEDDING_BATCH_SIZE):
+            if not batch:
+                continue
+                
+            batch_paths = [p for p, _ in batch]
+            
+            # Save module embeddings for later querying
+            for p, v in batch:
+                file_part = p.split("::")[0]
+                if file_part in module_file_set:
+                    module_embeddings[p] = v
+                    
+            batch_vecs = np.vstack([v for _, v in batch])
+            
+            # Unit-normalize
+            norms = np.linalg.norm(batch_vecs, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1.0, norms)
+            batch_vecs = batch_vecs / norms
+            
+            if index is None:
+                dim = batch_vecs.shape[1]
+                index = faiss.IndexFlatL2(dim)
+                
+            index.add(batch_vecs)
+            keys.extend(batch_paths)
+            
+        if not keys or index is None:
             return DuplicationResult(module_name=module_name)
 
         # 4. Query for each function in module_files
         matches: list[DuplicationMatch] = []
-        module_file_set = set(module_files)
 
         # Unit-normalize query vectors
-        for func_key, emb in all_embeddings.items():
-            # Only query functions belonging to this module
-            file_part = func_key.split("::")[0]
-            if file_part not in module_file_set:
-                continue
+        for func_key, emb in module_embeddings.items():
 
             query = emb.astype(np.float32).reshape(1, -1)
             qnorm = np.linalg.norm(query)

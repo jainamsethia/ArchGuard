@@ -34,6 +34,7 @@ AUDIT_LOG_FILENAME: str = ".archguard-cache/audit.jsonl"
 
 # Cache
 EMBEDDING_CACHE_FILE: str = ".archguard-cache/embeddings.db"
+EMBEDDING_BATCH_SIZE: int = int(os.environ.get("ARCHGUARD_EMBEDDING_BATCH_SIZE", "500"))
 SUPPRESSION_FILE: str = ".archguard-cache/suppressions.jsonl"
 PENDING_CONTRACTS_DIR: str = ".archguard-pending-contracts"
 CHECKPOINTS_DIR: str = ".archguard-checkpoints"

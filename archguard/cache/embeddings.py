@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
+from typing import Iterator
 
 try:
     import numpy as np
@@ -238,12 +239,8 @@ class EmbeddingCache:
         except Exception:
             logger.warning("Failed to set_batch")
 
-    def get_all_embeddings(self) -> dict[str, tuple[npt.NDArray[np.float32], str]]:
-        """Return all cached embeddings.
-
-        Keys are ``"{file_path}::{function_name}"``.
-        Values are ``(embedding_array, content_hash)``.
-        """
+    def iter_embeddings(self, batch_size: int = 500) -> Iterator[list[tuple[str, npt.NDArray[np.float32]]]]:
+        """Yield embeddings in batches of batch_size to avoid loading all into RAM."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
                 "ML dependencies are not installed. Run: pip install archguard[ml]"
@@ -253,21 +250,26 @@ class EmbeddingCache:
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
         lock_path = Path(db_file).with_suffix(".lock")
 
-        result: dict[str, tuple[npt.NDArray[np.float32], str]] = {}
-        try:
+        offset = 0
+        while True:
             with file_lock(lock_path):
                 cursor = self._db._conn.execute(
-                    "SELECT file_path, function_name, embedding, content_hash "
-                    "FROM embeddings",
+                    "SELECT file_path, function_name, embedding "
+                    "FROM embeddings LIMIT ? OFFSET ?",
+                    (batch_size, offset)
                 )
-                for row in cursor:
-                    fp, fn, blob, chash = row
-                    key = f"{fp}::{fn}"
-                    arr = np.frombuffer(blob, dtype=np.float32).copy()
-                    result[key] = (arr, chash)
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to read all embeddings")
-        return result
+                rows = cursor.fetchall()
+
+            if not rows:
+                break
+            
+            batch = [(f"{fp}::{fn}", np.frombuffer(blob, dtype=np.float32).copy()) for fp, fn, blob in rows]
+            yield batch
+            offset += batch_size
+
+    def get_all_embeddings(self) -> dict[str, npt.NDArray[np.float32]]:
+        """WARNING: Loads all embeddings into RAM. Use iter_embeddings() for large repos."""
+        return {path: emb for batch in self.iter_embeddings() for path, emb in batch}
 
     # ----------------------------------------------------------
     # Validity / staleness checks
