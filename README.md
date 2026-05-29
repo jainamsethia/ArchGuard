@@ -6,7 +6,48 @@
 
 **[📺 Live Demo](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
 
-## How It Works
+## Architecture
+
+![Architecture](docs/architecture.png)
+
+```mermaid
+flowchart TB
+subgraph Input["📥 Input"]
+GH[GitHub PR]
+CLI[Local CLI]
+end
+subgraph Pipeline["🔍 Analysis Pipeline"]
+direction TB
+L1["Layer 1: Import Boundaries\n(tree-sitter AST)"]
+L2["Layer 2: Coupling Delta\n(NetworkX fan-out)"]
+L3["Layer 3: Semantic Drift\n(MiniLM embeddings + FAISS)"]
+L4["Layer 4: LLM Explanation\n(Claude / Ollama)"]
+SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
+end
+subgraph Cache["💾 Cache Layer"]
+SQLITE[(SQLite WAL\nEmbedding Cache)]
+INCR[SHA-256\nIncremental Hash]
+end
+subgraph Output["📤 Output"]
+COMMENT[PR Comment]
+HTML[HTML Report]
+AUDIT[Audit JSONL Log]
+EXIT[CI Exit Code]
+end
+subgraph Contract["📋 Contract"]
+YAML[.archguard.yml\n(JSON Schema v3.0)]
+REINFER[Re-inference\nEngine]
+end
+Input --> Pipeline
+Pipeline --> SCORE
+SCORE --> Output
+Cache -.->|Cache reads| Pipeline
+Pipeline -.->|Cache writes| Cache
+Contract --> Pipeline
+L3 -->|persistent drift| REINFER
+REINFER --> Contract
+```
+
 ArchGuard runs a 4-layer analysis pipeline on every PR:
 
 | Layer | Signal | Technology |
@@ -127,6 +168,27 @@ modules:
 ## CI/CD Integration
 
 We recommend executing ArchGuard via GitHub Actions on every pull request.
+
+```mermaid
+sequenceDiagram
+participant GH as GitHub
+participant Action as Action Runner
+participant AG as ArchGuard CLI
+participant Cache as SQLite Cache
+participant LLM as Claude API
+GH->>Action: PR opened/updated
+Action->>AG: archguard analyze --pr-number N
+AG->>Cache: Load cached embeddings
+AG->>AG: Layer 1: Parse imports (tree-sitter)
+AG->>AG: Layer 2: Compute coupling (NetworkX)
+AG->>AG: Layer 3: Embed changed files (MiniLM)
+AG->>LLM: Explain violations (async)
+
+LLM-->>AG: Explanations
+AG->>Cache: Store new embeddings
+AG->>GH: Post PR comment with ArchDebt score
+AG-->>Action: Exit 1 if score > fail_threshold
+```
 
 ```yaml
 - name: Pull ArchGuard cache from S3
