@@ -1,0 +1,24 @@
+name: Bug Report
+description: Something isn't working
+body:
+  - type: input
+    id: version
+    attributes:
+      label: ArchGuard version
+      placeholder: 0.1.0
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+  - type: textarea
+    id: logs
+    attributes:
+      label: archguard analyze --verbose output

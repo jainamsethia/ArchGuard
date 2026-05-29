@@ -2,6 +2,28 @@
 
 All notable changes to archguard are documented here.
 
+## [0.2.0] - 2025-XX-XX
+### Fixed
+- C-7: Unified audit event name — restores trends, history, incremental mode
+- C-1: compute_archdebt no longer requires ML deps
+- C-8: Profile threshold logic corrected
+- C-9: _phase4_embeddings NameError fixed
+- C-5: .archguard.yml schema fixed
+- C-6: Class-body imports moved to module level
+- C-4: Hardcoded model string replaced with constant
+- C-2: Docker container now runs as non-root
+
+### Added
+- Database migration system
+- Path traversal validation
+- End-to-end CI self-test
+- Inline GitHub code annotations (Checks API)
+
+### Performance
+- SentenceTransformer model cached per instance (5–10× Layer 3 speedup)
+- Streaming embedding batches (prevents OOM on large repos)
+- Layer 1+2 run concurrently
+
 ## [Unreleased]
 
 ### Fixed
