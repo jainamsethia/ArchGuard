@@ -52,6 +52,28 @@ ALTER TABLE embeddings ADD COLUMN model_name TEXT NOT NULL DEFAULT 'all-MiniLM-L
 """)
 
 
+def _open_connection(db_path: Path) -> sqlite3.Connection:
+    import shutil
+    import logging
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=10.0)
+        conn.execute("PRAGMA integrity_check")  # Detect corruption
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+    except sqlite3.DatabaseError as e:
+        # DB is corrupted — back it up and start fresh
+        backup_path = db_path.with_suffix(".corrupt.db")
+        try:
+            shutil.move(str(db_path), str(backup_path))
+            logging.warning(f"Corrupted DB moved to {backup_path}, starting fresh")
+        except OSError:
+            db_path.unlink(missing_ok=True)
+        # Retry with fresh DB
+        conn = sqlite3.connect(str(db_path), timeout=10.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
 class EmbeddingDB:
     """SQLite database with WAL mode for embedding storage."""
 
@@ -65,19 +87,12 @@ class EmbeddingDB:
         """
         import logging
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._conn: sqlite3.Connection = sqlite3.connect(str(db_path), timeout=10)
-        except sqlite3.DatabaseError as e:
-            logging.warning(f"Cache database corrupted ({e}). Recreating cache.")
-            db_path.unlink(missing_ok=True)
-            self._conn = sqlite3.connect(str(db_path), timeout=10)
+        
+        self._conn = _open_connection(db_path)
 
-        # Enable WAL mode and performance pragmas
-        self._conn.execute("PRAGMA journal_mode=WAL")
         result = self._conn.execute("PRAGMA journal_mode").fetchone()
         if result and result[0] != "wal":
             logging.warning("SQLite WAL mode unavailable (network filesystem?). Using default journal mode.")
-        self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()
 
@@ -120,6 +135,11 @@ class EmbeddingDB:
             (key, value),
         )
         self._conn.commit()
+
+    def count_embeddings(self) -> int:
+        """Count the total number of cached embeddings."""
+        row = self._conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()
+        return row[0] if row else 0
 
     def close(self) -> None:
         """Close the database connection."""

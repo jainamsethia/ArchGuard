@@ -39,6 +39,24 @@ app.command("history")(show_history)
 app.add_typer(diff_app, name="diff")
 app.add_typer(dashboard_app, name="dashboard")
 
+@app.command("cache-check")
+def cache_check_cmd(repair: bool = typer.Option(False, "--repair")):
+    """Check and optionally repair the embedding cache."""
+    from archguard.cache.db import EmbeddingDB
+    from pathlib import Path
+    db_path = Path(".archguard-cache/embeddings.db")
+    try:
+        with EmbeddingDB(db_path) as db:
+            count = db.count_embeddings()
+            console.print(f"[green]Cache OK: {count} embeddings[/green]")
+    except Exception as e:
+        console.print(f"[red]Cache corrupted: {e}[/red]")
+        if repair:
+            db_path.unlink(missing_ok=True)
+            console.print("[green]Cache cleared. Run archguard analyze to rebuild.[/green]")
+        else:
+            console.print("Run with --repair to clear and rebuild the cache.")
+
 @app.command("trends", hidden=True, deprecated=True)
 def trends_cmd(
     json_output: bool = typer.Option(
