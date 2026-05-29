@@ -1,6 +1,7 @@
 """archguard analyze — full architectural drift analysis."""
 
 from __future__ import annotations
+import json
 
 import os
 import subprocess
@@ -17,6 +18,28 @@ from archguard.utils.errors import format_error, format_warning
 from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
 from archguard.profiles.defaults import apply_profile
+
+from dataclasses import dataclass, field
+
+@dataclass
+class AnalyzeOptions:
+    ctx: typer.Context
+    repo: Path
+    pr_number: int | None = None
+    repo_slug: str | None = None
+    profile: str | None = None
+    changed_files: str | None = None
+    skip_explanation: bool = False
+    full: bool = False
+    json_output: bool = False
+    fail_on_warn: bool = False
+    dry_run: bool = False
+    incremental: bool = False
+    no_incremental: bool = False
+    no_llm: bool = False
+    out_file: Path | None = None
+    fail_fast: bool = False
+
 
 def attach_explanations(
     result: AnalysisResult,
@@ -302,7 +325,30 @@ def analyze_command(
         logging.basicConfig(level=logging.DEBUG)
         
     try:
-        _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip_explanation, full, json_output, fail_on_warn, dry_run, incremental, no_incremental, no_llm, out_file, fail_fast)
+        if json_output:
+            ctx.ensure_object(dict)
+            ctx.obj["quiet"] = True
+        opts = AnalyzeOptions(
+            ctx=ctx,
+            repo=repo,
+            pr_number=pr,
+            repo_slug=repo_slug,
+            profile=profile,
+            changed_files=changed_files,
+            skip_explanation=skip_explanation,
+            full=full,
+            json_output=json_output,
+            fail_on_warn=fail_on_warn,
+            dry_run=dry_run,
+            incremental=incremental,
+            no_incremental=no_incremental,
+            no_llm=no_llm,
+            out_file=out_file,
+            fail_fast=fail_fast,
+        )
+        result = _analyze_command_impl(opts)
+        if result != 0:
+            raise typer.Exit(result)
     except typer.Exit:
         raise
     except Exception as e:
@@ -315,37 +361,37 @@ def analyze_command(
             console.print("[dim]Run with --verbose for full traceback[/dim]")
         raise typer.Exit(1)
 
-def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip_explanation, full, json_output, fail_on_warn, dry_run, incremental, no_incremental, no_llm, out_file, fail_fast):
+def _analyze_command_impl(opts: AnalyzeOptions) -> int:
     
-    if no_llm:
-        skip_explanation = True
-    repo_root = repo.resolve()
+    if opts.no_llm:
+        opts.skip_explanation = True
+    repo_root = opts.repo.resolve()
 
     # Auto-detect GitHub Actions env vars
-    repo_slug = repo_slug or os.environ.get("GITHUB_REPOSITORY")
-    if pr is None:
+    opts.repo_slug = opts.repo_slug or os.environ.get("GITHUB_REPOSITORY")
+    if opts.pr_number is None:
         from archguard.github.client import _get_pr_number
-        pr = _get_pr_number()
+        opts.pr_number = _get_pr_number()
 
     # Load contract
     try:
         orchestrator = AnalysisOrchestrator(repo_root)
     except Exception as e:
         _console.print(format_error(f"Failed to load contract: {e}"))
-        raise typer.Exit(EXIT_VIOLATION) from e
+        return EXIT_VIOLATION
 
-    # Apply profile
-    profile_to_use = profile or orchestrator.contract.get("profile")
+    # Apply opts.profile
+    profile_to_use = opts.profile or orchestrator.contract.get("profile")
     if profile_to_use:
         orchestrator.contract = apply_profile(orchestrator.contract, profile_to_use)
-        vprint(f"Applied configuration profile: [bold cyan]{profile_to_use}[/bold cyan]", ctx)
+        vprint(f"Applied configuration opts.profile: [bold cyan]{profile_to_use}[/bold cyan]", opts.ctx)
 
     # Resolve changed files
     all_changed = _resolve_changed_files(
-        repo_root, changed_files, pr, repo_slug,
+        repo_root, opts.changed_files, opts.pr_number, opts.repo_slug,
     )
     vprint(
-        f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]", ctx
+        f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]", opts.ctx
     )
     py_changed = [f for f in all_changed if str(f).endswith(".py")]
 
@@ -353,12 +399,12 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
     from archguard.audit.logger import AuditLogger
     
     unchanged = []
-    if incremental and not no_incremental:
+    if opts.incremental and not opts.no_incremental:
         py_changed, unchanged = get_changed_files(py_changed, repo_root)
 
     if not py_changed and not unchanged:
-        vprint("No Python files changed. Skipping analysis.", ctx)
-        raise typer.Exit(EXIT_OK)
+        vprint("No Python files changed. Skipping analysis.", opts.ctx)
+        return EXIT_OK
 
     # Get commit SHA
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
@@ -368,19 +414,19 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
 
     # Run analysis
     
-    quiet = ctx.obj.get("quiet", False)
+    quiet = opts.ctx.obj.get("quiet", False)
     use_rich = is_tty() and not quiet
 
     try:
-        vprint(f"Analyzing {len(py_changed)} changed files...", ctx, level="debug")
+        vprint(f"Analyzing {len(py_changed)} changed files...", opts.ctx, level="debug")
         result = orchestrator.run(
-            py_changed, commit_sha, skip_explanation=skip_explanation,
-            progress_callback=None, fail_fast=fail_fast
+            py_changed, commit_sha, skip_explanation=opts.skip_explanation,
+            progress_callback=None, fail_fast=opts.fail_fast
         )
-        vprint("Analysis core completed.", ctx, level="debug")
+        vprint("Analysis core completed.", opts.ctx, level="debug")
         
-        # Merge incremental results
-        if incremental and not no_incremental and unchanged:
+        # Merge opts.incremental results
+        if opts.incremental and not opts.no_incremental and unchanged:
             last_run = AuditLogger(repo_root / "audit.jsonl").read_last_run()
             if last_run:
                 unchanged_rel = {str(f.relative_to(repo_root)).replace("\\", "/") for f in unchanged}
@@ -426,10 +472,10 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
                     )
                 
                 # Combine changed files
-                result.changed_files.extend(list(unchanged_rel))
+                result.opts.changed_files.extend(list(unchanged_rel))
         
-        # Save incremental cache on success
-        if incremental and not no_incremental:
+        # Save opts.incremental cache on success
+        if opts.incremental and not opts.no_incremental:
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat()
             cache_records = load_cache(repo_root)
@@ -444,7 +490,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             
     except ArchGuardError as e:
         _console.print(format_error(e.message))
-        sys.exit(1)
+        return 1
     except RuntimeError as exc:
         if "ML dependencies" in str(exc):
             _console.print(
@@ -454,21 +500,21 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
                 "Or skip this layer by adding to .archguard.yml:\n"
                 "  skip_layers: [semantic]"
             )
-            raise typer.Exit(2)
+            return 2
         else:
             _console.print(format_error(f"Analysis failed: {exc}"))
-            raise typer.Exit(2) from exc
+            return 2
     except Exception as exc:
         _console.print(format_error(f"Analysis failed: {exc}"))
-        raise typer.Exit(2) from exc
+        return 2
 
     # LLM explanation (unless skipped)
     if (
-        not skip_explanation
+        not opts.skip_explanation
         and result.archdebt.should_fail_ci
         and result.violations
     ):
-        vprint(f"Requesting LLM explanations for {len(result.violations)} violations...", ctx, level="debug")
+        vprint(f"Requesting LLM explanations for {len(result.violations)} violations...", opts.ctx, level="debug")
         
         progress = None
         task = None
@@ -490,7 +536,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             explainer = CloudLLMExplainer()
             
             raw_explanations = asyncio.run(explainer.explain_violations_concurrent(
-                result.violations, orchestrator.contract, result.changed_files
+                result.violations, orchestrator.contract, result.opts.changed_files
             ))
             
             explanations = []
@@ -502,7 +548,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
                 else:
                     explanations.append(exp)
                     
-            vprint("LLM explanations received and attached.", ctx, level="debug")
+            vprint("LLM explanations received and attached.", opts.ctx, level="debug")
             result = attach_explanations(result, explanations)
         except Exception as e:
             import logging
@@ -518,8 +564,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
                 progress.stop()
 
     # Output
-    if out_file is not None:
-        import json
+    if opts.out_file is not None:
         
         v_list_out = []
         for v in result.violations:
@@ -554,10 +599,10 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
         }
         if getattr(result, "fail_fast_triggered", False):
             result_dict["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": layer} for layer in getattr(result, "skipped_layers_names", [])]
-        out_file.parent.mkdir(parents=True, exist_ok=True)
-        out_file.write_text(json.dumps(result_dict, indent=2, default=str))
+        opts.out_file.parent.mkdir(parents=True, exist_ok=True)
+        opts.out_file.write_text(json.dumps(result_dict, indent=2, default=str))
 
-    if json_output:
+    if opts.json_output:
         import click
         
         score = result.archdebt.composite_score * 100
@@ -587,7 +632,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             report["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": layer} for layer in getattr(result, "skipped_layers_names", [])]
         click.echo(json.dumps(report, indent=2))
     else:
-        if ctx.obj.get("quiet"):
+        if opts.ctx.obj.get("quiet"):
             ci_str = "PASSED" if not result.archdebt.should_fail_ci else "FAILED"
             _console.print(f"ArchDebt Score: {result.archdebt.composite_score:.2f} | CI: {ci_str}")
         else:
@@ -611,14 +656,14 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
             AUDIT_EVENT_ANALYSIS,
             score=result.archdebt.composite_score * 100,
             band=audit_band,
-            pr_number=pr,
+            pr_number=opts.pr_number,
         )
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Failed to log analysis_complete: {e}")
 
     # Post PR comment (if applicable)
-    if repo_slug and not dry_run:
+    if opts.repo_slug and not opts.dry_run:
         try:
             from archguard.github.client import post_comment
             from archguard.github.comments import PRCommentManager
@@ -634,7 +679,7 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
                     logging.getLogger(__name__).warning(f"Non-critical failure in GitHubClient init: {e}")
             manager = PRCommentManager(client)  # type: ignore
             body = manager.format_report(result)
-            post_comment(repo_slug, body, pr_number=pr, token=token)
+            post_comment(opts.repo_slug, body, pr_number=opts.pr_number, token=token)
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Non-critical failure in PR comment posting: {e}")
@@ -642,11 +687,13 @@ def _analyze_command_impl(ctx, repo, pr, repo_slug, profile, changed_files, skip
 
     # Determine exit code
     should_fail = result.archdebt.should_fail_ci
-    if fail_on_warn and result.archdebt.band in (
+    if opts.fail_on_warn and result.archdebt.band in (
         ArchDebtBand.WATCH,
         ArchDebtBand.WARN,
     ):
         should_fail = True
 
     if should_fail:
-        raise typer.Exit(EXIT_VIOLATION)
+        return EXIT_VIOLATION
+
+    return 0

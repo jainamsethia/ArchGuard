@@ -27,27 +27,7 @@ class ModuleCoupling:
 # Path helpers
 # ------------------------------------------------------------------
 
-def _normalize_path(path: str) -> str:
-    """Normalize path separators and strip trailing slash."""
-    return path.replace("\\", "/").rstrip("/")
-
-def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
-    """
-    Check if file_path is inside module_path, with proper boundary checking.
-    Prevents false matches like api_utils matching module 'api'.
-    """
-    # Normalize both to forward-slash, strip leading slash
-    file_parts = Path(file_path.strip("/")).parts
-    module_parts = Path(module_path.strip("/")).parts
-    if len(file_parts) < len(module_parts):
-        return False
-    # Compare part-by-part, not as raw strings
-    return file_parts[:len(module_parts)] == module_parts
-
-
-def _file_belongs_to_module(file_path: str, paths: list[str]) -> bool:
-    """Check if *file_path* starts with any of the module's path prefixes."""
-    return any(_path_belongs_to_module(file_path, p) for p in paths)
+from archguard.utils.paths import normalize_path, path_belongs_to_module
 
 
 def _assign_file_to_module(
@@ -63,7 +43,7 @@ def _assign_file_to_module(
     2. longest prefix match on *module_paths*
     3. unassigned → log warning once, skip
     """
-    normalized = _normalize_path(file_path)
+    normalized = normalize_path(file_path)
 
     # Skip test paths
     if "/test/" in normalized or "/tests/" in normalized:
@@ -73,8 +53,8 @@ def _assign_file_to_module(
     best_len: int = 0
     for mod_name, paths in module_paths.items():
         for p in paths:
-            if _path_belongs_to_module(file_path, p):
-                prefix_len = len(_normalize_path(p))
+            if path_belongs_to_module(file_path, [p]):
+                prefix_len = len(normalize_path(p))
                 if prefix_len > best_len:
                     best_match = mod_name
                     best_len = prefix_len
@@ -105,7 +85,7 @@ def compute_fan_out(
     for edge in edges:
         if edge.is_stdlib or edge.is_relative:
             continue
-        if not _file_belongs_to_module(edge.source_file, paths):
+        if not path_belongs_to_module(edge.source_file, paths):
             continue
         root = edge.imported_module.split(".")[0]
         unique_roots.add(root)
@@ -132,8 +112,8 @@ def compute_fan_in(
         # Does this import target our module?
         import_as_path = edge.imported_module.replace(".", "/")
         targets_us = any(
-            _path_belongs_to_module(import_as_path, tp)
-            or _path_belongs_to_module(tp, import_as_path)
+            path_belongs_to_module(import_as_path, [tp])
+            or path_belongs_to_module(tp, [import_as_path])
             for tp in target_paths
         )
         if not targets_us:

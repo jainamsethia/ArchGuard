@@ -52,22 +52,7 @@ class AnalysisResult:
     skipped_layers_names: list[str] = field(default_factory=list)
 
 
-def _normalize_path(path: str) -> str:
-    """Normalize path separators."""
-    return path.replace("\\", "/").rstrip("/")
-
-def _path_belongs_to_module(file_path: str, module_path: str) -> bool:
-    """
-    Check if file_path is inside module_path, with proper boundary checking.
-    Prevents false matches like api_utils matching module 'api'.
-    """
-    # Normalize both to forward-slash, strip leading slash
-    file_parts = Path(file_path.strip("/")).parts
-    module_parts = Path(module_path.strip("/")).parts
-    if len(file_parts) < len(module_parts):
-        return False
-    # Compare part-by-part, not as raw strings
-    return file_parts[:len(module_parts)] == module_parts
+from archguard.utils.paths import normalize_path, path_belongs_to_module
 
 
 class AnalysisOrchestrator:
@@ -386,7 +371,7 @@ class AnalysisOrchestrator:
                 file_module: str | None = None
                 for mod_name, paths in module_paths.items():
                     for p in paths:
-                        if _path_belongs_to_module(rel, p):
+                        if path_belongs_to_module(rel, [p]):
                             file_module = mod_name
                             break
                     if file_module:
@@ -423,7 +408,7 @@ class AnalysisOrchestrator:
                         if root not in allowed_map[file_module]:
                             # Check if it's within the same module
                             is_self = any(
-                                _path_belongs_to_module(root, _normalize_path(p).split("/")[0])
+                                path_belongs_to_module(root, [normalize_path(p).split("/")[0]])
                                 for p in module_paths.get(file_module, [])
                             )
                             if not is_self:
@@ -716,7 +701,7 @@ class AnalysisOrchestrator:
 
                 matched = False
                 for p in paths:
-                    if _path_belongs_to_module(rel, p):
+                    if path_belongs_to_module(rel, [p]):
                         matched = True
                         break
 

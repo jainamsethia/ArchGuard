@@ -86,11 +86,14 @@ class TestAnalyzeCommand:
         mock_result.violations = []
         mock_result.commit_sha = "a1b2c3d"
         mock_result.changed_files = ["src/core/main.py"]
+        mock_result.fail_fast_triggered = False
+        mock_result.skipped_layers_names = []
 
         with patch(
             "archguard.cli.analyze_cmd.AnalysisOrchestrator",
         ) as mock_orch_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_orch_cls.return_value = mock_orch
             mock_orch_cls.get_commit_sha.return_value = "a1b2c3d"

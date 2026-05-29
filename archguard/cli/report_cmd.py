@@ -85,8 +85,7 @@ def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> di
     edges = []
     # Resolve edge imports back to their modules
     # This is a simplified approach mimicking the coupling analyzer
-    def _normalize(path: str) -> str:
-        return path.replace("\\", "/").rstrip("/")
+    from archguard.utils.paths import path_belongs_to_module
 
     for edge in edges_raw:
         if edge.is_stdlib or edge.is_relative:
@@ -94,9 +93,8 @@ def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> di
             
         # Find source module
         src_mod = None
-        norm_src = _normalize(edge.source_file)
         for m, paths in module_paths.items():
-            if any(norm_src.startswith(_normalize(p)) for p in paths):
+            if path_belongs_to_module(edge.source_file, paths):
                 src_mod = m
                 break
                 
@@ -104,7 +102,7 @@ def _build_graph_data(repo_root: Path, module_paths: dict[str, list[str]]) -> di
         tgt_mod = None
         import_as_path = edge.imported_module.replace(".", "/")
         for m, paths in module_paths.items():
-            if any(import_as_path.startswith(_normalize(p)) or _normalize(p).startswith(import_as_path) for p in paths):
+            if path_belongs_to_module(import_as_path, paths) or any(path_belongs_to_module(p, [import_as_path]) for p in paths):
                 tgt_mod = m
                 break
                 
