@@ -321,6 +321,9 @@ def analyze_command(
     watch: bool = typer.Option(
         False, "--watch", "-w", help="Re-run on file changes",
     ),
+    monorepo: bool = typer.Option(
+        False, "--monorepo", help="Analyze each sub package separately",
+    ),
 ) -> None:
     """Run architectural drift analysis."""
     if verbose:
@@ -362,10 +365,52 @@ def analyze_command(
         if watch:
             from archguard.cli.watch_cmd import run_watch_mode
             run_watch_mode(opts, Path(repo))
+        elif monorepo:
+            from archguard.utils.monorepo import detect_subpackages
+            packages = detect_subpackages(Path(repo))
+            if not packages:
+                typer.echo("No sub-packages found. Run without --monorepo.")
+                raise typer.Exit(1)
+            results = []
+            has_error = False
+            for pkg in packages:
+                pkg_contract = pkg / ".archguard.yml"
+                if not pkg_contract.exists():
+                    _console.print(f"[yellow]No .archguard.yml in {pkg.name}, skipping[/yellow]")
+                    continue
+                pkg_opts = AnalyzeOptions(
+                    ctx=ctx,
+                    repo=pkg,
+                    pr_number=pr,
+                    repo_slug=repo_slug,
+                    profile=profile,
+                    changed_files=changed_files,
+                    skip_explanation=skip_explanation,
+                    full=full,
+                    json_output=json_output,
+                    fail_on_warn=fail_on_warn,
+                    dry_run=dry_run,
+                    incremental=incremental,
+                    no_incremental=no_incremental,
+                    no_llm=no_llm,
+                    out_file=out_file,
+                    fail_fast=fail_fast,
+                )
+                exit_code, result = _analyze_command_impl(pkg_opts)
+                if exit_code not in (0, 1) or result is None:
+                    has_error = True
+                if result:
+                    results.append((pkg.name, result))
+            
+            _show_monorepo_summary(results)
+            if has_error:
+                raise typer.Exit(2)
+            if any(r.archdebt.should_fail_ci for _, r in results):
+                raise typer.Exit(1)
         else:
-            result = _analyze_command_impl(opts)
-            if result != 0:
-                raise typer.Exit(result)
+            exit_code, result = _analyze_command_impl(opts)
+            if exit_code != 0:
+                raise typer.Exit(exit_code)
     except typer.Exit:
         raise
     except Exception as e:
@@ -378,7 +423,7 @@ def analyze_command(
             console.print("[dim]Run with --verbose for full traceback[/dim]")
         raise typer.Exit(1)
 
-def _analyze_command_impl(opts: AnalyzeOptions) -> int:
+def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | None]:
     
     SKIP_LLM = os.getenv("ARCHGUARD_SKIP_LLM", "").lower() in ("1", "true", "yes")
     if opts.no_llm or SKIP_LLM:
@@ -396,7 +441,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
         orchestrator = AnalysisOrchestrator(repo_root)
     except Exception as e:
         _console.print(format_error(f"Failed to load contract: {e}"))
-        return EXIT_CONFIG_ERROR
+        return EXIT_CONFIG_ERROR, None
 
     # Apply opts.profile
     profile_to_use = opts.profile or orchestrator.contract.get("profile")
@@ -422,7 +467,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
 
     if not py_changed and not unchanged:
         vprint("No Python files changed. Skipping analysis.", opts.ctx)
-        return EXIT_SUCCESS
+        return EXIT_SUCCESS, None
 
     # Get commit SHA
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
@@ -508,7 +553,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
             
     except ArchGuardError as e:
         _console.print(format_error(e.message))
-        return EXIT_ANALYSIS_ERROR
+        return EXIT_ANALYSIS_ERROR, None
     except RuntimeError as exc:
         if "ML dependencies" in str(exc):
             _console.print(
@@ -518,13 +563,13 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
                 "Or skip this layer by adding to .archguard.yml:\n"
                 "  skip_layers: [semantic]"
             )
-            return EXIT_CONFIG_ERROR
+            return EXIT_CONFIG_ERROR, None
         else:
             _console.print(format_error(f"Analysis failed: {exc}"))
-            return EXIT_ANALYSIS_ERROR
+            return EXIT_ANALYSIS_ERROR, None
     except Exception as exc:
         _console.print(format_error(f"Analysis failed: {exc}"))
-        return EXIT_ANALYSIS_ERROR
+        return EXIT_ANALYSIS_ERROR, None
 
     # LLM explanation (unless skipped)
     if (
@@ -738,6 +783,27 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
         should_fail = True
 
     if should_fail:
-        return EXIT_VIOLATION
+        return EXIT_VIOLATION, result
 
-    return EXIT_SUCCESS
+    return EXIT_SUCCESS, result
+
+def _show_monorepo_summary(results: list[tuple[str, AnalysisResult]]) -> None:
+    from rich.table import Table
+    table = Table(title="Monorepo Analysis Summary")
+    table.add_column("Package")
+    table.add_column("ArchDebt")
+    table.add_column("Band")
+    table.add_column("Violations")
+    
+    for name, result in results:
+        table.add_row(
+            name, 
+            f"{result.archdebt.composite_score:.3f}", 
+            result.archdebt.band.value,
+            str(len(result.violations))
+        )
+    _console.print(table)
+    
+    if results:
+        avg_score = sum(r.archdebt.composite_score for _, r in results) / len(results)
+        _console.print(f"\nMonorepo ArchDebt: {avg_score:.3f}")

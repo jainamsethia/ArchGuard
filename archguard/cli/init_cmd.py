@@ -494,6 +494,9 @@ def init_command(
         help="Minimum commits needed for co-change analysis (default: 5). "
              "Below this, falls back to directory-structure detection.",
     ),
+    monorepo: bool = typer.Option(
+        False, "--monorepo", help="Initialize each sub package separately",
+    ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     try:
@@ -507,6 +510,39 @@ def init_command(
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     repo_root = repo.resolve()
+
+    if monorepo:
+        from archguard.utils.monorepo import detect_subpackages
+        packages = detect_subpackages(repo_root)
+        if not packages:
+            typer.echo("No sub-packages found. Run without --monorepo.")
+            raise typer.Exit(1)
+            
+        has_error = False
+        for pkg in packages:
+            _console.print(f"\n[bold magenta]Initializing sub-package: {pkg.name}[/bold magenta]")
+            try:
+                init_command(
+                    ctx=ctx,
+                    repo=pkg,
+                    confirm_all=confirm_all,
+                    force_ci=force_ci,
+                    resume=resume,
+                    output=pkg / ".archguard.yml",
+                    no_llm=no_llm,
+                    min_history_commits=min_history_commits,
+                    monorepo=False,
+                )
+            except typer.Exit as e:
+                if e.exit_code != 0:
+                    has_error = True
+            except Exception as e:
+                _console.print(f"[red]Error initializing {pkg.name}: {e}[/red]")
+                has_error = True
+                
+        if has_error:
+            raise typer.Exit(1)
+        return
 
     if output is None:
         output = repo_root / ".archguard.yml"
