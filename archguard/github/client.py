@@ -10,7 +10,9 @@ from typing import Any
 import requests
 
 from archguard.utils.errors import ConfigError
-from archguard.utils.retry import with_retry
+from archguard.utils.retry import with_retry, exponential_backoff
+from github import GithubException, RateLimitExceededException
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,8 @@ def _get_pr_number() -> int | None:
     try:
         with open(event_path) as f:
             event = json.load(f)
-        return event.get("pull_request", {}).get("number") or event.get("number")
+        val = event.get("pull_request", {}).get("number") or event.get("number")
+        return int(val) if val is not None else None
     except (OSError, json.JSONDecodeError, KeyError):
         return None
 
@@ -52,11 +55,31 @@ class GitHubClient:
         except requests.exceptions.RequestException as e:
             logger.warning(f"Could not validate GitHub token scopes: {e}")
 
+
+    def _check_rate_limit(self) -> None:
+        """Pre-flight rate limit check. Wait if below threshold."""
+        try:
+            rate_limit = self._gh.get_rate_limit()
+            if rate_limit.core.remaining < 50:
+                reset_time = rate_limit.core.reset.timestamp()
+                wait_seconds = max(0, reset_time - time.time() + 5)
+                if wait_seconds > 0:
+                    logger.warning(
+                        "GitHub API rate limit low (%d remaining). Waiting %ds for reset.",
+                        rate_limit.core.remaining, wait_seconds
+                    )
+                    time.sleep(min(wait_seconds, 300))  # cap at 5 min wait
+        except Exception as e:
+            logger.warning(f"Failed to check rate limit: {e}")
+
+    @exponential_backoff(max_retries=3)
     def get_pr(self, repo_slug: str, pr_number: int) -> Any:
         """Return a PyGitHub PullRequest object."""
+        self._check_rate_limit()
         repo = self._gh.get_repo(repo_slug)
         return repo.get_pull(pr_number)
 
+    @exponential_backoff(max_retries=3)
     def get_pr_changed_files(
         self,
         repo_slug: str,
@@ -69,6 +92,7 @@ class GitHubClient:
     def is_collaborator(self, repo_slug: str, username: str) -> bool:
         """Return ``True`` if *username* has write access to *repo_slug*."""
         try:
+            self._check_rate_limit()
             repo = self._gh.get_repo(repo_slug)
             return bool(repo.has_in_collaborators(username))
         except Exception as e:  # noqa: BLE001
@@ -76,16 +100,19 @@ class GitHubClient:
             logging.getLogger(__name__).warning(f"Non-critical failure in is_collaborator: {e}")
             return False
 
+    @exponential_backoff(max_retries=3)
     def get_repo(self, repo_slug: str) -> Any:
         """Return a PyGitHub Repository object."""
+        self._check_rate_limit()
         return self._gh.get_repo(repo_slug)
 
-    @with_retry(
-        max_attempts=3,
-        retryable_exceptions=(requests.exceptions.RequestException,),
-        non_retryable_exceptions=(ValueError, TypeError)
+    @exponential_backoff(
+        max_retries=5,
+        retryable_exceptions=(GithubException, ConnectionError, requests.exceptions.RequestException),
+        retryable_status_codes=(429, 500, 502, 503, 504)
     )
     def _do_post(self, repo_slug: str, body: str, pr_number: int) -> None:
+        self._check_rate_limit()
         from archguard.github.comments import PRCommentManager
         manager = PRCommentManager(self)
         manager.post_or_update(repo_slug, pr_number, body)
