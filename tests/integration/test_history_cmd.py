@@ -8,11 +8,11 @@ from archguard.config import AUDIT_LOG_FILENAME
 
 runner = CliRunner()
 
-def test_trends_cmd_success(tmp_path, monkeypatch):
+def test_history_trend_cmd_success(tmp_path, monkeypatch):
     # Mock the audit log path
     mock_log = tmp_path / AUDIT_LOG_FILENAME
     mock_log.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("archguard.cli.trends_cmd.AUDIT_LOG_FILENAME", str(mock_log))
+    monkeypatch.setattr("archguard.cli.history_cmd.AUDIT_LOG_FILENAME", str(mock_log))
 
     # Create mock runs
     now = datetime.now(timezone.utc)
@@ -28,17 +28,17 @@ def test_trends_cmd_success(tmp_path, monkeypatch):
         for run in runs:
             f.write(json.dumps(run) + "\n")
 
-    result = runner.invoke(app, ["trends"])
+    result = runner.invoke(app, ["history", "--format", "trend", "--audit-log", str(mock_log)])
     assert result.exit_code == 0
     assert "87.5" in result.stdout
     assert "79.5" in result.stdout
     assert "Trend: ↑ +17.5 points over 5 runs (improving)" in result.stdout
     assert "Score history:" in result.stdout
 
-def test_trends_cmd_json(tmp_path, monkeypatch):
+def test_history_cmd_json(tmp_path, monkeypatch):
     mock_log = tmp_path / AUDIT_LOG_FILENAME
     mock_log.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("archguard.cli.trends_cmd.AUDIT_LOG_FILENAME", str(mock_log))
+    monkeypatch.setattr("archguard.cli.history_cmd.AUDIT_LOG_FILENAME", str(mock_log))
 
     now = datetime.now(timezone.utc)
     runs = [
@@ -48,7 +48,7 @@ def test_trends_cmd_json(tmp_path, monkeypatch):
         for run in runs:
             f.write(json.dumps(run) + "\n")
 
-    result = runner.invoke(app, ["trends", "--json"])
+    result = runner.invoke(app, ["history", "--format", "json", "--audit-log", str(mock_log)])
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert len(data["runs"]) == 1

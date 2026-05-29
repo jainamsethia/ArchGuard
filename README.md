@@ -68,10 +68,10 @@ I -- No --> K[CI PASS + PR Comment]
 
 ## Tracking Architecture Health Over Time
 
-You can visualize your project's historical architectural health using the `trends` command, which parses the local audit log:
+You can visualize your project's historical architectural health using the `history` command, which parses the local audit log:
 
 ```bash
-archguard trends
+archguard history --format trend
 ```
 
 ```text
@@ -86,7 +86,7 @@ Trend: ↑ +8.0 points over 3 runs (improving)
 Score history: ▃▄▄▅▆▇█
 ```
 
-*Tip: Use `archguard trends --json` to export this data to a headless dashboard!*
+*Tip: Use `archguard history --format json` to export this data to a headless dashboard!*
 
 ## Interactive HTML Reports
 

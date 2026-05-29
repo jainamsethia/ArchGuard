@@ -9,7 +9,6 @@ from archguard.cli.init_cmd import init_app
 from archguard.cli.status_cmd import status_app
 from archguard.cli.suppress_cmd import suppress_app
 from archguard.cli.github_sync_cmd import github_sync_app
-from archguard.cli.trends_cmd import trends_app
 from archguard.cli.report_cmd import report_app
 from archguard.cli.profiles_cmd import profiles_app
 from archguard.cli.sync_cmd import sync_cache
@@ -31,11 +30,25 @@ app.add_typer(suppress_app, name="suppress")
 app.add_typer(contract_app, name="contract")
 app.add_typer(status_app, name="status")
 app.add_typer(github_sync_app, name="github-sync")
-app.add_typer(trends_app, name="trends")
 app.add_typer(report_app, name="report")
 app.add_typer(profiles_app, name="profiles")
 app.command("sync")(sync_cache)
 app.command("history")(show_history)
+
+@app.command("trends", hidden=True, deprecated=True)
+def trends_cmd(
+    json_output: bool = typer.Option(
+        False, "--json", help="Output raw JSON instead of the rich table."
+    ),
+    since: int = typer.Option(
+        None, "--since", help="Filter to the last N days of runs."
+    ),
+) -> None:
+    """Deprecated: Use history --format trend."""
+    typer.echo("Warning: 'trends' is deprecated, use 'history --format trend'")
+    fmt = "json" if json_output else "trend"
+    from archguard.config import AUDIT_LOG_FILENAME
+    show_history(format=fmt, limit=20, since=since, module=None, audit_log=Path(AUDIT_LOG_FILENAME))
 
 
 @app.callback(invoke_without_command=True)
