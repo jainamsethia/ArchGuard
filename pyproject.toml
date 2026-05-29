@@ -31,7 +31,8 @@ httpx = ">=0.25"
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
 cloud = ["anthropic"]
 cloud-cache = ["boto3"]
-all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3"]
+dashboard = ["fastapi", "uvicorn"]
+all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3", "fastapi", "uvicorn"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
@@ -101,6 +102,10 @@ ml = [
 ]
 cloud = [
     "boto3>=1.28.0",
+]
+dashboard = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
 ]
 github = [
     "PyGithub>=1.59.0",

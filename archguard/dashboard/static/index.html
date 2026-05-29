@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArchGuard Dashboard</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: rgba(30, 41, 59, 0.7);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-color: #3b82f6;
+            --danger-color: #ef4444;
+            --warn-color: #f59e0b;
+            --success-color: #10b981;
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .glass-card {
+            background: var(--surface-color);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .metric-title {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .charts-container {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        .table-container {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-critical { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge-high { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+        .badge-medium { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .badge-low { background-color: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--text-secondary);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .refresh-status {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+    </style>
+    <!-- Use Google Fonts for Modern Typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Local Chart.js -->
+    <script src="/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="header">
+            <h1>ArchGuard Dashboard</h1>
+            <div class="refresh-status">
+                <span id="last-updated">Last updated: Just now</span>
+                <div class="loader" id="refresh-loader" style="display: none;"></div>
+            </div>
+        </div>
+
+        <div class="metrics-grid">
+            <div class="glass-card">
+                <div class="metric-title">Current ArchDebt Score</div>
+                <div class="metric-value" id="current-score">--</div>
+            </div>
+            <div class="glass-card">
+                <div class="metric-title">Health Band</div>
+                <div class="metric-value" id="current-band" style="font-size: 2rem;">--</div>
+            </div>
+            <div class="glass-card">
+                <div class="metric-title">Active Violations</div>
+                <div class="metric-value" id="active-violations">--</div>
+            </div>
+        </div>
+
+        <div class="charts-container">
+            <div class="glass-card">
+                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Overall Trend</h2>
+                <div class="chart-wrapper">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+            <div class="glass-card">
+                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Modules</h2>
+                <div class="chart-wrapper">
+                    <canvas id="moduleChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card">
+            <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Recent Violations</h2>
+            <div class="table-container">
+                <table id="violationsTable">
+                    <thead>
+                        <tr>
+                            <th>Layer</th>
+                            <th>Severity</th>
+                            <th>Module</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trendChartInstance = null;
+        let moduleChartInstance = null;
+
+        // Configuration for dark mode charts
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+
+        async function fetchData() {
+            document.getElementById('refresh-loader').style.display = 'inline-block';
+            try {
+                const [runsRes, latestRes, modulesRes] = await Promise.all([
+                    fetch('/api/runs?limit=30'),
+                    fetch('/api/runs/latest'),
+                    fetch('/api/modules')
+                ]);
+
+                const runsData = await runsRes.json();
+                const latestData = await latestRes.json();
+                const modulesData = await modulesRes.json();
+
+                updateMetrics(latestData);
+                updateViolationsTable(latestData);
+                updateTrendChart(runsData.runs);
+                updateModuleChart(modulesData.modules);
+
+                document.getElementById('last-updated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                console.error("Error fetching dashboard data:", error);
+                document.getElementById('last-updated').textContent = 'Error updating';
+            } finally {
+                document.getElementById('refresh-loader').style.display = 'none';
+            }
+        }
+
+        function updateMetrics(latestRun) {
+            if (!latestRun || !latestRun.score) return;
+            
+            document.getElementById('current-score').textContent = latestRun.score.toFixed(1);
+            
+            const bandEl = document.getElementById('current-band');
+            bandEl.textContent = latestRun.band || 'UNKNOWN';
+            
+            // Color coding based on band
+            if (latestRun.band === 'PASS' || latestRun.band === 'HEALTHY') bandEl.style.color = 'var(--success-color)';
+            else if (latestRun.band === 'WARN' || latestRun.band === 'WATCH') bandEl.style.color = 'var(--warn-color)';
+            else if (latestRun.band === 'FAIL' || latestRun.band === 'CRITICAL') bandEl.style.color = 'var(--danger-color)';
+
+            const violations = latestRun.violations || [];
+            document.getElementById('active-violations').textContent = violations.length;
+        }
+
+        function getSeverityClass(severity) {
+            const s = (severity || 'low').toLowerCase();
+            if (s === 'critical') return 'badge-critical';
+            if (s === 'high') return 'badge-high';
+            if (s === 'medium') return 'badge-medium';
+            return 'badge-low';
+        }
+
+        function updateViolationsTable(latestRun) {
+            const tbody = document.querySelector('#violationsTable tbody');
+            const violations = latestRun.violations || [];
+            
+            if (violations.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No active violations. Great job! 🎉</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = violations.slice(0, 20).map(v => `
+                <tr>
+                    <td>L${v.layer || '?'}</td>
+                    <td><span class="badge ${getSeverityClass(v.severity)}">${v.severity || 'low'}</span></td>
+                    <td style="color: #cbd5e1;">${v.file || v.module || 'Global'}</td>
+                    <td>${v.message || 'Unknown violation'}</td>
+                </tr>
+            `).join('');
+        }
+
+        function updateTrendChart(runs) {
+            if (!runs || runs.length === 0) return;
+            
+            // Sort runs chronologically
+            const sortedRuns = [...runs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            const labels = sortedRuns.map(r => {
+                const d = new Date(r.timestamp);
+                return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
+            });
+            const data = sortedRuns.map(r => r.score || 0);
+
+            if (trendChartInstance) {
+                trendChartInstance.data.labels = labels;
+                trendChartInstance.data.datasets[0].data = data;
+                trendChartInstance.update();
+                return;
+            }
+
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            // Create gradient
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ArchDebt Score',
+                        data: data,
+                        borderColor: '#3b82f6',
+                        backgroundColor: gradient,
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#0f172a',
+                        pointBorderColor: '#3b82f6',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                            titleColor: '#f8fafc',
+                            bodyColor: '#cbd5e1',
+                            borderColor: 'rgba(255,255,255,0.1)',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { maxTicksLimit: 8 }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateModuleChart(modulesData) {
+            if (!modulesData) return;
+            
+            const labels = Object.keys(modulesData);
+            const data = Object.values(modulesData);
+
+            // Sort by score descending
+            const combined = labels.map((l, i) => ({label: l, data: data[i]}));
+            combined.sort((a, b) => b.data - a.data);
+            
+            const sortedLabels = combined.slice(0, 10).map(x => x.label);
+            const sortedData = combined.slice(0, 10).map(x => x.data);
+
+            if (moduleChartInstance) {
+                moduleChartInstance.data.labels = sortedLabels;
+                moduleChartInstance.data.datasets[0].data = sortedData;
+                moduleChartInstance.update();
+                return;
+            }
+
+            const ctx = document.getElementById('moduleChart').getContext('2d');
+            moduleChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sortedLabels,
+                    datasets: [{
+                        label: 'Module Score',
+                        data: sortedData,
+                        backgroundColor: 'rgba(139, 92, 246, 0.6)',
+                        borderColor: 'rgba(139, 92, 246, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        },
+                        y: {
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Initial fetch and setup interval
+        fetchData();
+        setInterval(fetchData, 30000); // 30 seconds
+    </script>
+</body>
+</html>
