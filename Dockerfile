@@ -1,53 +1,46 @@
-# Stage 1: builder
+# --- Builder stage --
 FROM python:3.12-slim AS builder
-
 WORKDIR /build
 
-# Install build dependencies
+# Security: Install only what's needed
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    g++ \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files first (layer caching)
-COPY pyproject.toml README.md ./
+COPY pyproject.toml poetry.lock* ./
+RUN pip install --no-cache-dir poetry==1.7.1 && \
+    poetry export -f requirements.txt --output requirements.txt --without hashes && \
+    pip install --no-cache-dir --target /deps -r requirements.txt
 
-# Copy full source
 COPY archguard/ ./archguard/
+RUN pip install --no-cache-dir --target /deps .
 
-# Install the package
-RUN pip install --no-cache-dir .
-
-# Stage 2: runtime
+# --- Runtime stage --
 FROM python:3.12-slim AS runtime
 
-# Install runtime system deps
+# Security hardening
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder /usr/local/bin/archguard /usr/local/bin/archguard
-
-# MiniLM downloads on first run to /tmp/hf_cache (no build-time internet needed)
-ENV TRANSFORMERS_CACHE=/tmp/hf_cache
-ENV HF_HOME=/tmp/hf_cache
-
-# Copy entrypoint and make executable BEFORE switching to non-root user
-COPY action/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create non-root user
-RUN useradd -m -u 1000 archguard \
-    && mkdir -p /github/workspace \
-    && chown -R archguard:archguard /github/workspace
+RUN useradd --create-home --shell /bin/bash --uid 1000 archguard
+WORKDIR /app
+COPY --from=builder /deps /app/lib
 
+# Set correct ownership BEFORE switching user
+RUN chown -R archguard:archguard /app
+
+# Create cache directory with correct permissions
+RUN mkdir -p /home/archguard/.archguard-cache && \
+    chown -R archguard:archguard /home/archguard/.archguard-cache
+
+ENV PYTHONPATH=/app/lib
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# THIS IS THE LINE THAT WAS COMMENTED OUT - now uncommented
 USER archguard
 
-WORKDIR /github/workspace
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 CMD archguard --version || exit 1
-
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["python", "-m", "archguard"]
