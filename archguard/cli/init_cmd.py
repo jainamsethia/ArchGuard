@@ -497,6 +497,9 @@ def init_command(
     monorepo: bool = typer.Option(
         False, "--monorepo", help="Initialize each sub package separately",
     ),
+    llm_init: bool = typer.Option(
+        False, "--llm-init", help="Use Claude to generate contract from code structure (requires ANTHROPIC_API_KEY)"
+    ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     try:
@@ -532,6 +535,7 @@ def init_command(
                     no_llm=no_llm,
                     min_history_commits=min_history_commits,
                     monorepo=False,
+                    llm_init=llm_init,
                 )
             except typer.Exit as e:
                 if e.exit_code != 0:
@@ -734,21 +738,71 @@ def init_command(
             )
 
             from archguard.contract.writer import write_contract
+            import tempfile
+            import yaml
+            from archguard.contract.validator import validate_contract
+            import math
+            from archguard.contract.writer import _infer_path, _model_weights_version
+            
+            # Generate Louvain contract dictionary
+            louvain_modules = []
+            for name, files in communities.items():
+                fan_out = fan_outs.get(name, 0)
+                budget = max(3, math.ceil(fan_out * 1.5))
+                louvain_modules.append({
+                    "name": name,
+                    "paths": [_infer_path(files)],
+                    "fan_out_at_init": fan_out,
+                    "coupling_budget": budget,
+                    "semantic_drift_threshold": 0.25,
+                })
+            
+            louvain_contract = {
+                "schema_version": "3.0",
+                "model_weights_version": _model_weights_version(),
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_by": "archguard init",
+                "modules": louvain_modules,
+                "fail_threshold": 0.75,
+                "warn_threshold": 0.50,
+            }
+            
+            final_contract = louvain_contract
+            
+            if llm_init:
+                _console.print("[bold blue]Phase 5: LLM-driven contract generation[/bold blue]")
+                try:
+                    import asyncio
+                    from archguard.contract.llm_inference import generate_contract_from_llm, _merge_contracts
+                    
+                    llm_contract = asyncio.run(generate_contract_from_llm(repo_root))
+                    final_contract = _merge_contracts(louvain_contract, llm_contract)
+                    _console.print("[green]Successfully merged LLM-driven boundaries with Louvain budgets.[/green]")
+                except Exception as e:
+                    _console.print(f"[yellow]LLM generation failed: {e}. Using Louvain only.[/yellow]")
 
-            write_contract(
-                output_path=output,
-                communities=communities,
-                fan_outs=fan_outs,
-                coherence_warnings=phase3_data.get(
-                    "coherence_warnings", [],
-                ),
-            )
+            # Validate and Write
+            validate_contract(final_contract)
+            
+            dir_path = output.parent
+            dir_path.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(suffix=".yml", dir=str(dir_path))
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+                    yaml.dump(final_contract, tmp, default_flow_style=False, sort_keys=False)
+                os.replace(tmp_name, str(output))
+            except BaseException:
+                try:
+                    os.unlink(tmp_name)
+                except OSError:
+                    pass
+                raise
 
             vprint(f"Contract written to [green]{output}[/green]", ctx)
 
             save_checkpoint(repo_root, 5, {
                 "output_path": str(output),
-                "modules_written": len(communities),
+                "modules_written": len(final_contract.get("modules", [])),
             })
 
         # Write summary
