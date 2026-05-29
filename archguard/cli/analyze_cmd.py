@@ -13,7 +13,7 @@ from rich.console import Console
 
 from archguard.analysis.layers import AnalysisOrchestrator, AnalysisResult
 from archguard.analysis.scoring import ArchDebtBand
-from archguard.config import EXIT_OK, EXIT_VIOLATION
+from archguard.config import EXIT_SUCCESS, EXIT_VIOLATION, EXIT_CONFIG_ERROR, EXIT_ANALYSIS_ERROR
 from archguard.utils.errors import format_error, format_warning
 from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
@@ -378,7 +378,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
         orchestrator = AnalysisOrchestrator(repo_root)
     except Exception as e:
         _console.print(format_error(f"Failed to load contract: {e}"))
-        return EXIT_VIOLATION
+        return EXIT_CONFIG_ERROR
 
     # Apply opts.profile
     profile_to_use = opts.profile or orchestrator.contract.get("profile")
@@ -404,7 +404,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
 
     if not py_changed and not unchanged:
         vprint("No Python files changed. Skipping analysis.", opts.ctx)
-        return EXIT_OK
+        return EXIT_SUCCESS
 
     # Get commit SHA
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
@@ -490,7 +490,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
             
     except ArchGuardError as e:
         _console.print(format_error(e.message))
-        return 1
+        return EXIT_ANALYSIS_ERROR
     except RuntimeError as exc:
         if "ML dependencies" in str(exc):
             _console.print(
@@ -500,13 +500,13 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
                 "Or skip this layer by adding to .archguard.yml:\n"
                 "  skip_layers: [semantic]"
             )
-            return 2
+            return EXIT_CONFIG_ERROR
         else:
             _console.print(format_error(f"Analysis failed: {exc}"))
-            return 2
+            return EXIT_ANALYSIS_ERROR
     except Exception as exc:
         _console.print(format_error(f"Analysis failed: {exc}"))
-        return 2
+        return EXIT_ANALYSIS_ERROR
 
     # LLM explanation (unless skipped)
     if (
@@ -603,8 +603,6 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
         opts.out_file.write_text(json.dumps(result_dict, indent=2, default=str))
 
     if opts.json_output:
-        import click
-        
         score = result.archdebt.composite_score * 100
         grade = str(result.archdebt.band.value)
         
@@ -630,7 +628,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
         report["fail_fast_triggered"] = getattr(result, "fail_fast_triggered", False)
         if getattr(result, "fail_fast_triggered", False):
             report["skipped_layers"] = [{"status": "skipped", "reason": "fail-fast", "layer": layer} for layer in getattr(result, "skipped_layers_names", [])]
-        click.echo(json.dumps(report, indent=2))
+        typer.echo(json.dumps(report, indent=2))
     else:
         if opts.ctx.obj.get("quiet"):
             ci_str = "PASSED" if not result.archdebt.should_fail_ci else "FAILED"
@@ -696,4 +694,4 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> int:
     if should_fail:
         return EXIT_VIOLATION
 
-    return 0
+    return EXIT_SUCCESS
