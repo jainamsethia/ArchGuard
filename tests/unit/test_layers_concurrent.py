@@ -79,3 +79,31 @@ def test_direct_threadpool_concurrent_safety():
         merged.extend(v2)
         
         assert set(merged) == {1, 2, 3, 4, 5, 6}
+
+def test_concurrent_get_model():
+    """Test that _get_model is thread-safe and only instantiates the model once."""
+    import sys
+    import archguard.analysis.semantic
+    from archguard.analysis.semantic import _get_model, _GLOBAL_MODEL_CACHE
+    
+    _GLOBAL_MODEL_CACHE.clear()
+    
+    mock_st_module = MagicMock()
+    mock_st_class = MagicMock()
+    mock_st_module.SentenceTransformer = mock_st_class
+    
+    with patch.object(archguard.analysis.semantic, "_ML_AVAILABLE", True), \
+         patch.dict(sys.modules, {"sentence_transformers": mock_st_module}):
+         
+        def worker():
+            return _get_model("all-MiniLM-L6-v2")
+            
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(worker) for _ in range(10)]
+            results = [f.result() for f in futures]
+            
+        first_result = results[0]
+        assert all(r is first_result for r in results)
+        
+        assert mock_st_class.call_count == 1
+        mock_st_class.assert_called_once_with("all-MiniLM-L6-v2")

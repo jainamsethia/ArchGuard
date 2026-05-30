@@ -255,6 +255,13 @@ The health score (0-100) measures your project's architectural integrity against
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests to us.
 
+## Audit Log Security
+
+ArchGuard maintains an append-only JSONL audit log to track structural history. To prevent tampering:
+- By default, ArchGuard generates a random 32-byte HMAC key on first run, persisting it to `.archguard-cache/audit.key` with strict permissions.
+- You can override this by setting `ARCHGUARD_AUDIT_SECRET` in your environment.
+- In CI/CD or production environments, you should set `ARCHGUARD_AUDIT_STRICT=1` to enforce that a secure secret is provided (or a key file is already present).
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for information on our security policy and how to report vulnerabilities.

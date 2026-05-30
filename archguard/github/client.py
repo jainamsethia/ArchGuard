@@ -87,8 +87,9 @@ class GitHubClient:
             logger.warning(f"Failed to check rate limit: {e}")
 
     @exponential_backoff(max_retries=3)
-    def _get_api(self, url: str) -> Any:
-        self._check_rate_limit()
+    def _get_api(self, url: str, check_rate: bool = True) -> Any:
+        if check_rate:
+            self._check_rate_limit()
         resp = requests.get(url, headers=self._headers, timeout=10)
         if resp.status_code == 403 and "rate limit" in resp.text.lower():
             raise RateLimitExceededException("Rate limit exceeded")
@@ -106,9 +107,25 @@ class GitHubClient:
         pr_number: int,
     ) -> list[str]:
         """Return list of changed file paths in the PR."""
-        url = f"https://api.github.com/repos/{repo_slug}/pulls/{pr_number}/files"
-        files = self._get_api(url)
-        return [f.get("filename") for f in files if "filename" in f]
+        self._check_rate_limit()
+        all_filenames = []
+        page = 1
+        max_files = 3000
+        
+        while len(all_filenames) < max_files:
+            url = f"https://api.github.com/repos/{repo_slug}/pulls/{pr_number}/files?page={page}&per_page=100"
+            files = self._get_api(url, check_rate=False)
+            
+            if not files:
+                break
+                
+            for f in files:
+                if "filename" in f:
+                    all_filenames.append(f["filename"])
+                    
+            page += 1
+            
+        return all_filenames
 
     def is_collaborator(self, repo_slug: str, username: str) -> bool:
         """Return ``True`` if *username* has write access to *repo_slug*."""

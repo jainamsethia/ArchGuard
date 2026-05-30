@@ -433,3 +433,99 @@ class TestAnalyzeCommand:
 
         # Exit 0 even if LLM would have failed (it's not invoked here)
         assert result.exit_code == 0
+
+    def test_run_llm_explanation_success(self, tmp_path: Path) -> None:
+        from archguard.cli.analyze_cmd import _run_llm_explanation, AnalyzeOptions
+        from archguard.analysis.layers import AnalysisResult
+        import archguard.cli.analyze_cmd
+
+        mock_result = MagicMock(spec=AnalysisResult)
+        mock_result.archdebt = MagicMock()
+        mock_result.archdebt.should_fail_ci = True
+        mock_result.violations = [MagicMock()]
+        mock_result.changed_files = []
+        
+        ctx = MagicMock()
+        ctx.obj = {"quiet": False}
+        opts = AnalyzeOptions(ctx=ctx, repo=tmp_path, skip_explanation=False)
+
+        with patch("archguard.llm.cloud.CloudLLMExplainer") as mock_explainer_cls, \
+             patch("archguard.utils.async_utils.run_async") as mock_run_async, \
+             patch("archguard.cli.analyze_cmd.attach_explanations") as mock_attach:
+             
+            mock_run_async.return_value = ["Expl 1"]
+            mock_attach.return_value = "new_result"
+            
+            res = _run_llm_explanation(mock_result, {}, opts)
+            assert res == "new_result"
+            mock_attach.assert_called_once_with(mock_result, ["Expl 1"])
+
+    def test_format_rich_output_quiet(self, tmp_path: Path) -> None:
+        from archguard.cli.analyze_cmd import _format_rich_output, AnalyzeOptions
+        mock_result = MagicMock()
+        mock_result.archdebt.should_fail_ci = False
+        mock_result.archdebt.composite_score = 0.5
+        
+        ctx = MagicMock()
+        ctx.obj = {"quiet": True}
+        opts = AnalyzeOptions(ctx=ctx, repo=tmp_path)
+        
+        with patch("archguard.cli.analyze_cmd._console.print") as mock_print:
+            _format_rich_output(mock_result, opts)
+            mock_print.assert_called_once()
+            assert "PASSED" in mock_print.call_args[0][0]
+
+    def test_write_json_output_to_file(self, tmp_path: Path) -> None:
+        from archguard.cli.analyze_cmd import _write_json_output, AnalyzeOptions
+        
+        mock_result = MagicMock()
+        mock_result.archdebt.band.name = "HEALTHY"
+        mock_result.archdebt.composite_score = 0.5
+        mock_result.violations = []
+        
+        out_file = tmp_path / "out.json"
+        ctx = MagicMock()
+        opts = AnalyzeOptions(ctx=ctx, repo=tmp_path, out_file=out_file)
+        
+        _write_json_output(mock_result, opts)
+        assert out_file.exists()
+        import json
+        data = json.loads(out_file.read_text())
+        assert data["band"] == "PASS"
+
+    def test_write_audit_log(self, tmp_path: Path) -> None:
+        from archguard.cli.analyze_cmd import _write_audit_log, AnalyzeOptions
+        
+        mock_result = MagicMock()
+        mock_result.archdebt.band.name = "HEALTHY"
+        mock_result.archdebt.composite_score = 0.5
+        mock_result.violations = []
+        
+        ctx = MagicMock()
+        opts = AnalyzeOptions(ctx=ctx, repo=tmp_path)
+        
+        with patch("archguard.audit.logger.AuditLogger") as mock_audit:
+            _write_audit_log(mock_result, opts)
+            mock_audit.assert_called_once()
+            mock_audit.return_value.log.assert_called_once()
+
+    def test_post_github_annotations(self, tmp_path: Path) -> None:
+        from archguard.cli.analyze_cmd import _post_github_annotations, AnalyzeOptions
+        
+        mock_result = MagicMock()
+        mock_result.commit_sha = "abc1234"
+        mock_result.archdebt.composite_score = 0.5
+        mock_result.violations = []
+        
+        ctx = MagicMock()
+        opts = AnalyzeOptions(ctx=ctx, repo=tmp_path, repo_slug="org/repo", dry_run=False)
+        
+        with patch("os.environ.get", return_value="fake_token"), \
+             patch("archguard.github.checks.ChecksAPIClient") as mock_checks, \
+             patch("archguard.github.client.post_comment") as mock_post, \
+             patch("archguard.github.comments.PRCommentManager") as mock_manager:
+             
+            _post_github_annotations(mock_result, opts, {"fail_threshold": 0.75})
+            mock_checks.assert_called_once()
+            mock_checks.return_value.create_check_run.assert_called_once()
+            mock_post.assert_called_once()

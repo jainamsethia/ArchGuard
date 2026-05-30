@@ -172,3 +172,11 @@ class TestValidateContract:
             with patch.dict('sys.modules', {'anthropic': MockAnthropicModule()}):
                 with pytest.raises(ValueError, match="LLM generated an invalid contract"):
                     await generate_contract_from_llm(Path("."))
+
+    def test_duplication_threshold_valid(self) -> None:
+        """duplication_threshold on a module is valid."""
+        data: dict[str, Any] = {
+            "version": "3.0",
+            "modules": [{"name": "core", "path": "src/", "duplication_threshold": 0.1}],
+        }
+        validate_contract(data)  # Should not raise

@@ -59,3 +59,57 @@ def test_api_runs_token_configured_with_incorrect_auth(mock_audit_logger, monkey
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or missing token"
+
+
+from collections import namedtuple
+ClientTuple = namedtuple("ClientTuple", ["host", "port"])
+
+def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
+    """Test that remote IP without token returns 401."""
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
+    
+    with patch("starlette.requests.Request.client", new_callable=MagicMock) as mock_client:
+        mock_client.host = "192.168.1.100"
+        mock_client.port = 12345
+        
+        response = client.get("/api/runs")
+        assert response.status_code == 401
+        assert "Dashboard requires ARCHGUARD_DASHBOARD_TOKEN" in response.json()["detail"]
+
+def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
+    """Test that remote IP with correct token returns 200."""
+    monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
+    
+    with patch("starlette.requests.Request.client", new_callable=MagicMock) as mock_client:
+        mock_client.host = "192.168.1.100"
+        mock_client.port = 12345
+        
+        response = client.get(
+            "/api/runs",
+            headers={"Authorization": "Bearer secret-token"}
+        )
+        assert response.status_code == 200
+
+def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
+    """Test that /api/runs returns 422 if limit > 500."""
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    
+    response = client.get("/api/runs?limit=999999")
+    assert response.status_code == 422
+    assert "less than or equal to 500" in response.json()["detail"][0]["msg"]
+
+def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
+    """Test that /api/runs returns 429 after 50 requests in a minute."""
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    
+    from archguard.dashboard.app import RATE_LIMITS
+    RATE_LIMITS.clear()
+    
+    for _ in range(50):
+        response = client.get("/api/runs")
+        assert response.status_code == 200
+        
+    response = client.get("/api/runs")
+    assert response.status_code == 429
+    assert response.json()["detail"] == "Too many requests"

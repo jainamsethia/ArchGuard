@@ -62,7 +62,12 @@ class ImportParser:
         from tree_sitter import Language, Parser
         import tree_sitter_python as tspython
 
-        self._parser: Any = Parser(Language(tspython.language()))
+        try:
+            lang = Language(tspython.language())
+        except TypeError:
+            lang = Language(tspython.language(), "python")
+        self._parser: Any = Parser()
+        self._parser.set_language(lang)
         self._parse_failures: list[ParseFailure] = []
 
     @property

@@ -71,19 +71,23 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 # Analyzer
 # ------------------------------------------------------------------
 
-_GLOBAL_MODEL_CACHE: dict[str, Any] = {}
+import threading
 
+_GLOBAL_MODEL_CACHE: dict[str, Any] = {}
+_MODEL_LOCK = threading.Lock()
 
 def _get_model(model_name: str) -> "SentenceTransformer":
     if model_name not in _GLOBAL_MODEL_CACHE:
-        if not _ML_AVAILABLE:
-            raise RuntimeError(
-                "Layer 3 (Semantic Drift) requires ML dependencies. "
-                "Install them with: pip install archguard[ml]"
-            )
-        from sentence_transformers import SentenceTransformer
+        with _MODEL_LOCK:
+            if model_name not in _GLOBAL_MODEL_CACHE:
+                if not _ML_AVAILABLE:
+                    raise RuntimeError(
+                        "Layer 3 (Semantic Drift) requires ML dependencies. "
+                        "Install them with: pip install archguard[ml]"
+                    )
+                from sentence_transformers import SentenceTransformer
 
-        _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+                _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
     return _GLOBAL_MODEL_CACHE[model_name]
 
 

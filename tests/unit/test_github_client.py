@@ -138,3 +138,48 @@ def test_get_pr_retry_behavior(mock_get, monkeypatch: pytest.MonkeyPatch) -> Non
         assert res == {"pr": "data"}
         # 1 constructor call + 3 rate limit checks + 3 API calls = 7 calls to requests.get
         assert mock_get.call_count == 7
+
+@patch("archguard.github.client.requests.get")
+def test_get_pr_changed_files_pagination(mock_get: MagicMock) -> None:
+    """Test get_pr_changed_files correctly paginates and combines results."""
+    from archguard.github.client import GitHubClient
+
+    # Mock responses for pages 1, 2, 3
+    page1_data = [{"filename": f"file_page1_{i}.txt"} for i in range(300)]
+    page2_data = [{"filename": f"file_page2_{i}.txt"} for i in range(150)]
+    page3_data = []
+
+    # Mock responses
+    response_auth = MagicMock(status_code=200, headers={"X-OAuth-Scopes": "repo"})
+    response_rate = MagicMock(status_code=200)
+    response_rate.json.return_value = {"resources": {"core": {"remaining": 5000}}}
+
+    response_p1 = MagicMock(status_code=200)
+    response_p1.json.return_value = page1_data
+    
+    response_p2 = MagicMock(status_code=200)
+    response_p2.json.return_value = page2_data
+    
+    response_p3 = MagicMock(status_code=200)
+    response_p3.json.return_value = page3_data
+
+    mock_get.side_effect = [
+        response_auth,  # __init__ validation
+        response_rate,  # _check_rate_limit before loop
+        response_p1,    # page 1
+        response_p2,    # page 2
+        response_p3,    # page 3
+    ]
+
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
+        client = GitHubClient()
+        files = client.get_pr_changed_files("org/repo", 42)
+        
+        assert len(files) == 450
+        assert mock_get.call_count == 5
+        
+        # Verify page numbers in URLs
+        urls = [call.args[0] for call in mock_get.call_args_list[2:]]
+        assert "page=1" in urls[0]
+        assert "page=2" in urls[1]
+        assert "page=3" in urls[2]

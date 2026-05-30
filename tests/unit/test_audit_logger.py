@@ -61,8 +61,63 @@ def test_analysis_orchestrator_logs_parse_failure(tmp_path):
     assert "bad.py" in parse_failures[0]["file"]
 
 
-def test_strict_mode_raises_error_with_default_secret(tmp_path, monkeypatch):
-    """Test that strict mode raises ConfigError when secret is the default."""
+def test_key_file_generated_on_first_run(tmp_path, monkeypatch, caplog):
+    """Test that a random key is generated on first run and persisted with 0600."""
+    from archguard.audit.logger import AuditLogger
+    import logging
+    import stat
+    import os
+    
+    monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
+    monkeypatch.delenv("ARCHGUARD_AUDIT_SECRET", raising=False)
+    
+    log_file = tmp_path / "audit.jsonl"
+    key_file = tmp_path / "audit.key"
+    logger = AuditLogger(log_file)
+    
+    with caplog.at_level(logging.INFO):
+        logger.log(event="test_event")
+        
+    assert log_file.exists()
+    assert key_file.exists()
+    assert "Generated new audit HMAC key" in caplog.text
+    
+    # Check permissions 0600 on non-windows if supported, but let's just check standard stat
+    st_mode = key_file.stat().st_mode
+    if os.name != 'nt':
+        assert stat.S_IMODE(st_mode) == 0o600
+
+def test_same_key_loaded_on_second_run(tmp_path, monkeypatch):
+    """Test that the same key is loaded on the second run."""
+    from archguard.audit.logger import AuditLogger
+    import json
+    
+    monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
+    monkeypatch.delenv("ARCHGUARD_AUDIT_SECRET", raising=False)
+    
+    log_file = tmp_path / "audit.jsonl"
+    key_file = tmp_path / "audit.key"
+    
+    # Run 1
+    logger1 = AuditLogger(log_file)
+    logger1.log(event="event1")
+    key1 = key_file.read_text(encoding="utf-8").strip()
+    
+    # Run 2
+    logger2 = AuditLogger(log_file)
+    logger2.log(event="event2")
+    key2 = key_file.read_text(encoding="utf-8").strip()
+    
+    assert key1 == key2
+    
+    lines = log_file.read_text(encoding="utf-8").strip().split("\n")
+    entry1 = json.loads(lines[0])
+    entry2 = json.loads(lines[1])
+    assert "hmac" in entry1
+    assert "hmac" in entry2
+
+def test_strict_mode_fails_without_key_file(tmp_path, monkeypatch):
+    """Test that strict mode raises ConfigError when key file doesn't exist."""
     from archguard.audit.logger import AuditLogger
     from archguard.utils.errors import ConfigError
     
@@ -73,7 +128,7 @@ def test_strict_mode_raises_error_with_default_secret(tmp_path, monkeypatch):
     logger = AuditLogger(log_file)
     
     import pytest
-    with pytest.raises(ConfigError, match="You must provide a secure ARCHGUARD_AUDIT_SECRET in strict mode."):
+    with pytest.raises(ConfigError, match="ARCHGUARD_AUDIT_STRICT is enabled"):
         logger.log(event="test_event")
 
 def test_strict_mode_passes_with_custom_secret(tmp_path, monkeypatch):
@@ -91,21 +146,3 @@ def test_strict_mode_passes_with_custom_secret(tmp_path, monkeypatch):
     
     assert log_file.exists()
     assert "test_event" in log_file.read_text()
-
-def test_non_strict_mode_warns_only(tmp_path, monkeypatch, caplog):
-    """Test that non-strict mode only logs a warning with default secret."""
-    from archguard.audit.logger import AuditLogger
-    import logging
-    
-    monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
-    monkeypatch.delenv("ARCHGUARD_AUDIT_SECRET", raising=False)
-    
-    log_file = tmp_path / "audit.jsonl"
-    logger = AuditLogger(log_file)
-    
-    with caplog.at_level(logging.DEBUG):
-        # Should not raise
-        logger.log(event="test_event")
-        
-    assert log_file.exists()
-    assert "ARCHGUARD_AUDIT_SECRET is not set." in caplog.text

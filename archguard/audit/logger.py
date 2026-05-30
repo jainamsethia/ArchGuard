@@ -43,25 +43,32 @@ class AuditLogger:
             import hashlib
             import os
 
-            _WEAK_SECRET = "archguard_default_secret"
-            audit_secret = os.environ.get("ARCHGUARD_AUDIT_SECRET", _WEAK_SECRET)
-            if audit_secret == _WEAK_SECRET:
+            audit_secret = os.environ.get("ARCHGUARD_AUDIT_SECRET")
+            if not audit_secret:
                 strict_mode = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in ("1", "true")
-                if strict_mode:
+                key_file = self._log_path.parent / "audit.key"
+                if strict_mode and not key_file.exists():
                     from archguard.utils.errors import ConfigError
 
                     raise ConfigError(
-                        "ARCHGUARD_AUDIT_STRICT is enabled, but ARCHGUARD_AUDIT_SECRET is not set. "
-                        "You must provide a secure ARCHGUARD_AUDIT_SECRET in strict mode."
+                        "ARCHGUARD_AUDIT_STRICT is enabled, but ARCHGUARD_AUDIT_SECRET is not set and no key file exists."
                     )
+                if key_file.exists():
+                    audit_secret = key_file.read_text(encoding="utf-8").strip()
                 else:
+                    import secrets
                     import logging as _logging
-
-                    _logging.getLogger(__name__).debug(
-                        "ARCHGUARD_AUDIT_SECRET is not set. "
-                        "Audit log HMAC signatures use a default key and provide no real integrity guarantee. "
-                        "Set ARCHGUARD_AUDIT_SECRET to a strong random value in production."
-                    )
+                    
+                    audit_secret = secrets.token_hex(32)
+                    self._log_path.parent.mkdir(parents=True, exist_ok=True)
+                    # Write with 0600 permissions
+                    with open(key_file, "w", encoding="utf-8") as key_f:
+                        key_f.write(audit_secret)
+                    try:
+                        key_file.chmod(0o600)
+                    except Exception:
+                        pass
+                    _logging.getLogger(__name__).info("Generated new audit HMAC key at %s", key_file)
             secret = audit_secret.encode("utf-8")
             signature = hmac.new(
                 secret, entry_str.encode("utf-8"), hashlib.sha256
@@ -114,19 +121,48 @@ class AuditLogger:
 
     def read_last_n_runs(self, n: int = 2) -> list[dict[str, Any]]:
         runs: list[dict[str, Any]] = []
-        if not self._log_path.exists():
+        if not self._log_path.exists() or n <= 0:
             return runs
         from archguard.config import AUDIT_EVENT_ANALYSIS
 
-        with open(self._log_path, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    entry = json.loads(line.strip())
-                    if entry.get("event") == AUDIT_EVENT_ANALYSIS:
-                        runs.append(entry)
-                except json.JSONDecodeError:
-                    pass
-        return runs[-n:]
+        try:
+            with open(self._log_path, "rb") as f:
+                f.seek(0, 2)
+                pos = f.tell()
+                buffer = bytearray()
+                chunk_size = 8192
+                while pos > 0 and len(runs) < n:
+                    read_size = min(chunk_size, pos)
+                    pos -= read_size
+                    f.seek(pos, 0)
+                    chunk = f.read(read_size)
+                    buffer = bytearray(chunk) + buffer
+                    lines = buffer.split(b'\n')
+                    buffer = lines[0]
+                    for line in reversed(lines[1:]):
+                        if not line.strip():
+                            continue
+                        try:
+                            entry = json.loads(line.decode("utf-8", errors="replace"))
+                            if entry.get("event") == AUDIT_EVENT_ANALYSIS:
+                                runs.append(entry)
+                                if len(runs) == n:
+                                    break
+                        except json.JSONDecodeError:
+                            pass
+                
+                if len(runs) < n and buffer.strip():
+                    try:
+                        entry = json.loads(buffer.decode("utf-8", errors="replace"))
+                        if entry.get("event") == AUDIT_EVENT_ANALYSIS:
+                            runs.append(entry)
+                    except json.JSONDecodeError:
+                        pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Non-critical failure in read_last_n_runs: {e}")
+            
+        return list(reversed(runs))
 
 
 def read_last_run(log_path: Path) -> dict[str, Any] | None:
@@ -134,18 +170,40 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
     if not log_path.exists():
         return None
     try:
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in reversed(f.readlines()):
-                if not line.strip():
-                    continue
+        from archguard.config import AUDIT_EVENT_ANALYSIS
+        
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            pos = f.tell()
+            buffer = bytearray()
+            chunk_size = 8192
+            while pos > 0:
+                read_size = min(chunk_size, pos)
+                pos -= read_size
+                f.seek(pos, 0)
+                chunk = f.read(read_size)
+                buffer = bytearray(chunk) + buffer
+                lines = buffer.split(b'\n')
+                buffer = lines[0]
+                for line in reversed(lines[1:]):
+                    if not line.strip():
+                        continue
+                    try:
+                        event = json.loads(line.decode("utf-8", errors="replace"))
+                        if event.get("event") == AUDIT_EVENT_ANALYSIS:
+                            from typing import cast
+                            return cast(dict[str, Any], event)
+                    except json.JSONDecodeError:
+                        continue
+            
+            if buffer.strip():
                 try:
-                    event = json.loads(line)
+                    event = json.loads(buffer.decode("utf-8", errors="replace"))
                     if event.get("event") == AUDIT_EVENT_ANALYSIS:
                         from typing import cast
-
                         return cast(dict[str, Any], event)
                 except json.JSONDecodeError:
-                    continue
+                    pass
     except Exception as e:
         import logging
 

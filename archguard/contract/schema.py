@@ -46,6 +46,12 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
                         "minimum": 0.0,
                         "maximum": 1.0,
                     },
+                    "duplication_threshold": {
+                        "type": "number",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                        "description": "Maximum allowed duplication ratio within the module.",
+                    },
                     "fan_out_at_init": {"type": "integer", "minimum": 0},
                 },
             },

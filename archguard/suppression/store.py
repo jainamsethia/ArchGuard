@@ -105,8 +105,17 @@ class SuppressionStore:
         self._cache = None  # Force reload on next access
         return suppression
 
+    def _force_reload(self) -> None:
+        """Invalidate the cache to force a reload from disk on the next read."""
+        self._cache = None
+        self._cache_mtime = 0.0
+
     def _load_cache(self) -> list[Suppression]:
-        """Load suppressions from JSONL, using mtime to detect changes."""
+        """Load suppressions from JSONL, using mtime to detect changes.
+        
+        Callers holding a file lock must call _force_reload() first to ensure
+        they do not read stale data that was cached before the lock was acquired.
+        """
         try:
             mtime = self._path.stat().st_mtime
         except FileNotFoundError:
@@ -186,6 +195,7 @@ class SuppressionStore:
         count = 0
 
         with file_lock(self._lock_path):
+            self._force_reload()
             all_sups = self._read_all_raw()
             updated: list[Suppression] = []
             for sup in all_sups:
@@ -206,6 +216,7 @@ class SuppressionStore:
         count = 0
 
         with file_lock(self._lock_path):
+            self._force_reload()
             all_sups = self._read_all_raw()
             updated: list[Suppression] = []
             for sup in all_sups:
@@ -278,7 +289,8 @@ class SuppressionStore:
 
     def _write_all_raw(self, suppressions: list[Suppression]) -> None:
         """Overwrite entire file with given suppressions."""
+        self._force_reload()
         with self._path.open("w", encoding="utf-8") as f:
             for s in suppressions:
                 f.write(suppression_to_jsonl(s) + "\n")
-        self._cache = None  # Force reload on next access
+        self._force_reload()

@@ -21,13 +21,11 @@ pyyaml = ">=6.0"
 jsonschema = ">=4.17"
 requests = ">=2.28"
 tree-sitter = ">=0.21,<0.22"
-tree-sitter-python = ">=0.21"
+tree-sitter-python = ">=0.21,<0.22"
 networkx = ">=3.0"
 python-louvain = ">=0.16"
 pydriller = ">=2.5"
-"ruamel.yaml" = ">=0.17"
 httpx = ">=0.25"
-PyGithub = ">=1.59.0"
 watchdog = ">=3.0.0"
 
 [tool.poetry.extras]
@@ -54,7 +52,7 @@ sentence-transformers = ">=2.2"
 faiss-cpu = ">=1.7"
 
 [tool.poetry.group.cloud.dependencies]
-anthropic = ">=0.20"
+anthropic = ">=0.20,<1.0"
 boto3 = ">=1.28.0"
 
 [tool.poetry.group.dashboard.dependencies]

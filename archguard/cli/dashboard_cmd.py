@@ -14,6 +14,7 @@ def dashboard_cmd(
         "127.0.0.1", "--host", help="Host to bind the dashboard to"
     ),
     reload: bool = typer.Option(False, "--reload", help="Auto-reload on changes"),
+    allow_remote: bool = typer.Option(False, "--allow-remote", help="Allow remote access without authentication"),
 ) -> None:
     """Start the ArchGuard live dashboard.
     
@@ -27,6 +28,11 @@ def dashboard_cmd(
         typer.echo("Dashboard requires: pip install archguard[dashboard]", err=True)
         raise typer.Exit(2)
 
+    import os
+    if allow_remote:
+        os.environ["ARCHGUARD_DASHBOARD_ALLOW_REMOTE"] = "1"
+        typer.echo("[SECURITY WARNING] Remote access without authentication is enabled!", err=True)
+
     typer.echo(f"Starting ArchGuard dashboard at http://{host}:{port}")
-    typer.echo(f"For API authentication, set ARCHGUARD_DASHBOARD_TOKEN in your environment.")
+    typer.echo(f"Dashboard running. Set ARCHGUARD_DASHBOARD_TOKEN to secure remote access.")
     uvicorn.run("archguard.dashboard.app:app", host=host, port=port, reload=reload)
