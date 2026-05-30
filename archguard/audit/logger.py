@@ -123,7 +123,6 @@ class AuditLogger:
         runs: list[dict[str, Any]] = []
         if not self._log_path.exists() or n <= 0:
             return runs
-        from archguard.config import AUDIT_EVENT_ANALYSIS
 
         try:
             with open(self._log_path, "rb") as f:

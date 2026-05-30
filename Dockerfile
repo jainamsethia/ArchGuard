@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock* ./
-RUN pip install --no-cache-dir poetry==1.7.1 && \
+RUN pip install --no-cache-dir "poetry==2.4.1" && \
     poetry export -f requirements.txt --output requirements.txt --without hashes && \
     pip install --no-cache-dir --target /deps -r requirements.txt
 

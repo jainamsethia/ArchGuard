@@ -21,7 +21,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: |
-          pip install poetry
+          pip install "poetry==2.4.1"
           poetry install --with dev
       - name: Run ruff
         run: poetry run ruff check archguard/
@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies (with dev)
-        run: pip install poetry && poetry install --with dev
+        run: pip install "poetry==2.4.1" && poetry install --with dev
       - name: Security audit
         run: |
           poetry run pip-audit --format=json --output=audit-results.json
@@ -63,7 +63,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
-        run: pip install poetry && poetry install --with dev
+        run: pip install "poetry==2.4.1" && poetry install --with dev
       - name: Run unit tests
         run: |
           poetry run pytest tests/unit/ \

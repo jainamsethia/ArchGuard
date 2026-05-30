@@ -63,7 +63,7 @@ class ImportParser:
         import tree_sitter_python as tspython
 
         try:
-            lang = Language(tspython.language())
+            lang = Language(tspython.language())  # type: ignore[call-arg]
         except TypeError:
             lang = Language(tspython.language(), "python")
         self._parser: Any = Parser()

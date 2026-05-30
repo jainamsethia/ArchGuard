@@ -254,6 +254,8 @@ class TestCloudLLMExplainer:
     ) -> None:
         """Verify the model sent in API calls matches the configured FALLBACK_MODEL."""
         monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
+        mock_anthropic_module = MagicMock()
+        monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_anthropic_module)
         monkeypatch.setattr("archguard.llm.cloud._ML_AVAILABLE", True)
 
         explainer = CloudLLMExplainer(api_key="test-key")
@@ -271,9 +273,7 @@ class TestCloudLLMExplainer:
         mock_async_client_cls.return_value.__aenter__.return_value = mock_client
         mock_async_client_cls.return_value.__aexit__ = AsyncMock()
 
-        monkeypatch.setattr(
-            "archguard.llm.cloud.anthropic.AsyncAnthropic", mock_async_client_cls
-        )
+        mock_anthropic_module.AsyncAnthropic = mock_async_client_cls
 
         await explainer.explain_violations_concurrent(
             result.violations, _CONTRACT, result.changed_files

@@ -3,7 +3,6 @@
 from __future__ import annotations
 import json
 
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -543,7 +542,7 @@ def analyze_command(
 
 
 
-def _merge_incremental_results(result: AnalysisResult, repo_root: Path, unchanged: list[Path], commit_sha: str, contract: dict) -> None:
+def _merge_incremental_results(result: AnalysisResult, repo_root: Path, unchanged: list[Path], commit_sha: str, contract: dict[str, Any]) -> None:
     from archguard.audit.logger import AuditLogger
     from archguard.analysis.layers import ViolationDetail
     from archguard.analysis.scoring import compute_archdebt, LayerScores
@@ -601,7 +600,7 @@ def _save_incremental_cache(repo_root: Path, py_changed: list[Path], unchanged: 
         )
     save_cache(repo_root, cache_records)
 
-def _run_llm_explanation(result: AnalysisResult, contract: dict, opts: AnalyzeOptions) -> AnalysisResult:
+def _run_llm_explanation(result: AnalysisResult, contract: dict[str, Any], opts: AnalyzeOptions) -> AnalysisResult:
     quiet = opts.ctx.obj.get("quiet", False)
     use_rich = is_tty() and not quiet
     if not opts.skip_explanation and result.archdebt.should_fail_ci and result.violations:
@@ -731,7 +730,7 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         import logging
         logging.getLogger(__name__).warning(f"Failed to log analysis_complete: {e}")
 
-def _post_github_annotations(result: AnalysisResult, opts: AnalyzeOptions, contract: dict) -> None:
+def _post_github_annotations(result: AnalysisResult, opts: AnalyzeOptions, contract: dict[str, Any]) -> None:
     if not (opts.repo_slug and not opts.dry_run):
         return
     import os
@@ -757,11 +756,16 @@ def _post_github_annotations(result: AnalysisResult, opts: AnalyzeOptions, contr
             annotations = violations_to_annotations(v_list_out)
             fail_threshold = float(contract.get("fail_threshold", 0.75))
             conclusion = "failure" if result.archdebt.composite_score > fail_threshold else "success"
+            from typing import Literal, cast
+            conclusion_typed = cast(
+                "Literal['success', 'failure', 'neutral', 'cancelled', 'skipped']",
+                conclusion
+            )
             checks_client.create_check_run(
                 name="ArchGuard",
                 head_sha=head_sha,
                 status="completed",
-                conclusion=conclusion,
+                conclusion=conclusion_typed,
                 title=f"ArchDebt: {result.archdebt.composite_score:.2f} ({result.archdebt.band.value})",
                 summary="ArchGuard analysis complete.",
                 annotations=annotations,
@@ -781,6 +785,8 @@ def _post_github_annotations(result: AnalysisResult, opts: AnalyzeOptions, contr
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).warning(f"Non-critical failure in GitHubClient init: {e}")
+        if client is None:
+            return
         manager = PRCommentManager(client)
         body = manager.format_report(result)
         post_comment(opts.repo_slug, body, pr_number=opts.pr_number, token=token)
@@ -874,7 +880,9 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
 
         except RuntimeError as exc:
             if "ML dependencies" in str(exc):
-                _console.print("\\n[bold red]Missing Dependencies[/bold red]\\nLayer 3 requires ML libraries.")
+                _console.print(
+                    "\n[bold red]Missing Dependencies[/bold red]\nLayer 3 requires ML libraries."
+                )
                 return EXIT_CONFIG_ERROR, None
             _console.print(format_error(f"Analysis failed: {exc}"))
             return EXIT_ANALYSIS_ERROR, None

@@ -108,7 +108,7 @@ class GitHubClient:
     ) -> list[str]:
         """Return list of changed file paths in the PR."""
         self._check_rate_limit()
-        all_filenames = []
+        all_filenames: list[str] = []
         page = 1
         max_files = 3000
         

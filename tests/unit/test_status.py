@@ -36,10 +36,10 @@ class TestStatusCommand:
         assert "core" in result.output
 
     def test_status_with_no_config(self, tmp_path: Path) -> None:
-        """archguard status with no config exits 1."""
+        """archguard status with no config exits 2 (EXIT_CONFIG_ERROR)."""
         result = runner.invoke(app, ["status", "--repo", str(tmp_path)])
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
 
     def test_status_json_output(
         self, tmp_path: Path, minimal_contract: dict[str, Any]

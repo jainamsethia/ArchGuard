@@ -34,5 +34,5 @@ def dashboard_cmd(
         typer.echo("[SECURITY WARNING] Remote access without authentication is enabled!", err=True)
 
     typer.echo(f"Starting ArchGuard dashboard at http://{host}:{port}")
-    typer.echo(f"Dashboard running. Set ARCHGUARD_DASHBOARD_TOKEN to secure remote access.")
+    typer.echo("Dashboard running. Set ARCHGUARD_DASHBOARD_TOKEN to secure remote access.")
     uvicorn.run("archguard.dashboard.app:app", host=host, port=port, reload=reload)

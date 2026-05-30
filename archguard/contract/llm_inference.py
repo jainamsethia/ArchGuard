@@ -132,7 +132,7 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
-        response_text = response.content[0].text
+        response_text = response.content[0].text  # type: ignore[union-attr]
 
     import json
 

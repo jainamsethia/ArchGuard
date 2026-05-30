@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import threading
 
 try:
     import numpy as np
@@ -68,10 +69,6 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 
 
 # ------------------------------------------------------------------
-# Analyzer
-# ------------------------------------------------------------------
-
-import threading
 
 _GLOBAL_MODEL_CACHE: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
@@ -88,7 +85,7 @@ def _get_model(model_name: str) -> "SentenceTransformer":
                 from sentence_transformers import SentenceTransformer
 
                 _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-    return _GLOBAL_MODEL_CACHE[model_name]
+    return _GLOBAL_MODEL_CACHE[model_name]  # type: ignore[no-any-return]
 
 
 def extract_module_text(file_path: Path) -> str:

@@ -54,7 +54,7 @@ class TestSuppressCmd:
         assert "Suppression created" in result.output
 
     def test_add_reason_too_long(self, tmp_path: Path) -> None:
-        """suppress add with reason > 500 chars -> exit 1."""
+        """suppress add with reason > 500 chars -> exit 2 (EXIT_CONFIG_ERROR)."""
         repo = _setup_repo(tmp_path)
         long_reason = "x" * 501
         result = runner.invoke(
@@ -74,10 +74,10 @@ class TestSuppressCmd:
                 str(repo),
             ],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == 2
 
     def test_add_reason_with_newline(self, tmp_path: Path) -> None:
-        """suppress add with newline in reason -> exit 1."""
+        """suppress add with newline in reason -> exit 2 (EXIT_CONFIG_ERROR)."""
         repo = _setup_repo(tmp_path)
         result = runner.invoke(
             app,
@@ -96,7 +96,7 @@ class TestSuppressCmd:
                 str(repo),
             ],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == 2
 
     def test_list_empty(self, tmp_path: Path) -> None:
         """suppress list with no suppressions."""
@@ -246,7 +246,7 @@ class TestContractCmd:
         assert "No pending contract proposals" in result.output
 
     def test_reject_nonexistent(self, tmp_path: Path) -> None:
-        """contract reject for nonexistent module -> exit 1."""
+        """contract reject for nonexistent module -> exit 2 (EXIT_CONFIG_ERROR)."""
         repo = _setup_repo(tmp_path)
         result = runner.invoke(
             app,
@@ -259,7 +259,7 @@ class TestContractCmd:
                 str(repo),
             ],
         )
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "No pending proposal" in result.output
 
 

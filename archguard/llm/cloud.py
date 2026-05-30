@@ -13,7 +13,7 @@ try:
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    anthropic = None
+    anthropic = None  # type: ignore[assignment]
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
@@ -223,7 +223,7 @@ class CloudLLMExplainer:
                         max_tokens=500,
                         messages=[{"role": "user", "content": prompt}],
                     )
-                    return str(response.content[0].text)
+                    return str(response.content[0].text)  # type: ignore[union-attr]
 
         tasks = [explain_one(v) for v in safe_violations]
         return await asyncio.gather(*tasks, return_exceptions=True)

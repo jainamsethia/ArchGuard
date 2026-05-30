@@ -182,9 +182,20 @@ def report_cmd(
     py_files = list(root.rglob("*.py"))
 
     # We pass all files as "changed" to ensure full baseline analysis for the report
-    result = orchestrator.run(
-        changed_files=py_files, commit_sha=AnalysisOrchestrator.get_commit_sha(root)
-    )
+    try:
+        result = orchestrator.run(
+            changed_files=py_files, commit_sha=AnalysisOrchestrator.get_commit_sha(root)
+        )
+    except RuntimeError as exc:
+        if "ML dependencies" in str(exc):
+            _console.print(
+                "[bold red]Missing Dependencies[/bold red]\n"
+                "Layer 3 or 4 requires ML libraries.\n"
+                "Install them with: pip install archguard[ml]\n"
+                "Or add skip_layers: [semantic, duplication] to .archguard.yml"
+            )
+            raise typer.Exit(2)
+        raise
 
     modules_cfg = orchestrator.contract.get("modules", [])
     module_paths = {m["name"]: m.get("paths", []) for m in modules_cfg}

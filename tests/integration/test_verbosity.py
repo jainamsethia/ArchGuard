@@ -14,7 +14,13 @@ modules:
   - name: core
     path: src/core
 """)
+    (repo / "src" / "core").mkdir(parents=True, exist_ok=True)
+    (repo / "src" / "core" / "main.py").write_text("def foo(): pass\n")
 
-    result = runner.invoke(app, ["analyze", "--repo", str(repo), "-q"])
+    result = runner.invoke(
+        app,
+        ["-q", "analyze", "--repo", str(repo), "--no-llm"],
+        env={"ARCHGUARD_SKIP_ML": "1"},
+    )
     assert result.exit_code == 0
     # Just verify it didn't crash; asserting exactly "" is flaky with dependencies

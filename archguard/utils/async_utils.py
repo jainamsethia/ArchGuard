@@ -10,7 +10,7 @@ def run_async(coro: Coroutine[Any, Any, T]) -> T:
     This is safe for CLI usage where the running loop is the test harness.
     """
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         # No running loop — safe to use asyncio.run()
         return asyncio.run(coro)

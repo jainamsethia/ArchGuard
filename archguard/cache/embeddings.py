@@ -14,8 +14,8 @@ try:
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    np = None
-    npt = None
+    np = None  # type: ignore[assignment]
+    npt = None  # type: ignore[assignment]
 
 from archguard.cache.db import EmbeddingDB
 

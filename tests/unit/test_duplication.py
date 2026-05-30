@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
+np = pytest.importorskip("numpy", reason="ML extras not installed")
+
+@pytest.fixture(autouse=True)
+def patch_ml_available(monkeypatch):
+    monkeypatch.setattr("archguard.analysis.duplication._ML_AVAILABLE", True)
+
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import numpy as np
-import pytest
 
 from archguard.analysis.duplication import (
     DuplicationAnalyzer,

@@ -521,6 +521,7 @@ class TestAnalyzeCommand:
         opts = AnalyzeOptions(ctx=ctx, repo=tmp_path, repo_slug="org/repo", dry_run=False)
         
         with patch("os.environ.get", return_value="fake_token"), \
+             patch("archguard.github.client.GitHubClient") as mock_client, \
              patch("archguard.github.checks.ChecksAPIClient") as mock_checks, \
              patch("archguard.github.client.post_comment") as mock_post, \
              patch("archguard.github.comments.PRCommentManager") as mock_manager:

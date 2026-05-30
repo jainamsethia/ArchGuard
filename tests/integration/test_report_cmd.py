@@ -13,6 +13,7 @@ def test_report_cmd_success(tmp_path):
         "modules": [{"name": "test_mod", "path": "src/"}],
         "fail_threshold": 0.75,
         "warn_threshold": 0.50,
+        "skip_layers": ["semantic", "duplication"],
     }
     contract_file = tmp_path / ".archguard.yml"
     with open(contract_file, "w") as f:
@@ -28,7 +29,8 @@ def test_report_cmd_success(tmp_path):
     # Run command
     output_html = tmp_path / "report.html"
     result = runner.invoke(
-        app, ["report", "--root", str(tmp_path), "--output", str(output_html)]
+        app, ["report", "--root", str(tmp_path), "--output", str(output_html)],
+        env={"ARCHGUARD_SKIP_ML": "1"}
     )
 
     assert result.exit_code == 0
