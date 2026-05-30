@@ -95,13 +95,11 @@ class GitHubClient:
         resp.raise_for_status()
         return resp.json()
 
-    @exponential_backoff(max_retries=3)
     def get_pr(self, repo_slug: str, pr_number: int) -> Any:
         """Return PR info dict."""
         url = f"https://api.github.com/repos/{repo_slug}/pulls/{pr_number}"
         return self._get_api(url)
 
-    @exponential_backoff(max_retries=3)
     def get_pr_changed_files(
         self,
         repo_slug: str,
@@ -151,14 +149,12 @@ class GitHubClient:
         resp.raise_for_status()
         return True
 
-    @exponential_backoff(max_retries=3)
     def get_issue_comments(
         self, repo_slug: str, pr_number: int
     ) -> list[dict[str, Any]]:
         url = f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
         return cast(list[dict[str, Any]], self._get_api(url))
 
-    @exponential_backoff(max_retries=3)
     def update_comment(self, repo_slug: str, comment_id: int, body: str) -> bool:
         self._check_rate_limit()
         url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
@@ -173,7 +169,6 @@ class GitHubClient:
         resp.raise_for_status()
         return True
 
-    @exponential_backoff(max_retries=3)
     def delete_comment(self, repo_slug: str, comment_id: int) -> bool:
         self._check_rate_limit()
         url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"

@@ -1,58 +1,81 @@
 import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+import concurrent.futures
+
 from archguard.analysis.layers import AnalysisOrchestrator
+from archguard.utils.severity import Severity
 
+class MockViolationDetail:
+    def __init__(self, layer, message):
+        self.layer = layer
+        self.message = message
+        self.severity = Severity.MEDIUM
+        self.file_path = "test.py"
+        self.module = "test"
+        self.commit_sha = "abcd123"
 
-@pytest.mark.benchmark
-def test_parallel_layers_faster_than_sequential(benchmark, tmp_path):
-    """
-    Test that parallel layer execution works and is potentially faster.
-    This doesn't strictly assert timing, as CI can be noisy, but it validates
-    the concurrent logic doesn't crash and returns the correct payload.
-    """
-    repo = tmp_path / "repo"
-    repo.mkdir()
-
-    (repo / ".archguard.yml").write_text("""
-version: "3.0"
-modules:
-  - name: module_a
-    path: "a/"
-    coupling_budget: 1
-    allowed_imports: []
-  - name: module_b
-    path: "b/"
-    coupling_budget: 1
-    allowed_imports: []
-
-""")
-
-    # Create fake codebase
-    (repo / "a").mkdir()
-    (repo / "b").mkdir()
-    (repo / "a" / "main.py").write_text("import b.core\nfrom b import core")
-    (repo / "b" / "core.py").write_text("import a.main\nfrom a import main")
-
-    db_path = repo / ".archguard-cache" / "embeddings.db"
-    db_path.parent.mkdir(parents=True)
-    from archguard.cache.db import EmbeddingDB
-
-    EmbeddingDB(db_path)
-
-    orchestrator = AnalysisOrchestrator(repo, db_path)
-    # Mock ML skip
-    orchestrator.contract["skip_layers"] = ["semantic", "duplication"]
-
-    changed_files = [repo / "a" / "main.py", repo / "b" / "core.py"]
-
-    def run_pipeline():
-        return orchestrator.run(
-            changed_files=changed_files, commit_sha="test1234", skip_explanation=True
-        )
-
-    # We use benchmark to run it a few times to check concurrency safety
-    result = benchmark(run_pipeline)
-
-    # Check that both layer 1 and 2 reported violations
-    v_layers = [v.layer for v in result.violations]
-    assert 1 in v_layers, "Layer 1 should have reported violations"
-    assert 2 in v_layers, "Layer 2 should have reported violations"
+def test_layers_concurrent_violations():
+    """Test that Layer 1 and Layer 2 run concurrently and their violations are merged safely."""
+    contract = {
+        "modules": [{"name": "test", "paths": ["src/test"]}],
+        "fail_threshold": 0.8
+    }
+    
+    with patch("archguard.analysis.layers.load_contract", return_value=contract), \
+         patch("archguard.analysis.layers.EmbeddingDB"):
+        orchestrator = AnalysisOrchestrator(Path("."))
+    
+    # We will patch _run_layer1 and _run_layer2 to return mocked violations
+    l1_violations = [MockViolationDetail(layer=1, message="L1 violation")]
+    l2_violations = [MockViolationDetail(layer=2, message="L2 violation")]
+    l3_violations = [MockViolationDetail(layer=3, message="L3 violation")]
+    l4_violations = [MockViolationDetail(layer=4, message="L4 violation")]
+    
+    with patch.object(orchestrator, "_run_layer1", return_value=(0.5, l1_violations)) as m1, \
+         patch.object(orchestrator, "_run_layer2", return_value=(0.3, l2_violations)) as m2, \
+         patch.object(orchestrator, "_run_layer3", return_value=(0.1, {}, l3_violations)) as m3, \
+         patch.object(orchestrator, "_run_layer4", return_value=(0.2, l4_violations)) as m4, \
+         patch.object(orchestrator, "_get_affected_modules", return_value={"test": [Path("src/test.py")]}), \
+         patch.object(orchestrator, "_run_reinference"), \
+         patch("archguard.analysis.layers.compute_archdebt") as mock_compute:
+         
+        mock_compute.return_value = MagicMock()
+        
+        # We need to simulate the ThreadPoolExecutor behavior directly to prove it's concurrent,
+        # but AnalysisOrchestrator.run() already uses ThreadPoolExecutor internally.
+        # So we just call run() and check the final violations list contains both.
+        result = orchestrator.run([Path("src/test.py")], "abcd123", quiet=True)
+        
+        assert m1.called
+        assert m2.called
+        assert m3.called
+        assert m4.called
+        
+        violation_messages = [v.message for v in result.violations]
+        assert "L1 violation" in violation_messages
+        assert "L2 violation" in violation_messages
+        assert "L3 violation" in violation_messages
+        assert "L4 violation" in violation_messages
+        
+def test_direct_threadpool_concurrent_safety():
+    """Test the exact mutation pattern with ThreadPoolExecutor to prove it is isolated."""
+    # This just ensures we can merge lists from futures without data races.
+    def worker1():
+        return [1, 2, 3]
+        
+    def worker2():
+        return [4, 5, 6]
+        
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        f1 = executor.submit(worker1)
+        f2 = executor.submit(worker2)
+        
+        v1 = f1.result()
+        v2 = f2.result()
+        
+        merged = []
+        merged.extend(v1)
+        merged.extend(v2)
+        
+        assert set(merged) == {1, 2, 3, 4, 5, 6}

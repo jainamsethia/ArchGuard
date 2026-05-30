@@ -57,3 +57,10 @@ fix_*.py
 
 # Development artifacts
 audit-results.json
+
+add_test.py
+add_tests.py
+append_tests.py
+refactor.py
+update_workflows.py
+pytest_output.txt

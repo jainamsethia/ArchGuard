@@ -93,15 +93,15 @@ def test_drift_computed_once_per_run(tmp_path):
     with (
         patch(
             "archguard.analysis.layers.AnalysisOrchestrator._run_layer1",
-            return_value=0.0,
+            return_value=(0.0, []),
         ),
         patch(
             "archguard.analysis.layers.AnalysisOrchestrator._run_layer2",
-            return_value=0.0,
+            return_value=(0.0, []),
         ),
         patch(
             "archguard.analysis.layers.AnalysisOrchestrator._run_layer4",
-            return_value=0.0,
+            return_value=(0.0, []),
         ),
         patch(
             "archguard.analysis.semantic.SemanticAnalyzer.compute_drift",
@@ -127,3 +127,27 @@ def test_get_module_paths():
         "lib/",
     ]
     assert _get_module_paths({"name": "core", "paths": ["src/"]}) == ["src/"]
+
+
+def test_analysis_orchestrator_context_manager(tmp_path):
+    import sqlite3
+    import pytest
+    
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    
+    contract_file = repo_root / ".archguard.yml"
+    contract_file.write_text("version: '3.0'\nmodules:\n  - name: test\n    path: src/test\n")
+    
+    db_path = tmp_path / "test.db"
+    
+    from archguard.analysis.layers import AnalysisOrchestrator
+    
+    with AnalysisOrchestrator(repo_root, db_path=db_path) as orchestrator:
+        assert hasattr(orchestrator, "db")
+        assert orchestrator.db is not None
+        assert orchestrator.db.count_embeddings() >= 0
+        db_instance = orchestrator.db
+    
+    with pytest.raises(sqlite3.ProgrammingError, match="Cannot operate on a closed database"):
+        db_instance.count_embeddings()

@@ -7,6 +7,7 @@ on:
     branches: [main]
 
 env:
+  ARCHGUARD_AUDIT_STRICT: "1"
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -69,12 +70,14 @@ jobs:
             --cov=archguard \
             --cov-report=xml
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_TEST_MODE: "1"
       - name: Run integration tests
         run: |
           poetry run pytest tests/integration/ -v \
             --timeout=60
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ARCHGUARD_MOCK_LLM: "1"  # use mock LLM in tests
       - name: Upload coverage

@@ -68,6 +68,7 @@ def test_post_comment_method_success(
 ) -> None:
     """GitHubClient.post_comment succeeds when dependencies are correct."""
     mock_get.return_value.status_code = 200
+    mock_get.return_value.headers = {"X-OAuth-Scopes": "repo"}
     mock_get.return_value.json.return_value = {
         "resources": {"core": {"remaining": 5000}}
     }
@@ -95,3 +96,45 @@ def test_post_comment_function_success(
     mock_client.post_comment.assert_called_once_with(
         "org/repo", "test body", pr_number=55
     )
+
+@patch("archguard.github.client.requests.get")
+def test_get_pr_retry_behavior(mock_get, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test get_pr retry behavior to ensure no nested decorators."""
+    import requests
+    from archguard.github.client import GitHubClient
+    
+    # Mock requests.get to fail twice then succeed
+    response_500 = MagicMock()
+    response_500.status_code = 500
+    http_error = requests.exceptions.HTTPError("500 Error")
+    http_error.status = 500  # Avoid AttributeError in retry.py
+    http_error.response = response_500
+    response_500.raise_for_status.side_effect = http_error
+    
+    response_200 = MagicMock()
+    response_200.status_code = 200
+    response_200.json.return_value = {"pr": "data"}
+    
+    mock_get.side_effect = [
+        # Constructor
+        MagicMock(status_code=200, headers={"X-OAuth-Scopes": "repo"}),
+        # Attempt 1
+        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        response_500,
+        # Attempt 2
+        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        response_500,
+        # Attempt 3
+        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        response_200,
+    ]
+    
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
+        client = GitHubClient()
+        # To speed up tests, mock time.sleep inside exponential_backoff
+        with patch("archguard.utils.retry.time.sleep"):
+            res = client.get_pr("org/repo", 1)
+            
+        assert res == {"pr": "data"}
+        # 1 constructor call + 3 rate limit checks + 3 API calls = 7 calls to requests.get
+        assert mock_get.call_count == 7

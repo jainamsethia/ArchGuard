@@ -1,10 +1,13 @@
 import httpx
 from archguard.alerting.trend_detector import TrendAlert
+from archguard.utils.url_validator import validate_webhook_url
 
 
 async def send_slack_alert(webhook_url: str, alerts: list[TrendAlert]) -> None:
     if not alerts:
         return
+
+    validate_webhook_url(webhook_url)
 
     blocks = [
         {
@@ -24,6 +27,8 @@ async def send_slack_alert(webhook_url: str, alerts: list[TrendAlert]) -> None:
 async def send_generic_webhook(url: str, alerts: list[TrendAlert]) -> None:
     if not alerts:
         return
+
+    validate_webhook_url(url)
 
     payload = {
         "alerts": [

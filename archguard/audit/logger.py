@@ -46,13 +46,22 @@ class AuditLogger:
             _WEAK_SECRET = "archguard_default_secret"
             audit_secret = os.environ.get("ARCHGUARD_AUDIT_SECRET", _WEAK_SECRET)
             if audit_secret == _WEAK_SECRET:
-                import logging as _logging
+                strict_mode = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in ("1", "true")
+                if strict_mode:
+                    from archguard.utils.errors import ConfigError
 
-                _logging.getLogger(__name__).debug(
-                    "ARCHGUARD_AUDIT_SECRET is not set. "
-                    "Audit log HMAC signatures use a default key and provide no real integrity guarantee. "
-                    "Set ARCHGUARD_AUDIT_SECRET to a strong random value in production."
-                )
+                    raise ConfigError(
+                        "ARCHGUARD_AUDIT_STRICT is enabled, but ARCHGUARD_AUDIT_SECRET is not set. "
+                        "You must provide a secure ARCHGUARD_AUDIT_SECRET in strict mode."
+                    )
+                else:
+                    import logging as _logging
+
+                    _logging.getLogger(__name__).debug(
+                        "ARCHGUARD_AUDIT_SECRET is not set. "
+                        "Audit log HMAC signatures use a default key and provide no real integrity guarantee. "
+                        "Set ARCHGUARD_AUDIT_SECRET to a strong random value in production."
+                    )
             secret = audit_secret.encode("utf-8")
             signature = hmac.new(
                 secret, entry_str.encode("utf-8"), hashlib.sha256
@@ -62,6 +71,10 @@ class AuditLogger:
             with self._log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, default=str) + "\n")
         except Exception as e:  # noqa: BLE001 — intentionally broad
+            from archguard.utils.errors import ConfigError
+
+            if isinstance(e, ConfigError):
+                raise e
             import logging
 
             logging.getLogger(__name__).warning(f"Non-critical failure in log: {e}")

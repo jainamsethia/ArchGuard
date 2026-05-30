@@ -28,6 +28,7 @@ jobs:
       - name: Run archguard analyze (dry-run, no ML)
         run: archguard analyze --dry-run --repo . --skip-explanation
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_ML: "true"
 
       - name: Install archguard (with ML extras)
@@ -39,4 +40,5 @@ jobs:
       - name: Run archguard analyze (with ML)
         run: archguard analyze --dry-run --repo .
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_LLM: "true"  # Don't need API key in CI

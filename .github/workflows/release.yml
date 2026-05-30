@@ -54,6 +54,7 @@ jobs:
       - name: Publish to PyPI
         run: poetry publish --no-interaction
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
 
   publish-docker:

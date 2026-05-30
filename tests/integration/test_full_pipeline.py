@@ -112,3 +112,102 @@ def test_status_after_analyze(git_repo):
     stdout = result.stdout.lower()
     assert "schema version" in stdout
     assert "audit log:" in stdout
+
+
+@pytest.mark.integration
+def test_incremental_reads_from_cache_dir(git_repo):
+    """Incremental mode should read previous violations from .archguard-cache/audit.jsonl"""
+    from unittest.mock import patch
+    from archguard.analysis.layers import AnalysisResult, ViolationDetail
+    from archguard.analysis.scoring import ArchDebtResult, LayerScores
+    from archguard.utils.severity import Severity
+    from archguard.analysis.scoring import ArchDebtBand
+
+    files = "api/routes.py,db/models.py,utils/helpers.py"
+    
+    fake_result = AnalysisResult(
+        archdebt=ArchDebtResult(
+            layer_scores=LayerScores(0.1, 0.1, 0.1, 0.2),
+            composite_score=0.5,
+            band=ArchDebtBand.WARN,
+            should_fail_ci=False,
+            weights=(0.25, 0.25, 0.25, 0.25),
+            per_component_breach=False,
+            composite_breach=False
+        ),
+        violations=[
+            ViolationDetail(
+                layer=1,
+                module="db",
+                message="Bad import",
+                commit_sha="1234567",
+                file_path="db/models.py",
+                severity=Severity.HIGH,
+            )
+        ],
+        changed_files=["api/routes.py", "db/models.py", "utils/helpers.py"]
+    )
+
+    with patch("archguard.cli.analyze_cmd.AnalysisOrchestrator.run", return_value=fake_result):
+        # 1. First run generates cache and audit log
+        res1 = runner.invoke(
+            app,
+            [
+                "analyze",
+                "--repo",
+                str(git_repo),
+                "--changed-files",
+                files,
+                "--json",
+                "--no-llm",
+                "--incremental",
+            ],
+        )
+        assert res1.exit_code in (0, 1), f"First analyze failed: {res1.stdout}"
+        
+        audit_log = git_repo / ".archguard-cache" / "audit.jsonl"
+        assert audit_log.exists(), "Audit log should exist in .archguard-cache"
+        
+        # 2. Modify one file so it's changed, others unchanged
+        (git_repo / "api" / "routes.py").write_text("import sys\n")
+        
+        fake_result2 = AnalysisResult(
+            archdebt=ArchDebtResult(
+                layer_scores=LayerScores(0.1, 0.0, 0.0, 0.0),
+                composite_score=0.1,
+                band=ArchDebtBand.HEALTHY,
+                should_fail_ci=False,
+                weights=(0.25, 0.25, 0.25, 0.25),
+                per_component_breach=False,
+                composite_breach=False
+            ),
+            violations=[],
+            changed_files=["api/routes.py"]
+        )
+
+    with patch("archguard.cli.analyze_cmd.AnalysisOrchestrator.run", return_value=fake_result2):
+        # 3. Second run incrementally
+        res2 = runner.invoke(
+            app,
+            [
+                "analyze",
+                "--repo",
+                str(git_repo),
+                "--changed-files",
+                files,
+                "--json",
+                "--no-llm",
+                "--incremental",
+            ],
+        )
+        assert res2.exit_code in (0, 1), f"Second analyze failed: {res2.stdout}"
+        
+        report1 = json.loads(res1.stdout)
+        report2 = json.loads(res2.stdout)
+        
+        # Violations from db/models.py should be merged
+        assert "violations" in report2
+        
+        merged_files = {v.get("file", v.get("module", "")) for v in report2["violations"]}
+        assert "db/models.py" in merged_files, \
+            "Violations from unchanged files were not merged correctly from the audit log."

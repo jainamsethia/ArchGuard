@@ -18,7 +18,7 @@ README excerpt:
 
 Generate a JSON object with this exact schema:
 {{
-  "schema_version": "3.0",
+  "version": "3.0",
   "modules": [
     {{
       "name": "<module_name>",
@@ -147,7 +147,12 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
 
     contract = json.loads(response_text.strip())
 
-    # We could validate here, but skipping rigorous validation so we can merge it
+    from archguard.contract.validator import validate_contract
+    try:
+        validate_contract(contract)
+    except Exception as e:
+        raise ValueError(f"LLM generated an invalid contract: {e}")
+
     return typing.cast(dict[str, typing.Any], contract)
 
 

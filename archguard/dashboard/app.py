@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+import os
+import logging
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from archguard.audit.logger import AuditLogger
 from archguard.config import AUDIT_LOG_FILENAME
 from typing import Any
@@ -9,12 +12,27 @@ app = FastAPI(title="ArchGuard Dashboard", version="0.1.0")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+security = HTTPBearer(auto_error=False)
+
+def check_token(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> None:
+    token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN")
+    if token:
+        if not credentials or credentials.credentials != token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    else:
+        client_host = request.client.host if request.client else "unknown"
+        if client_host not in ("127.0.0.1", "localhost", "::1"):
+            logging.warning(f"Dashboard accessed from {client_host} without token authentication! Consider setting ARCHGUARD_DASHBOARD_TOKEN.")
 
 def get_audit_path() -> Path:
     return Path.cwd() / AUDIT_LOG_FILENAME
 
 
-@app.get("/api/runs")
+@app.get("/api/runs", dependencies=[Depends(check_token)])
 def get_runs(limit: int = 50, module: str | None = None) -> Any:
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=limit)
@@ -23,13 +41,13 @@ def get_runs(limit: int = 50, module: str | None = None) -> Any:
     return {"runs": runs, "total": len(runs)}
 
 
-@app.get("/api/runs/latest")
+@app.get("/api/runs/latest", dependencies=[Depends(check_token)])
 def get_latest_run() -> Any:
     logger = AuditLogger(get_audit_path())
     return logger.read_last_run() or {}
 
 
-@app.get("/api/modules")
+@app.get("/api/modules", dependencies=[Depends(check_token)])
 def get_modules() -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path())
@@ -41,7 +59,7 @@ def get_modules() -> Any:
     return {"modules": modules}
 
 
-@app.get("/api/trends/{module}")
+@app.get("/api/trends/{module}", dependencies=[Depends(check_token)])
 def get_module_trends(module: str, limit: int = 30) -> Any:
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=limit)

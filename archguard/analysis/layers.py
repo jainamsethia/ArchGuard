@@ -79,6 +79,17 @@ class AnalysisOrchestrator:
         self.cache = EmbeddingCache(self.db)
         self._audit: Any | None = None
 
+    def close(self) -> None:
+        """Close database connections and release resources."""
+        if hasattr(self, "db") and self.db is not None:
+            self.db.close()
+
+    def __enter__(self) -> "AnalysisOrchestrator":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
+
     def run(
         self,
         changed_files: list[Path],
@@ -153,23 +164,23 @@ class AnalysisOrchestrator:
                 l1_failures: list[Any] = []
                 l2_failures: list[Any] = []
 
-                def run_l1() -> float:
+                def run_l1() -> tuple[float, list[ViolationDetail]]:
                     with metrics.time_layer("layer1"):
                         return self._run_layer1(
-                            py_files, affected, commit_sha, violations, l1_failures
+                            py_files, affected, commit_sha, l1_failures
                         )
 
-                def run_l2() -> float:
+                def run_l2() -> tuple[float, list[ViolationDetail]]:
                     with metrics.time_layer("layer2"):
                         return self._run_layer2(
-                            affected, commit_sha, violations, l2_failures
+                            affected, commit_sha, l2_failures
                         )
 
                 future_l1 = executor.submit(run_l1)
                 future_l2 = executor.submit(run_l2)
 
-                layer1 = future_l1.result()
-                l1_violations = len([v for v in violations if v.layer == 1])
+                layer1, l1_viols = future_l1.result()
+                l1_violations = len(l1_viols)
                 if progress:
                     progress.update(
                         task1,
@@ -180,8 +191,8 @@ class AnalysisOrchestrator:
                     if not quiet:
                         print(f"✓ Layer 1 complete ({l1_violations} violations)")
 
-                layer2 = future_l2.result()
-                l2_violations = len([v for v in violations if v.layer == 2])
+                layer2, l2_viols = future_l2.result()
+                l2_violations = len(l2_viols)
                 if progress:
                     progress.update(
                         task2,
@@ -191,6 +202,9 @@ class AnalysisOrchestrator:
                 else:
                     if not quiet:
                         print(f"✓ Layer 2 complete ({l2_violations} violations)")
+                
+                violations.extend(l1_viols)
+                violations.extend(l2_viols)
 
             elapsed = time.perf_counter() - start_time
             logger.debug(f"Layer 1 and 2 concurrent execution time: {elapsed:.2f}s")
@@ -207,14 +221,12 @@ class AnalysisOrchestrator:
 
             if unique_failures and self._audit:
                 for f in unique_failures:
-                    self._audit.log_event(
+                    self._audit.log(
                         "parse_failure",
-                        {
-                            "file": str(f.file_path),
-                            "error_type": f.error_type,
-                            "error_message": f.error_message,
-                            "is_critical": f.is_critical,
-                        },
+                        file=str(f.file_path),
+                        error_type=f.error_type,
+                        error_message=f.error_message,
+                        is_critical=f.is_critical,
                     )
 
             if fail_fast:
@@ -301,10 +313,11 @@ class AnalysisOrchestrator:
             else:
                 try:
                     with metrics.time_layer("layer3"):
-                        layer3, module_drifts = self._run_layer3(
-                            affected, py_files, commit_sha, violations
+                        layer3, module_drifts, l3_viols = self._run_layer3(
+                            affected, py_files, commit_sha
                         )
-                    l3_violations = len([v for v in violations if v.layer == 3])
+                        violations.extend(l3_viols)
+                    l3_violations = len(l3_viols)
                     if progress:
                         progress.update(
                             task3,
@@ -376,8 +389,9 @@ class AnalysisOrchestrator:
             else:
                 try:
                     with metrics.time_layer("layer4"):
-                        layer4 = self._run_layer4(affected, commit_sha, violations)
-                    l4_violations = len([v for v in violations if v.layer == 4])
+                        layer4, l4_viols = self._run_layer4(affected, commit_sha)
+                        violations.extend(l4_viols)
+                    l4_violations = len(l4_viols)
                     if progress:
                         progress.update(
                             task4,
@@ -496,14 +510,14 @@ class AnalysisOrchestrator:
         py_files: list[Path],
         affected: dict[str, list[Path]],
         commit_sha: str,
-        violations: list[ViolationDetail],
         parse_failures: list[Any] | None = None,
-    ) -> float:
+    ) -> tuple[float, list[ViolationDetail]]:
         """Layer 1: Import boundary violations."""
         from archguard.analysis.parser import ImportParser
 
         if parse_failures is None:
             parse_failures = []
+        violations: list[ViolationDetail] = []
 
         parser = ImportParser()
         modules_cfg = self.contract.get("modules", [])
@@ -601,18 +615,18 @@ class AnalysisOrchestrator:
                 ) from e
 
         parse_failures.extend(parser.parse_failures)
-        return violation_count / max(total_imports, 1)
+        return violation_count / max(total_imports, 1), violations
 
     def _run_layer2(
         self,
         affected: dict[str, list[Path]],
         commit_sha: str,
-        violations: list[ViolationDetail],
         parse_failures: list[Any] | None = None,
-    ) -> float:
+    ) -> tuple[float, list[ViolationDetail]]:
         """Layer 2: Coupling delta."""
         if parse_failures is None:
             parse_failures = []
+        violations: list[ViolationDetail] = []
         from archguard.analysis.coupling import compute_coupling_delta, compute_fan_out
         from archguard.analysis.parser import ImportParser
 
@@ -653,16 +667,16 @@ class AnalysisOrchestrator:
 
             max_delta = max(max_delta, delta)
 
-        return max_delta
+        return max_delta, violations
 
     def _run_layer3(
         self,
         affected: dict[str, list[Path]],
         py_files: list[Path],
         commit_sha: str,
-        violations: list[ViolationDetail],
-    ) -> tuple[float, dict[str, float]]:
+    ) -> tuple[float, dict[str, float], list[ViolationDetail]]:
         """Layer 3: Semantic drift."""
+        violations: list[ViolationDetail] = []
         from archguard.analysis.semantic import SemanticAnalyzer
 
         analyzer = SemanticAnalyzer(self.cache)
@@ -702,15 +716,15 @@ class AnalysisOrchestrator:
                     f"Layer 3 analysis failed on module {mod_name}", cause=e
                 ) from e
 
-        return max_drift, module_drifts
+        return max_drift, module_drifts, violations
 
     def _run_layer4(
         self,
         affected: dict[str, list[Path]],
         commit_sha: str,
-        violations: list[ViolationDetail],
-    ) -> float:
+    ) -> tuple[float, list[ViolationDetail]]:
         """Layer 4: Duplication analysis."""
+        violations: list[ViolationDetail] = []
         from archguard.analysis.duplication import DuplicationAnalyzer
 
         analyzer = DuplicationAnalyzer(self.cache)
@@ -773,7 +787,7 @@ class AnalysisOrchestrator:
                     f"Layer 4 analysis failed on module {mod_name}", cause=e
                 ) from e
 
-        return max_agg
+        return max_agg, violations
 
     # ------------------------------------------------------------------
     # Helpers

@@ -22,4 +22,5 @@ jobs:
       - name: Publish to PyPI
         run: poetry publish --build
         env:
+          ARCHGUARD_AUDIT_STRICT: "1"
           POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
