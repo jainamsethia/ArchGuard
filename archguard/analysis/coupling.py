@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from pathlib import Path
 
 from archguard.analysis.parser import ImportEdge
+from archguard.utils.paths import normalize_path, path_belongs_to_module
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -17,17 +17,15 @@ class ModuleCoupling:
     """Coupling metrics for a single architectural module."""
 
     module_name: str
-    fan_out: int              # unique non-stdlib, non-relative imports
-    fan_in: int               # number of other modules importing this one
-    coupling_budget: int      # from contract or computed default
-    coupling_delta: float     # see compute_coupling_delta
+    fan_out: int  # unique non-stdlib, non-relative imports
+    fan_in: int  # number of other modules importing this one
+    coupling_budget: int  # from contract or computed default
+    coupling_delta: float  # see compute_coupling_delta
 
 
 # ------------------------------------------------------------------
 # Path helpers
 # ------------------------------------------------------------------
-
-from archguard.utils.paths import normalize_path, path_belongs_to_module
 
 
 def _assign_file_to_module(
@@ -71,6 +69,7 @@ def _assign_file_to_module(
 # ------------------------------------------------------------------
 # Fan-out / fan-in
 # ------------------------------------------------------------------
+
 
 def compute_fan_out(
     edges: list[ImportEdge],
@@ -131,6 +130,7 @@ def compute_fan_in(
 # Coupling formulas
 # ------------------------------------------------------------------
 
+
 def compute_coupling_delta(
     fan_out: int,
     coupling_budget: int,
@@ -145,8 +145,7 @@ def compute_coupling_delta(
     """
     if fan_out == 0 and coupling_budget == 0:
         logger.warning(
-            "Module %s has fan_out=0 and coupling_budget=0, "
-            "CouplingDelta set to 1.0",
+            "Module %s has fan_out=0 and coupling_budget=0, CouplingDelta set to 1.0",
             module_name or "<unknown>",
         )
         return 1.0
@@ -167,6 +166,7 @@ def default_coupling_budget(fan_out_at_init: int) -> int:
 # Orchestrator
 # ------------------------------------------------------------------
 
+
 def analyze_coupling(
     edges: list[ImportEdge],
     module_paths: dict[str, list[str]],
@@ -185,12 +185,14 @@ def analyze_coupling(
 
         delta = compute_coupling_delta(fan_out_val, budget, module_name)
 
-        results.append(ModuleCoupling(
-            module_name=module_name,
-            fan_out=fan_out_val,
-            fan_in=fan_in_val,
-            coupling_budget=budget,
-            coupling_delta=delta,
-        ))
+        results.append(
+            ModuleCoupling(
+                module_name=module_name,
+                fan_out=fan_out_val,
+                fan_in=fan_in_val,
+                coupling_budget=budget,
+                coupling_delta=delta,
+            )
+        )
 
     return results

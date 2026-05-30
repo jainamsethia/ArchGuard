@@ -6,7 +6,8 @@ authors = []
 readme = "README.md"
 packages = [{include = "archguard"}]
 include = [
-    {path = "archguard/templates/*"}
+    {path = "archguard/templates/*"},
+    {path = "archguard/py.typed"}
 ]
 
 [tool.poetry.scripts]
@@ -27,6 +28,7 @@ pydriller = ">=2.5"
 "ruamel.yaml" = ">=0.17"
 httpx = ">=0.25"
 PyGithub = ">=1.59.0"
+watchdog = ">=3.0.0"
 
 [tool.poetry.extras]
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
@@ -43,7 +45,7 @@ mypy = ">=1.5"
 ruff = ">=0.1"
 pre-commit = ">=3.0"
 types-PyYAML = "*"
-watchdog = ">=3.0.0"
+pip-audit = ">=2.6"
 
 [tool.poetry.group.ml.dependencies]
 numpy = ">=1.24,<2.0.0"
@@ -60,7 +62,7 @@ fastapi = ">=0.100.0"
 uvicorn = ">=0.23.0"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -81,7 +83,7 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-addopts = "--cov=archguard --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=60"
+addopts = "--cov=archguard --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=70"
 testpaths = ["tests/unit", "tests/integration"]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m not integration')",

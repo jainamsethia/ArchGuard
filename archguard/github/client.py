@@ -15,8 +15,10 @@ from archguard.utils.retry import exponential_backoff
 
 logger = logging.getLogger(__name__)
 
+
 class RateLimitExceededException(Exception):
     pass
+
 
 def _get_pr_number() -> int | None:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
@@ -48,28 +50,37 @@ class GitHubClient:
 
     def _validate_token_scopes(self, token: str) -> None:
         try:
-            resp = requests.get("https://api.github.com/user", headers=self._headers, timeout=5)
+            resp = requests.get(
+                "https://api.github.com/user", headers=self._headers, timeout=5
+            )
             if resp.status_code == 200:
                 scopes = resp.headers.get("X-OAuth-Scopes", "")
                 if "repo" not in scopes and "public_repo" not in scopes:
-                    raise ConfigError(f"GITHUB_TOKEN has insufficient scopes: {scopes}. Needs 'repo' or 'public_repo'.")
+                    raise ConfigError(
+                        f"GITHUB_TOKEN has insufficient scopes: {scopes}. Needs 'repo' or 'public_repo'."
+                    )
         except requests.exceptions.RequestException as e:
             logger.warning(f"Could not validate GitHub token scopes: {e}")
 
     def _check_rate_limit(self) -> None:
         """Pre-flight rate limit check. Wait if below threshold."""
         try:
-            resp = requests.get("https://api.github.com/rate_limit", headers=self._headers, timeout=5)
+            resp = requests.get(
+                "https://api.github.com/rate_limit", headers=self._headers, timeout=5
+            )
             if resp.status_code == 200:
                 data = resp.json()
-                remaining = data.get("resources", {}).get("core", {}).get("remaining", 5000)
+                remaining = (
+                    data.get("resources", {}).get("core", {}).get("remaining", 5000)
+                )
                 reset_time = data.get("resources", {}).get("core", {}).get("reset", 0)
                 if remaining < 50:
                     wait_seconds = max(0, reset_time - time.time() + 5)
                     if wait_seconds > 0:
                         logger.warning(
                             "GitHub API rate limit low (%d remaining). Waiting %ds for reset.",
-                            remaining, wait_seconds
+                            remaining,
+                            wait_seconds,
                         )
                         time.sleep(min(wait_seconds, 300))  # cap at 5 min wait
         except Exception as e:
@@ -126,7 +137,7 @@ class GitHubClient:
             pr_number = _get_pr_number()
         if pr_number is None:
             return False
-            
+
         self._check_rate_limit()
         url = f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
         resp = requests.post(
@@ -141,7 +152,9 @@ class GitHubClient:
         return True
 
     @exponential_backoff(max_retries=3)
-    def get_issue_comments(self, repo_slug: str, pr_number: int) -> list[dict[str, Any]]:
+    def get_issue_comments(
+        self, repo_slug: str, pr_number: int
+    ) -> list[dict[str, Any]]:
         url = f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
         return cast(list[dict[str, Any]], self._get_api(url))
 
@@ -173,6 +186,7 @@ class GitHubClient:
             raise RateLimitExceededException("Rate limit exceeded")
         resp.raise_for_status()
         return True
+
 
 def post_comment(
     repo_slug: str,

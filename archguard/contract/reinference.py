@@ -35,7 +35,7 @@ class ContractProposal:
     proposed_drift_threshold: float
     proposed_coupling_budget: int
     semantic_drift_score: float
-    proposal_timestamp: str          # ISO8601 UTC — governs staleness
+    proposal_timestamp: str  # ISO8601 UTC — governs staleness
     source_commit: str
 
 
@@ -166,7 +166,10 @@ class ReinferenceEngine:
                 return False
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Analysis failed in accept_proposal file reading: {e}", exc_info=True)
+
+            logging.getLogger(__name__).error(
+                f"Analysis failed in accept_proposal file reading: {e}", exc_info=True
+            )
             raise
 
         # Build updated module fragment
@@ -175,7 +178,8 @@ class ReinferenceEngine:
             "path": data.get("proposed_path", ""),
             "coupling_budget": data.get("proposed_coupling_budget", 3),
             "semantic_drift_threshold": data.get(
-                "proposed_drift_threshold", 0.25,
+                "proposed_drift_threshold",
+                0.25,
             ),
         }
 
@@ -183,6 +187,7 @@ class ReinferenceEngine:
             # Phase 2: GitHub Contents API
             from ruamel.yaml import YAML
             import io
+
             ryaml = YAML()
             ryaml.preserve_quotes = True
             ryaml.default_flow_style = False
@@ -233,12 +238,17 @@ class ReinferenceEngine:
                 return True
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Analysis failed in accept_proposal github mode: {e}", exc_info=True)
+
+                logging.getLogger(__name__).error(
+                    f"Analysis failed in accept_proposal github mode: {e}",
+                    exc_info=True,
+                )
                 raise
         else:
             # Local mode: write directly to .archguard.yml
             contract_path = self._repo_root / ".archguard.yml"
             from ruamel.yaml import YAML
+
             ryaml = YAML()
             ryaml.preserve_quotes = True
             ryaml.default_flow_style = False
@@ -273,7 +283,10 @@ class ReinferenceEngine:
                 return True
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Analysis failed in accept_proposal local mode: {e}", exc_info=True)
+
+                logging.getLogger(__name__).error(
+                    f"Analysis failed in accept_proposal local mode: {e}", exc_info=True
+                )
                 raise
 
     def reject_proposal(self, module_name: str) -> bool:
@@ -298,21 +311,23 @@ class ReinferenceEngine:
                     data: dict[str, Any] = yaml.safe_load(f)
                 if not isinstance(data, dict):
                     continue
-                results.append(ContractProposal(
-                    module_name=str(data["module_name"]),
-                    proposed_path=data.get("proposed_path", ""),
-                    proposed_drift_threshold=float(
-                        data.get("proposed_drift_threshold", 0.25),
-                    ),
-                    proposed_coupling_budget=int(
-                        data.get("proposed_coupling_budget", 3),
-                    ),
-                    semantic_drift_score=float(
-                        data.get("semantic_drift_score", 0.0),
-                    ),
-                    proposal_timestamp=str(data.get("proposal_timestamp", "")),
-                    source_commit=str(data.get("source_commit", "unknown")),
-                ))
+                results.append(
+                    ContractProposal(
+                        module_name=str(data["module_name"]),
+                        proposed_path=data.get("proposed_path", ""),
+                        proposed_drift_threshold=float(
+                            data.get("proposed_drift_threshold", 0.25),
+                        ),
+                        proposed_coupling_budget=int(
+                            data.get("proposed_coupling_budget", 3),
+                        ),
+                        semantic_drift_score=float(
+                            data.get("semantic_drift_score", 0.0),
+                        ),
+                        proposal_timestamp=str(data.get("proposal_timestamp", "")),
+                        source_commit=str(data.get("source_commit", "unknown")),
+                    )
+                )
             except Exception:  # noqa: BLE001
                 logger.warning("Skipping malformed proposal: %s", path)
                 continue
@@ -329,7 +344,10 @@ class ReinferenceEngine:
                     state = json.load(f)
             except Exception as e:  # noqa: BLE001
                 import logging
-                logging.getLogger(__name__).warning(f"Non-critical failure in handle_deleted_comment: {e}")
+
+                logging.getLogger(__name__).warning(
+                    f"Non-critical failure in handle_deleted_comment: {e}"
+                )
                 state = {}
 
         state["last_processed_comment_id"] = 0

@@ -1,8 +1,10 @@
 import os
 from pathlib import Path
 
+
 class PathTraversalError(Exception):
     pass
+
 
 def validate_repo_path(path: str | Path) -> Path:
     """
@@ -13,7 +15,7 @@ def validate_repo_path(path: str | Path) -> Path:
     4. Resolves to within acceptable bounds
     """
     resolved = Path(path).resolve()
-    
+
     # Prevent traversal to sensitive system directories
     BLOCKED_PREFIXES = [
         Path("/etc"),
@@ -22,15 +24,17 @@ def validate_repo_path(path: str | Path) -> Path:
         Path("/sys"),
         Path("/dev"),
     ]
-    
+
     # Windows equivalents for common system paths
-    if os.name == 'nt':
+    if os.name == "nt":
         win_drive = Path(os.environ.get("SystemDrive", "C:") + "\\")
-        BLOCKED_PREFIXES.extend([
-            win_drive / "Windows",
-            win_drive / "Program Files",
-            win_drive / "Program Files (x86)",
-        ])
+        BLOCKED_PREFIXES.extend(
+            [
+                win_drive / "Windows",
+                win_drive / "Program Files",
+                win_drive / "Program Files (x86)",
+            ]
+        )
 
     for blocked in BLOCKED_PREFIXES:
         try:
@@ -41,8 +45,9 @@ def validate_repo_path(path: str | Path) -> Path:
             f"Path '{path}' resolves to a system directory: {resolved}. "
             "Refusing to analyze."
         )
-            
+
     return resolved
+
 
 def validate_output_path(path: str | Path, base_dir: Path | None = None) -> Path:
     """Validate output path doesn't traverse outside base_dir."""

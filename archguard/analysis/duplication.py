@@ -10,10 +10,12 @@ try:
     import faiss
     import numpy as np
     import numpy.typing as npt
+
     _ML_AVAILABLE = True
 except Exception:
     _ML_AVAILABLE = False
     import typing
+
     faiss: typing.Any = None  # type: ignore[no-redef]
     np: typing.Any = None  # type: ignore[no-redef]
     npt: typing.Any = None  # type: ignore[no-redef]
@@ -38,9 +40,9 @@ def duplication_score(similarity: float) -> float:
 class DuplicationMatch:
     """A single cross-module duplication match."""
 
-    source_function: str      # "file_path::function_name"
-    matched_function: str     # "file_path::function_name"
-    similarity: float         # cosine similarity 0.0–1.0
+    source_function: str  # "file_path::function_name"
+    matched_function: str  # "file_path::function_name"
+    similarity: float  # cosine similarity 0.0–1.0
     duplication_score: float  # max(0, (similarity - 0.85) / 0.15)
 
 
@@ -86,7 +88,8 @@ class DuplicationAnalyzer:
             return index, keys
 
         matrix = np.array(
-            [embeddings[k] for k in keys], dtype=np.float32,
+            [embeddings[k] for k in keys],
+            dtype=np.float32,
         )
 
         # Unit-normalize
@@ -99,7 +102,9 @@ class DuplicationAnalyzer:
         index.add(matrix)
         return index, keys
 
-    def _l2_to_cosine(self, l2_distances: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    def _l2_to_cosine(
+        self, l2_distances: npt.NDArray[np.float32]
+    ) -> npt.NDArray[np.float32]:
         """Convert FAISS L2 distances to cosine similarities.
 
         For unit-normalized vectors: ``cosine_sim = 1 - (L2^2 / 2)``.
@@ -109,7 +114,7 @@ class DuplicationAnalyzer:
             raise RuntimeError(
                 "ML dependencies are not installed. Run: pip install archguard[ml]"
             )
-        return np.clip(1.0 - (l2_distances ** 2) / 2.0, 0.0, 1.0)
+        return np.clip(1.0 - (l2_distances**2) / 2.0, 0.0, 1.0)
 
     def analyze_module(
         self,
@@ -125,7 +130,9 @@ class DuplicationAnalyzer:
         # 1. Check cache staleness
         if self._cache.is_cache_stale(module_name):
             reason = f"Cache stale: centroid for {module_name} exceeds max age"
-            self._audit.log(EVENT_DUPLICATION_SKIPPED, module=module_name, reason=reason)
+            self._audit.log(
+                EVENT_DUPLICATION_SKIPPED, module=module_name, reason=reason
+            )
             return DuplicationResult(
                 module_name=module_name,
                 skipped=True,
@@ -134,38 +141,38 @@ class DuplicationAnalyzer:
 
         # 2 & 3. Build FAISS index from ALL embeddings via streaming
         from archguard.config import EMBEDDING_BATCH_SIZE
-        
+
         index = None
         keys: list[str] = []
         module_file_set = set(module_files)
         module_embeddings: dict[str, npt.NDArray[np.float32]] = {}
-        
+
         for batch in self._cache.iter_embeddings(batch_size=EMBEDDING_BATCH_SIZE):
             if not batch:
                 continue
-                
+
             batch_paths = [p for p, _ in batch]
-            
+
             # Save module embeddings for later querying
             for p, v in batch:
                 file_part = p.split("::")[0]
                 if file_part in module_file_set:
                     module_embeddings[p] = v
-                    
+
             batch_vecs = np.vstack([v for _, v in batch])
-            
+
             # Unit-normalize
             norms = np.linalg.norm(batch_vecs, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1.0, norms)
             batch_vecs = batch_vecs / norms
-            
+
             if index is None:
                 dim = batch_vecs.shape[1]
                 index = faiss.IndexFlatL2(dim)
-                
+
             index.add(batch_vecs)
             keys.extend(batch_paths)
-            
+
         if not keys or index is None:
             return DuplicationResult(module_name=module_name)
 
@@ -174,7 +181,6 @@ class DuplicationAnalyzer:
 
         # Unit-normalize query vectors
         for func_key, emb in module_embeddings.items():
-
             query = emb.astype(np.float32).reshape(1, -1)
             qnorm = np.linalg.norm(query)
             if qnorm > 0:
@@ -203,18 +209,16 @@ class DuplicationAnalyzer:
                     continue
 
                 score = duplication_score(sim)
-                matches.append(DuplicationMatch(
-                    source_function=func_key,
-                    matched_function=matched_key,
-                    similarity=sim,
-                    duplication_score=score,
-                ))
+                matches.append(
+                    DuplicationMatch(
+                        source_function=func_key,
+                        matched_function=matched_key,
+                        similarity=sim,
+                        duplication_score=score,
+                    )
+                )
 
-        agg = (
-            float(np.mean([m.duplication_score for m in matches]))
-            if matches
-            else 0.0
-        )
+        agg = float(np.mean([m.duplication_score for m in matches])) if matches else 0.0
 
         return DuplicationResult(
             module_name=module_name,

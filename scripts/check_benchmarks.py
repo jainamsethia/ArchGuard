@@ -16,12 +16,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 THRESHOLDS: dict[str, float] = {
-    "test_analyze_warm_cache":       5.0,   # < 5s median  (AC-05)
-    "test_import_parser_throughput": 1.0,   # < 1s for 500 imports
-    "test_scoring_throughput":       0.1,   # < 100ms
-    "test_validator_throughput":     0.05,  # < 50ms
+    "test_analyze_warm_cache": 5.0,  # < 5s median  (AC-05)
+    "test_import_parser_throughput": 1.0,  # < 1s for 500 imports
+    "test_scoring_throughput": 0.1,  # < 100ms
+    "test_validator_throughput": 0.05,  # < 50ms
 }
 
 
@@ -31,8 +32,8 @@ def check_thresholds(results_path: Path) -> int:
         print(f"File not found: {results_path}")
         return 1
 
-    data: dict = json.loads(results_path.read_text(encoding="utf-8"))
-    benchmarks: list[dict] = data.get("benchmarks", [])
+    data: dict[str, Any] = json.loads(results_path.read_text(encoding="utf-8"))
+    benchmarks: list[dict[str, Any]] = data.get("benchmarks", [])
 
     failures: list[str] = []
     for bench in benchmarks:
@@ -41,8 +42,7 @@ def check_thresholds(results_path: Path) -> int:
         for pattern, threshold in THRESHOLDS.items():
             if pattern in name and median > threshold:
                 failures.append(
-                    f"FAIL  {name}: "
-                    f"median={median:.3f}s > threshold={threshold}s"
+                    f"FAIL  {name}: median={median:.3f}s > threshold={threshold}s"
                 )
 
     if failures:
@@ -99,9 +99,16 @@ def compare_benchmarks(baseline_path: Path, current_path: Path) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check benchmark outputs.")
-    parser.add_argument("results_file", nargs="?", type=Path, help="Single benchmark results JSON file to check against absolute thresholds.")
+    parser.add_argument(
+        "results_file",
+        nargs="?",
+        type=Path,
+        help="Single benchmark results JSON file to check against absolute thresholds.",
+    )
     parser.add_argument("--baseline", type=Path, help="Baseline JSON file.")
-    parser.add_argument("--current", type=Path, help="Current JSON file to compare against baseline.")
+    parser.add_argument(
+        "--current", type=Path, help="Current JSON file to compare against baseline."
+    )
 
     args = parser.parse_args()
 

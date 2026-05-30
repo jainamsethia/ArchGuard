@@ -16,7 +16,9 @@ LOCK_RETRY_INTERVAL = 0.05
 
 
 @contextmanager
-def file_lock(lock_path: Path | str, timeout: float = LOCK_TIMEOUT) -> Generator[None, None, None]:
+def file_lock(
+    lock_path: Path | str, timeout: float = LOCK_TIMEOUT
+) -> Generator[None, None, None]:
     """
     OS-level file lock. Automatically released on process death.
     Uses fcntl with a spin loop on Unix, msvcrt on Windows.
@@ -29,6 +31,7 @@ def file_lock(lock_path: Path | str, timeout: float = LOCK_TIMEOUT) -> Generator
             # Windows: msvcrt exclusive lock
             import time
             import msvcrt
+
             deadline = time.monotonic() + timeout
             while True:
                 try:
@@ -49,6 +52,7 @@ def file_lock(lock_path: Path | str, timeout: float = LOCK_TIMEOUT) -> Generator
             # Unix: fcntl non-blocking lock with spin loop
             import time
             import fcntl
+
             deadline = time.monotonic() + timeout
             acquired = False
             while time.monotonic() < deadline:
@@ -68,4 +72,3 @@ def file_lock(lock_path: Path | str, timeout: float = LOCK_TIMEOUT) -> Generator
             finally:
                 if acquired:
                     fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-

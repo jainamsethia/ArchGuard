@@ -9,10 +9,11 @@ from typing import Any, TYPE_CHECKING
 
 try:
     import anthropic
+
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    anthropic = None    
+    anthropic = None
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
@@ -35,15 +36,24 @@ PRIMARY_MODEL: str = os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250
 FALLBACK_MODEL: str = os.getenv("ARCHGUARD_FALLBACK_MODEL", "claude-haiku-4-5-20251001")
 MAX_TOKENS: int = 2048
 
-_TERMINAL_PUNCT: frozenset[str] = frozenset({'.', '!', '?', '"', "'"})
+_TERMINAL_PUNCT: frozenset[str] = frozenset({".", "!", "?", '"', "'"})
 
 _CLOUD_RETRYABLE = (
-    (anthropic.APIConnectionError, anthropic.RateLimitError, anthropic.InternalServerError)
+    (
+        anthropic.APIConnectionError,
+        anthropic.RateLimitError,
+        anthropic.InternalServerError,
+    )
     if _ML_AVAILABLE
     else (Exception,)
 )
 _CLOUD_NON_RETRYABLE = (
-    (anthropic.AuthenticationError, anthropic.PermissionDeniedError, ValueError, TypeError)
+    (
+        anthropic.AuthenticationError,
+        anthropic.PermissionDeniedError,
+        ValueError,
+        TypeError,
+    )
     if _ML_AVAILABLE
     else (ValueError, TypeError)
 )
@@ -99,9 +109,11 @@ class CloudLLMExplainer:
 
         chunk_size = 20
         for i in range(0, len(safe_violations), chunk_size):
-            chunk = safe_violations[i:i + chunk_size]
+            chunk = safe_violations[i : i + chunk_size]
             prompt = build_violation_prompt(
-                chunk, summary, result.changed_files,
+                chunk,
+                summary,
+                result.changed_files,
             )
 
             response_text: str = ""
@@ -121,7 +133,9 @@ class CloudLLMExplainer:
             if not chunk_success:
                 # Fallback to per-violation calls for this chunk
                 for single_violation in chunk:
-                    single_prompt = build_violation_prompt([single_violation], summary, result.changed_files)
+                    single_prompt = build_violation_prompt(
+                        [single_violation], summary, result.changed_files
+                    )
                     single_success = False
                     for model in (PRIMARY_MODEL, FALLBACK_MODEL):
                         try:
@@ -147,11 +161,14 @@ class CloudLLMExplainer:
 
             # Parse chunk response
             chunk_explanations = parse_llm_response(
-                response_text, len(chunk),
+                response_text,
+                len(chunk),
             )
             all_explanations.extend(chunk_explanations)
 
-        if unavailable and all(e == "Explanation unavailable." for e in all_explanations):
+        if unavailable and all(
+            e == "Explanation unavailable." for e in all_explanations
+        ):
             return LLMExplanationResult(
                 unavailable=True,
                 failure_reason=failure_reason,
@@ -182,13 +199,14 @@ class CloudLLMExplainer:
         violations: list[ViolationDetail],
         contract: dict[str, Any],
         changed_files: list[str],
-        max_concurrent: int = 5
+        max_concurrent: int = 5,
     ) -> list[Any]:
         """Fetch explanations for all violations concurrently."""
         import asyncio
+
         if not _ML_AVAILABLE:
             raise RuntimeError("ML dependencies are not installed.")
-            
+
         summary = build_contract_summary(contract)
         safe_violations = self._redact_violations(violations)
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -203,7 +221,7 @@ class CloudLLMExplainer:
                     response = await client.messages.create(
                         model=FALLBACK_MODEL,  # Use fallback model for explanations
                         max_tokens=500,
-                        messages=[{"role": "user", "content": prompt}]
+                        messages=[{"role": "user", "content": prompt}],
                     )
                     return str(response.content[0].text)
 
@@ -213,7 +231,7 @@ class CloudLLMExplainer:
     @with_retry(
         max_attempts=3,
         retryable_exceptions=_CLOUD_RETRYABLE,
-        non_retryable_exceptions=_CLOUD_NON_RETRYABLE
+        non_retryable_exceptions=_CLOUD_NON_RETRYABLE,
     )
     def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
@@ -234,11 +252,18 @@ class CloudLLMExplainer:
             )
             return str(message.content[0].text), str(message.stop_reason)
         except Exception as e:
-            if getattr(e, '__class__', None) and e.__class__.__name__ == 'RateLimitError':
-                logger.warning("Rate limit reached. Consider reducing --max-violations or running with --skip-explanation")
+            if (
+                getattr(e, "__class__", None)
+                and e.__class__.__name__ == "RateLimitError"
+            ):
+                logger.warning(
+                    "Rate limit reached. Consider reducing --max-violations or running with --skip-explanation"
+                )
                 from archguard.utils.errors import LLMError
+
                 raise LLMError("Rate limit reached", cause=e) from e
             from archguard.utils.errors import LLMError
+
             raise LLMError(f"LLM call to {model} failed", cause=e) from e
 
     def _redact_violations(

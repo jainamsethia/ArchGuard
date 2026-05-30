@@ -35,7 +35,10 @@ def _count_audit_entries(repo_root: Path) -> int | None:
             return sum(1 for _ in f)
     except Exception as e:  # noqa: BLE001
         import logging
-        logging.getLogger(__name__).warning(f"Non-critical failure counting audit entries: {e}")
+
+        logging.getLogger(__name__).warning(
+            f"Non-critical failure counting audit entries: {e}"
+        )
         return None
 
 
@@ -111,11 +114,12 @@ def status_command(
     try:
         from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR)
-        
+
     repo_root = repo.resolve()
 
     try:

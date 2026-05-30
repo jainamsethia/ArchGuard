@@ -7,34 +7,31 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
-import requests
 
 from archguard.github.client import _get_pr_number, post_comment, GitHubClient
 
 
-def test_get_pr_number_from_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_pr_number_from_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """_get_pr_number parses PR number from GITHUB_EVENT_PATH payload successfully."""
     # Test case 1: pull_request object exists
-    event_data = {
-        "pull_request": {
-            "number": 42
-        }
-    }
+    event_data = {"pull_request": {"number": 42}}
     event_file = tmp_path / "event.json"
     event_file.write_text(json.dumps(event_data), encoding="utf-8")
-    
+
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
     assert _get_pr_number() == 42
 
 
-def test_get_pr_number_fallback_from_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_pr_number_fallback_from_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """_get_pr_number parses number from top level of payload if pull_request doesn't exist."""
-    event_data = {
-        "number": 100
-    }
+    event_data = {"number": 100}
     event_file = tmp_path / "event.json"
     event_file.write_text(json.dumps(event_data), encoding="utf-8")
-    
+
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
     assert _get_pr_number() == 100
 
@@ -45,11 +42,13 @@ def test_get_pr_number_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert _get_pr_number() is None
 
 
-def test_get_pr_number_invalid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_pr_number_invalid_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """_get_pr_number returns None on invalid JSON or file errors."""
     event_file = tmp_path / "event.json"
     event_file.write_text("invalid json", encoding="utf-8")
-    
+
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
     assert _get_pr_number() is None
 
@@ -69,8 +68,10 @@ def test_post_comment_method_success(
 ) -> None:
     """GitHubClient.post_comment succeeds when dependencies are correct."""
     mock_get.return_value.status_code = 200
-    mock_get.return_value.json.return_value = {"resources": {"core": {"remaining": 5000}}}
-    
+    mock_get.return_value.json.return_value = {
+        "resources": {"core": {"remaining": 5000}}
+    }
+
     mock_post.return_value.status_code = 201
 
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
@@ -91,4 +92,6 @@ def test_post_comment_function_success(
     res = post_comment("org/repo", "test body", pr_number=55, token="test_token")
     assert res is True
     mock_client_class.assert_called_once_with(token="test_token")
-    mock_client.post_comment.assert_called_once_with("org/repo", "test body", pr_number=55)
+    mock_client.post_comment.assert_called_once_with(
+        "org/repo", "test body", pr_number=55
+    )

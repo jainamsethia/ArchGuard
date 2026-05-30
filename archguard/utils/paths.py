@@ -1,9 +1,12 @@
 """Shared path utilities for module boundary checking."""
+
 from pathlib import Path
+
 
 def normalize_path(path: str | Path) -> str:
     """Return a normalized, forward-slash path string."""
     return str(Path(path)).replace("\\", "/")
+
 
 def path_belongs_to_module(file_path: str | Path, module_paths: list[str]) -> bool:
     """

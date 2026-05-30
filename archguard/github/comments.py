@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from archguard.github.client import GitHubClient
 
@@ -50,7 +50,10 @@ class PRCommentManager:
                     return int(comment["id"])
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in find_existing_comment: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in find_existing_comment: {e}"
+            )
         return None
 
     def post_or_update(
@@ -67,7 +70,9 @@ class PRCommentManager:
           3. On second failure → POST new comment.
           4. No existing → POST new comment.
         """
-        full_body = f"{ARCHGUARD_MARKER}\n{body}" if ARCHGUARD_MARKER not in body else body
+        full_body = (
+            f"{ARCHGUARD_MARKER}\n{body}" if ARCHGUARD_MARKER not in body else body
+        )
 
         existing_id = self.find_existing_comment(repo_slug, pr_number)
 
@@ -77,7 +82,10 @@ class PRCommentManager:
                 return existing_id
             except Exception as e:  # noqa: BLE001
                 import logging
-                logging.getLogger(__name__).warning(f"Non-critical failure in post_or_update PATCH: {e}")
+
+                logging.getLogger(__name__).warning(
+                    f"Non-critical failure in post_or_update PATCH: {e}"
+                )
                 logger.warning("PATCH failed, retrying after %ss", RETRY_DELAY_SECONDS)
                 time.sleep(RETRY_DELAY_SECONDS)
                 try:
@@ -85,7 +93,10 @@ class PRCommentManager:
                     return existing_id
                 except Exception as e:  # noqa: BLE001
                     import logging
-                    logging.getLogger(__name__).warning(f"Non-critical failure in post_or_update PATCH retry: {e}")
+
+                    logging.getLogger(__name__).warning(
+                        f"Non-critical failure in post_or_update PATCH retry: {e}"
+                    )
                     logger.warning("PATCH retry failed, posting new comment")
 
         # POST new comment
@@ -99,7 +110,10 @@ class PRCommentManager:
             self._client.delete_comment(repo_slug, comment_id)
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in delete_stale: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in delete_stale: {e}"
+            )
 
     def format_report(self, result: AnalysisResult) -> str:
         """Build PR comment markdown from ``AnalysisResult``."""
@@ -124,8 +138,7 @@ class PRCommentManager:
             lines.append("|-------|--------|-------|--------|")
             for v in result.violations:
                 lines.append(
-                    f"| L{v.layer} | {v.module} | {v.message} | "
-                    f"`{v.commit_sha[:7]}` |"
+                    f"| L{v.layer} | {v.module} | {v.message} | `{v.commit_sha[:7]}` |"
                 )
                 if v.explanation:
                     lines.append("")
@@ -148,8 +161,7 @@ class PRCommentManager:
         lines.append("|-------|-------|--------|")
         for i, label in enumerate(_LAYER_LABELS):
             lines.append(
-                f"| {label} | {layer_values[i]:.2f} | "
-                f"{archdebt.weights[i]:.2f} |"
+                f"| {label} | {layer_values[i]:.2f} | {archdebt.weights[i]:.2f} |"
             )
         lines.append("")
         lines.append("</details>")

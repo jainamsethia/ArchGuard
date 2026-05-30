@@ -23,7 +23,9 @@ def detect_communities(
         return {}
 
     partition: dict[str, int] = community_louvain.best_partition(
-        graph, random_state=seed, weight="weight",
+        graph,
+        random_state=seed,
+        weight="weight",
     )
 
     # Group files by community id
@@ -59,5 +61,8 @@ def get_seed_from_repo(repo_root: Path) -> int:
             return int(commits[0].hash[:8], 16)
     except Exception as e:  # noqa: BLE001
         import logging
-        logging.getLogger(__name__).warning(f"Non-critical failure in get_seed_from_repo: {e}")
+
+        logging.getLogger(__name__).warning(
+            f"Non-critical failure in get_seed_from_repo: {e}"
+        )
     return 42

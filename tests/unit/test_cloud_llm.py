@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from unittest.mock import MagicMock, patch, call, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
@@ -14,7 +13,6 @@ from archguard.llm.cloud import (
     FALLBACK_MODEL,
     PRIMARY_MODEL,
     CloudLLMExplainer,
-    LLMExplanationResult,
 )
 from archguard.llm.prompts import parse_llm_response
 
@@ -33,9 +31,11 @@ def _make_result(violations: list[ViolationDetail] | None = None) -> AnalysisRes
     )
     viols = violations or [
         ViolationDetail(
-            layer=1, module="payments",
+            layer=1,
+            module="payments",
             message="Imports `auth.internal` (disallowed)",
-            commit_sha="a1b2c3d", file_path="payments/views.py",
+            commit_sha="a1b2c3d",
+            file_path="payments/views.py",
         ),
     ]
     return AnalysisResult(
@@ -84,6 +84,7 @@ class TestCloudLLMExplainer:
 
         with patch.object(explainer, "_call_api") as mock_call:
             from archguard.utils.errors import LLMError
+
             mock_call.side_effect = [
                 LLMError("rate limited"),
                 ("1. Fix the import boundary.", "end_turn"),
@@ -100,6 +101,7 @@ class TestCloudLLMExplainer:
 
         with patch.object(explainer, "_call_api") as mock_call:
             from archguard.utils.errors import LLMError
+
             mock_call.side_effect = LLMError("API down")
             llm_result = explainer.explain(result, _CONTRACT)
 
@@ -154,9 +156,11 @@ class TestCloudLLMExplainer:
         pat = "ghp_" + "x" * 36
         violations = [
             ViolationDetail(
-                layer=1, module="core",
+                layer=1,
+                module="core",
                 message=f"Token {pat} found in import",
-                commit_sha="a1b2c3d", file_path="core/main.py",
+                commit_sha="a1b2c3d",
+                file_path="core/main.py",
             ),
         ]
         explainer = CloudLLMExplainer(api_key="test-key")
@@ -175,7 +179,8 @@ class TestCloudLLMExplainer:
         """EVENT_TRUNCATED_EXPLANATION logged when truncated=True."""
         mock_audit = MagicMock()
         explainer = CloudLLMExplainer(
-            api_key="test-key", audit_logger=mock_audit,
+            api_key="test-key",
+            audit_logger=mock_audit,
         )
         result = _make_result()
 
@@ -193,6 +198,7 @@ class TestCloudLLMExplainer:
 
         with patch.object(explainer, "_call_api") as mock_call:
             from archguard.utils.errors import LLMError
+
             mock_call.side_effect = LLMError("boom")
             llm_result = explainer.explain(result, _CONTRACT)
 
@@ -202,35 +208,40 @@ class TestCloudLLMExplainer:
     def test_batch_chunking_and_fallback(self) -> None:
         """With 5 violations, exactly 1 API call is made. If batch fails, fallback to 5 individual calls."""
         explainer = CloudLLMExplainer(api_key="test-key")
-        
+
         viols = [
-            ViolationDetail(1, module=f"mod{i}", message=f"msg{i}", commit_sha="abc", file_path=f"f{i}.py")
+            ViolationDetail(
+                1,
+                module=f"mod{i}",
+                message=f"msg{i}",
+                commit_sha="abc",
+                file_path=f"f{i}.py",
+            )
             for i in range(5)
         ]
         result = _make_result(viols)
-        
+
         # Scenario 1: Success
         with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = (
-                "1. E1\n2. E2\n3. E3\n4. E4\n5. E5",
-                "end_turn"
-            )
+            mock_call.return_value = ("1. E1\n2. E2\n3. E3\n4. E4\n5. E5", "end_turn")
             llm_result = explainer.explain(result, _CONTRACT)
-            
+
             assert mock_call.call_count == 1
             assert len(llm_result.explanations) == 5
-            
+
         # Scenario 2: Batch fails, fallbacks to individual
         with patch.object(explainer, "_call_api") as mock_call:
+
             def side_effect(prompt, model):
                 if "mod0" in prompt and "mod4" in prompt:
                     from archguard.utils.errors import LLMError
+
                     raise LLMError("batch failed")
                 return ("1. Individual explanation.", "end_turn")
-            
+
             mock_call.side_effect = side_effect
             llm_result = explainer.explain(result, _CONTRACT)
-            
+
             # 1 batch call * 2 models = 2 calls
             # Then 5 individual items * 1 model each (since primary succeeds) = 5 calls
             # Total calls = 7
@@ -238,14 +249,16 @@ class TestCloudLLMExplainer:
             assert len(llm_result.explanations) == 5
 
     @pytest.mark.asyncio
-    async def test_concurrent_explainer_uses_configured_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_concurrent_explainer_uses_configured_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify the model sent in API calls matches the configured FALLBACK_MODEL."""
         monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
         monkeypatch.setattr("archguard.llm.cloud._ML_AVAILABLE", True)
-        
+
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
-        
+
         # mock anthropic AsyncAnthropic client
         mock_client = MagicMock()
         mock_messages = AsyncMock()
@@ -253,17 +266,19 @@ class TestCloudLLMExplainer:
         mock_message_resp.content = [MagicMock(text="response text")]
         mock_messages.create.return_value = mock_message_resp
         mock_client.messages = mock_messages
-        
+
         mock_async_client_cls = MagicMock()
         mock_async_client_cls.return_value.__aenter__.return_value = mock_client
         mock_async_client_cls.return_value.__aexit__ = AsyncMock()
-        
-        monkeypatch.setattr("archguard.llm.cloud.anthropic.AsyncAnthropic", mock_async_client_cls)
-        
+
+        monkeypatch.setattr(
+            "archguard.llm.cloud.anthropic.AsyncAnthropic", mock_async_client_cls
+        )
+
         await explainer.explain_violations_concurrent(
             result.violations, _CONTRACT, result.changed_files
         )
-        
+
         mock_messages.create.assert_called_once()
         assert mock_messages.create.call_args[1]["model"] == "test-model-123"
 

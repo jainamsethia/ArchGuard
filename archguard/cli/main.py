@@ -40,11 +40,13 @@ app.command("history")(show_history)
 app.add_typer(diff_app, name="diff")
 app.add_typer(dashboard_app, name="dashboard")
 
+
 @app.command("cache-check")
 def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
     """Check and optionally repair the embedding cache."""
     from archguard.cache.db import EmbeddingDB
     from pathlib import Path
+
     db_path = Path(".archguard-cache/embeddings.db")
     try:
         with EmbeddingDB(db_path) as db:
@@ -54,9 +56,12 @@ def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
         console.print(f"[red]Cache corrupted: {e}[/red]")
         if repair:
             db_path.unlink(missing_ok=True)
-            console.print("[green]Cache cleared. Run archguard analyze to rebuild.[/green]")
+            console.print(
+                "[green]Cache cleared. Run archguard analyze to rebuild.[/green]"
+            )
         else:
             console.print("Run with --repair to clear and rebuild the cache.")
+
 
 @app.command("trends", hidden=True, deprecated=True)
 def trends_cmd(
@@ -71,37 +76,47 @@ def trends_cmd(
     typer.echo("Warning: 'trends' is deprecated, use 'history --format trend'")
     fmt = "json" if json_output else "trend"
     from archguard.config import AUDIT_LOG_FILENAME
-    show_history(format=fmt, limit=20, since=since, module=None, audit_log=Path(AUDIT_LOG_FILENAME))
+
+    show_history(
+        format=fmt,
+        limit=20,
+        since=since,
+        module=None,
+        audit_log=Path(AUDIT_LOG_FILENAME),
+    )
 
 
 @app.callback(invoke_without_command=True)
 def cli(
     ctx: typer.Context,
     verbose: bool = typer.Option(
-        False, "--verbose", "-v", 
-        help="Show detailed output including debug information. Mutually exclusive with --quiet (but --quiet wins)."
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed output including debug information. Mutually exclusive with --quiet (but --quiet wins).",
     ),
     quiet: bool = typer.Option(
-        False, "--quiet", "-q", 
-        help="Suppress all output except errors and the final result. Mutually exclusive with --verbose (but --quiet wins)."
+        False,
+        "--quiet",
+        "-q",
+        help="Suppress all output except errors and the final result. Mutually exclusive with --verbose (but --quiet wins).",
     ),
-    version: bool = typer.Option(
-        False, "--version", 
-        help="Show the version and exit."
-    ),
+    version: bool = typer.Option(False, "--version", help="Show the version and exit."),
 ) -> None:
     if version:
         import importlib.metadata
+
         try:
             v = importlib.metadata.version("archguard")
         except importlib.metadata.PackageNotFoundError:
             v = "unknown"
         typer.echo(f"archguard, version {v}")
         raise typer.Exit()
-        
+
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet
+
 
 def main() -> None:
     """Entry point for the archguard CLI."""

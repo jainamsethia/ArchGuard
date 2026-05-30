@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from archguard.config import AUDIT_EVENT_ANALYSIS, AUDIT_LOG_FILENAME
 
+
 def _sparkline(scores: list[float]) -> str:
     bars = "▁▂▃▄▅▆▇█"
     if not scores:
@@ -13,6 +14,7 @@ def _sparkline(scores: list[float]) -> str:
     min_s, max_s = min(scores), max(scores)
     rng = max_s - min_s or 1
     return "".join(bars[int((s - min_s) / rng * 7)] for s in scores)
+
 
 def show_history(
     format: str = typer.Option("table", help="Output format: table, trend, json"),
@@ -23,14 +25,16 @@ def show_history(
 ) -> None:
     """Show ArchDebt score trend across recent analysis runs."""
     console = Console()
-    
+
     if not audit_log.exists():
         if format == "json":
             console.print(json.dumps({"error": "No audit log found.", "runs": []}))
         else:
-            console.print("[yellow]No audit history found. Run `archguard analyze` first.[/yellow]")
+            console.print(
+                "[yellow]No audit history found. Run `archguard analyze` first.[/yellow]"
+            )
         raise typer.Exit(1 if format == "json" else 0)
-        
+
     entries = []
     with open(audit_log, encoding="utf-8") as f:
         for line in f:
@@ -41,10 +45,10 @@ def show_history(
                 entries.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
-                
+
     # Filter to analysis events
     analysis_runs = [e for e in entries if e.get("event") == AUDIT_EVENT_ANALYSIS]
-    
+
     # Process timestamps and grades for each run to unify structure
     runs = []
     for event in analysis_runs:
@@ -52,14 +56,26 @@ def show_history(
         if not ts_str:
             continue
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-        
-        runs.append({
-            "timestamp": dt,
-            "score": float(event.get("score", event.get("archdebt", {}).get("composite_score", 0.0) * 100)),
-            "grade": event.get("grade", event.get("band", event.get("archdebt", {}).get("band", "UNKNOWN"))),
-            "violation_count": int(event.get("violation_count", len(event.get("violations", [])))),
-            "pr_number": str(event.get("pr_number", "local"))
-        })
+
+        runs.append(
+            {
+                "timestamp": dt,
+                "score": float(
+                    event.get(
+                        "score",
+                        event.get("archdebt", {}).get("composite_score", 0.0) * 100,
+                    )
+                ),
+                "grade": event.get(
+                    "grade",
+                    event.get("band", event.get("archdebt", {}).get("band", "UNKNOWN")),
+                ),
+                "violation_count": int(
+                    event.get("violation_count", len(event.get("violations", [])))
+                ),
+                "pr_number": str(event.get("pr_number", "local")),
+            }
+        )
 
     if since is not None:
         cutoff = datetime.now(timezone.utc) - timedelta(days=since)
@@ -73,27 +89,34 @@ def show_history(
         if format == "json":
             console.print(json.dumps({"runs": []}))
         else:
-            console.print("[yellow]No completed analysis runs matching criteria.[/yellow]")
+            console.print(
+                "[yellow]No completed analysis runs matching criteria.[/yellow]"
+            )
         raise typer.Exit(0)
-        
+
     runs.sort(key=lambda r: r["timestamp"])
     runs = runs[-limit:]
     scores = [r["score"] for r in runs]
 
     if format == "json":
-        console.print(json.dumps({
-            "runs": [
+        console.print(
+            json.dumps(
                 {
-                    "timestamp": r["timestamp"].isoformat(),
-                    "score": r["score"],
-                    "grade": str(r["grade"]),
-                    "pr_number": r["pr_number"],
-                    "violation_count": r["violation_count"],
-                }
-                for r in runs
-            ],
-            "sparkline": _sparkline(scores)
-        }, indent=2))
+                    "runs": [
+                        {
+                            "timestamp": r["timestamp"].isoformat(),
+                            "score": r["score"],
+                            "grade": str(r["grade"]),
+                            "pr_number": r["pr_number"],
+                            "violation_count": r["violation_count"],
+                        }
+                        for r in runs
+                    ],
+                    "sparkline": _sparkline(scores),
+                },
+                indent=2,
+            )
+        )
         return
 
     elif format == "trend":
@@ -110,7 +133,7 @@ def show_history(
                 ts_display,
                 f"{r['score']:.1f}",
                 str(r["grade"]),
-                str(r["violation_count"])
+                str(r["violation_count"]),
             )
 
         console.print()
@@ -122,7 +145,9 @@ def show_history(
             direction = "improving" if diff >= 0 else "degrading"
             sign = "+" if diff >= 0 else ""
             arrow = "↑" if diff >= 0 else "↓"
-            console.print(f"Trend: {arrow} {sign}{diff:.1f} points over {len(runs)} runs ({direction})")
+            console.print(
+                f"Trend: {arrow} {sign}{diff:.1f} points over {len(runs)} runs ({direction})"
+            )
         else:
             console.print("Trend: Insufficient data for trend line.")
 
@@ -138,27 +163,37 @@ def show_history(
         table.add_column("Score", justify="right")
         table.add_column("Band", justify="center")
         table.add_column("Trend", justify="center")
-        
+
         prev_score = None
         for run in runs:
             score = run["score"]
             band = str(run["grade"])
             date = run["timestamp"].strftime("%Y-%m-%d")
             pr = run["pr_number"]
-            
+
             if prev_score is not None:
                 delta = score - prev_score
-                trend = "[red]↑[/red]" if delta > 0.01 else "[green]↓[/green]" if delta < -0.01 else "[dim]→[/dim]"
+                trend = (
+                    "[red]↑[/red]"
+                    if delta > 0.01
+                    else "[green]↓[/green]"
+                    if delta < -0.01
+                    else "[dim]→[/dim]"
+                )
             else:
                 trend = "[dim]—[/dim]"
-                
-            band_color = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}.get(band, "white")
-            table.add_row(date, pr, f"{score:.3f}", f"[{band_color}]{band}[/{band_color}]", trend)
-            
+
+            band_color = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}.get(
+                band, "white"
+            )
+            table.add_row(
+                date, pr, f"{score:.3f}", f"[{band_color}]{band}[/{band_color}]", trend
+            )
+
             prev_score = score
-            
+
         console.print(table)
-        
+
         console.print("\n[bold]Score Trend:[/bold]")
         min_v, max_v = min(scores), max(scores)
         console.print(f"  {_sparkline(scores)}  [dim]{min_v:.2f} → {max_v:.2f}[/dim]")

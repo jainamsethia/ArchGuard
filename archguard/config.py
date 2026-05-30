@@ -1,14 +1,15 @@
-import os
-
 """Constants, exit codes, and event names for ArchGuard."""
+
+import os
 
 # Exit codes
 EXIT_SUCCESS: int = 0
-EXIT_VIOLATION: int = 1          # Architectural violations detected
-EXIT_CONFIG_ERROR: int = 2       # Contract missing, invalid schema, etc.
-EXIT_ANALYSIS_ERROR: int = 3     # Analysis pipeline failure (parse error, etc.)
-EXIT_AUTH_ERROR: int = 4         # GitHub token missing, API auth failure
-EXIT_TIMEOUT: int = 5            # Analysis timed out
+EXIT_VIOLATION: int = 1  # Architectural violations detected
+EXIT_CONFIG_ERROR: int = 2  # Contract missing, invalid schema, etc.
+EXIT_ANALYSIS_ERROR: int = 3  # Analysis pipeline failure (parse error, etc.)
+EXIT_AUTH_ERROR: int = 4  # GitHub token missing, API auth failure
+EXIT_TIMEOUT: int = 5  # Analysis timed out
+EXIT_LLM_ERROR: int = 6  # LLM API failure or unavailability
 
 # Audit event names (string constants)
 AUDIT_EVENT_ANALYSIS: str = "analysis_run"

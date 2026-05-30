@@ -38,6 +38,7 @@ PROFILES: dict[str, Any] = {
     },
 }
 
+
 def apply_profile(contract: dict[str, Any], profile_name: str) -> dict[str, Any]:
     """Apply a named profile's thresholds to the given contract."""
     if profile_name not in PROFILES:
@@ -55,9 +56,15 @@ def apply_profile(contract: dict[str, Any], profile_name: str) -> dict[str, Any]
         for module in contract["modules"]:
             if "max_coupling" in thresholds and "coupling_budget" not in module:
                 module["coupling_budget"] = thresholds["max_coupling"]
-            if "max_duplication" in thresholds and "duplication_threshold" not in module:
+            if (
+                "max_duplication" in thresholds
+                and "duplication_threshold" not in module
+            ):
                 module["duplication_threshold"] = thresholds["max_duplication"]
-            if "min_cohesion" in thresholds and "semantic_drift_threshold" not in module:
+            if (
+                "min_cohesion" in thresholds
+                and "semantic_drift_threshold" not in module
+            ):
                 module["semantic_drift_threshold"] = 1.0 - thresholds["min_cohesion"]
-                
+
     return contract

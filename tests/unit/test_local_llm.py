@@ -5,12 +5,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 from archguard.config import EVENT_LOCAL_LLM_FAILURE
 from archguard.llm.local import (
     OLLAMA_DEFAULT_MODEL,
-    OLLAMA_DEFAULT_URL,
     OLLAMA_TIMEOUT,
     LocalLLMExplainer,
     LocalLLMFailureType,

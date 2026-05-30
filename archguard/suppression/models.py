@@ -12,17 +12,17 @@ from typing import Any
 class Suppression:
     """A single violation suppression record."""
 
-    id: str                    # UUID4
-    module: str                # module name from contract
-    layer: int                 # 1, 2, 3, or 4
-    violation_hash: str        # SHA256 of (module + layer + message)
-    reason: str                # max 500 chars, no newlines
-    created_at: str            # ISO8601 UTC
-    created_by: str            # GitHub username or "local"
-    expires_at: str | None     # ISO8601 UTC or None = never
-    pr_number: int | None      # PR that triggered suppression
-    commit_sha: str            # 7-char short SHA
-    active: bool = True        # False = orphaned
+    id: str  # UUID4
+    module: str  # module name from contract
+    layer: int  # 1, 2, 3, or 4
+    violation_hash: str  # SHA256 of (module + layer + message)
+    reason: str  # max 500 chars, no newlines
+    created_at: str  # ISO8601 UTC
+    created_by: str  # GitHub username or "local"
+    expires_at: str | None  # ISO8601 UTC or None = never
+    pr_number: int | None  # PR that triggered suppression
+    commit_sha: str  # 7-char short SHA
+    active: bool = True  # False = orphaned
 
 
 def make_violation_hash(module: str, layer: int, message: str) -> str:

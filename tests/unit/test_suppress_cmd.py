@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import yaml
-import pytest
 from typer.testing import CliRunner
 
 from archguard.cli.main import app
-from archguard.config import SUPPRESSION_FILE
 
 runner: CliRunner = CliRunner()
 
@@ -39,10 +36,18 @@ class TestSuppressCmd:
         result = runner.invoke(
             app,
             [
-                "suppress", "add",
-                "--module", "payments", "--layer", "1",
-                "--message", "bad import", "--reason", "known tech debt",
-                "--repo", str(repo),
+                "suppress",
+                "add",
+                "--module",
+                "payments",
+                "--layer",
+                "1",
+                "--message",
+                "bad import",
+                "--reason",
+                "known tech debt",
+                "--repo",
+                str(repo),
             ],
         )
         assert result.exit_code == 0
@@ -55,10 +60,18 @@ class TestSuppressCmd:
         result = runner.invoke(
             app,
             [
-                "suppress", "add",
-                "--module", "payments", "--layer", "1",
-                "--message", "msg", "--reason", long_reason,
-                "--repo", str(repo),
+                "suppress",
+                "add",
+                "--module",
+                "payments",
+                "--layer",
+                "1",
+                "--message",
+                "msg",
+                "--reason",
+                long_reason,
+                "--repo",
+                str(repo),
             ],
         )
         assert result.exit_code == 1
@@ -69,10 +82,18 @@ class TestSuppressCmd:
         result = runner.invoke(
             app,
             [
-                "suppress", "add",
-                "--module", "payments", "--layer", "1",
-                "--message", "msg", "--reason", "line1\nline2",
-                "--repo", str(repo),
+                "suppress",
+                "add",
+                "--module",
+                "payments",
+                "--layer",
+                "1",
+                "--message",
+                "msg",
+                "--reason",
+                "line1\nline2",
+                "--repo",
+                str(repo),
             ],
         )
         assert result.exit_code == 1
@@ -94,10 +115,18 @@ class TestSuppressCmd:
         runner.invoke(
             app,
             [
-                "suppress", "add",
-                "--module", "payments", "--layer", "1",
-                "--message", "bad import", "--reason", "debt",
-                "--repo", str(repo),
+                "suppress",
+                "add",
+                "--module",
+                "payments",
+                "--layer",
+                "1",
+                "--message",
+                "bad import",
+                "--reason",
+                "debt",
+                "--repo",
+                str(repo),
             ],
         )
         result = runner.invoke(
@@ -106,6 +135,7 @@ class TestSuppressCmd:
         )
         assert result.exit_code == 0
         import json
+
         data = json.loads(result.output)
         assert isinstance(data, list)
         assert len(data) == 1
@@ -116,18 +146,31 @@ class TestSuppressCmd:
         runner.invoke(
             app,
             [
-                "suppress", "add",
-                "--module", "old_mod", "--layer", "1",
-                "--message", "msg", "--reason", "reason",
-                "--repo", str(repo),
+                "suppress",
+                "add",
+                "--module",
+                "old_mod",
+                "--layer",
+                "1",
+                "--message",
+                "msg",
+                "--reason",
+                "reason",
+                "--repo",
+                str(repo),
             ],
         )
         result = runner.invoke(
             app,
             [
-                "suppress", "migrate",
-                "--from", "old_mod", "--to", "new_mod",
-                "--repo", str(repo),
+                "suppress",
+                "migrate",
+                "--from",
+                "old_mod",
+                "--to",
+                "new_mod",
+                "--repo",
+                str(repo),
             ],
         )
         assert result.exit_code == 0
@@ -146,37 +189,47 @@ class TestSuppressCmd:
     def test_add_all_pending_valid(self, tmp_path: Path) -> None:
         """suppress add --all-pending --yes suppresses all active violations."""
         repo = _setup_repo(tmp_path)
-        
+
         # Create a mock audit log
         from archguard.config import AUDIT_LOG_FILENAME
         import json
-        
+
         audit_file = repo / AUDIT_LOG_FILENAME
         audit_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         run_event = {
             "event": "analysis_run",
             "violations": [
-                {"module": "payments", "layer": 1, "message": "bad import 1", "suppressed": False},
-                {"module": "orders", "layer": 2, "message": "coupling high", "suppressed": False},
-            ]
+                {
+                    "module": "payments",
+                    "layer": 1,
+                    "message": "bad import 1",
+                    "suppressed": False,
+                },
+                {
+                    "module": "orders",
+                    "layer": 2,
+                    "message": "coupling high",
+                    "suppressed": False,
+                },
+            ],
         }
-        
+
         with audit_file.open("w", encoding="utf-8") as f:
             f.write(json.dumps(run_event) + "\n")
-            
+
         result = runner.invoke(
-            app,
-            ["suppress", "add", "--all-pending", "--yes", "--repo", str(repo)]
+            app, ["suppress", "add", "--all-pending", "--yes", "--repo", str(repo)]
         )
-        
+
         assert result.exit_code == 0
         assert "Suppressed Violations" in result.output
-        
+
         # Verify both violations appear in the suppressions store
         from archguard.suppression.store import SuppressionStore
+
         store = SuppressionStore(repo)
-        
+
         assert store.is_suppressed("payments", 1, "bad import 1") is True
         assert store.is_suppressed("orders", 2, "coupling high") is True
 
@@ -198,9 +251,12 @@ class TestContractCmd:
         result = runner.invoke(
             app,
             [
-                "contract", "reject",
-                "--module", "nope",
-                "--repo", str(repo),
+                "contract",
+                "reject",
+                "--module",
+                "nope",
+                "--repo",
+                str(repo),
             ],
         )
         assert result.exit_code == 1
@@ -216,13 +272,18 @@ class TestSuppressionInAnalysis:
 
         store = SuppressionStore(repo)
         store.add(
-            "payments", 1,
+            "payments",
+            1,
             "Imports `auth.internal` (disallowed)",
             "known tech debt",
         )
 
         # Verify it's suppressed
-        assert store.is_suppressed(
-            "payments", 1,
-            "Imports `auth.internal` (disallowed)",
-        ) is True
+        assert (
+            store.is_suppressed(
+                "payments",
+                1,
+                "Imports `auth.internal` (disallowed)",
+            )
+            is True
+        )

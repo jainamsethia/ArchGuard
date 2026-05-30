@@ -11,10 +11,12 @@ try:
     import numpy as np
     import numpy.typing as npt
     from sentence_transformers import SentenceTransformer
+
     _ML_AVAILABLE = True
 except Exception:
     _ML_AVAILABLE = False
     import typing
+
     np: typing.Any = None  # type: ignore[no-redef]
     npt: typing.Any = None  # type: ignore[no-redef]
     SentenceTransformer: typing.Any = None  # type: ignore[no-redef]
@@ -28,8 +30,8 @@ class FunctionChunk:
 
     file_path: str
     function_name: str
-    source: str            # docstring + body combined
-    content_hash: str      # SHA256 of source
+    source: str  # docstring + body combined
+    content_hash: str  # SHA256 of source
 
 
 @dataclass
@@ -37,7 +39,7 @@ class SemanticDriftResult:
     """Result of semantic drift analysis for one module."""
 
     module_name: str
-    drift_score: float               # cosine distance 0.0–1.0
+    drift_score: float  # cosine distance 0.0–1.0
     pre_pr_centroid: npt.NDArray[np.float32]
     post_pr_centroid: npt.NDArray[np.float32]
     functions_analyzed: int
@@ -47,6 +49,7 @@ class SemanticDriftResult:
 # ------------------------------------------------------------------
 # Cosine helpers
 # ------------------------------------------------------------------
+
 
 def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> float:
     """``1 - cosine_similarity``, clamped to ``[0.0, 1.0]``."""
@@ -70,6 +73,7 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 
 _GLOBAL_MODEL_CACHE: dict[str, Any] = {}
 
+
 def _get_model(model_name: str) -> "SentenceTransformer":
     if model_name not in _GLOBAL_MODEL_CACHE:
         if not _ML_AVAILABLE:
@@ -78,8 +82,9 @@ def _get_model(model_name: str) -> "SentenceTransformer":
                 "Install them with: pip install archguard[ml]"
             )
         from sentence_transformers import SentenceTransformer
+
         _GLOBAL_MODEL_CACHE[model_name] = SentenceTransformer(model_name)
-    return _GLOBAL_MODEL_CACHE[model_name]  # type: ignore
+    return _GLOBAL_MODEL_CACHE[model_name]
 
 
 def extract_module_text(file_path: Path) -> str:
@@ -89,6 +94,7 @@ def extract_module_text(file_path: Path) -> str:
     (triple-quoted, r-prefixed, u-prefixed, indented, multi-line).
     """
     import ast
+
     try:
         source = file_path.read_text(encoding="utf-8", errors="replace")
         tree = ast.parse(source)
@@ -110,18 +116,19 @@ def extract_module_text(file_path: Path) -> str:
     for node in ast.walk(tree):
         if functions_processed >= MAX_FUNCTIONS or total_chars >= MAX_CHARS:
             break
-            
+
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             texts.append(node.name)  # function/class name as semantic signal
             total_chars += len(node.name)
             functions_processed += 1
-            
+
             doc = ast.get_docstring(node)
             if doc:
                 texts.append(doc)
                 total_chars += len(doc)
 
     return " ".join(texts)[:MAX_CHARS]
+
 
 class SemanticAnalyzer:
     """Embedding pipeline + drift detection using all-MiniLM-L6-v2."""
@@ -158,7 +165,9 @@ class SemanticAnalyzer:
         to_embed: list[FunctionChunk] = []
 
         # Check cache first using batch get
-        all_keys = [f"{c.file_path}::{c.function_name}::{c.content_hash}" for c in chunks]
+        all_keys = [
+            f"{c.file_path}::{c.function_name}::{c.content_hash}" for c in chunks
+        ]
         cached_batch = self._cache.get_batch(all_keys)
 
         for chunk, key in zip(chunks, all_keys):
@@ -181,10 +190,10 @@ class SemanticAnalyzer:
                 result_key = f"{chunk.file_path}::{chunk.function_name}"
                 emb = np.array(embeddings[i], dtype=np.float32)
                 result[result_key] = emb
-                
+
                 insert_key = f"{chunk.file_path}::{chunk.function_name}::{chunk.content_hash}::{model_name}"
                 new_items[insert_key] = emb
-                
+
             self._cache.set_batch(new_items)
 
         return result
@@ -205,6 +214,7 @@ class SemanticAnalyzer:
             )
         if not embeddings:
             from archguard.utils.errors import AnalysisError
+
             raise AnalysisError("Cannot compute centroid of empty embeddings")
 
         matrix = np.array(list(embeddings.values()), dtype=np.float32)

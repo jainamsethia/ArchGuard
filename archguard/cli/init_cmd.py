@@ -6,7 +6,6 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-import typing
 from typing import Any, cast
 
 import typer
@@ -28,15 +27,24 @@ init_app: typer.Typer = typer.Typer(
 _console: Console = Console()
 
 # Directories to exclude from repository scan
-_EXCLUDE_DIRS: frozenset[str] = frozenset({
-    "__pycache__", ".venv", "venv", ".git", "node_modules",
-    ".tox", "dist", "build",
-})
+_EXCLUDE_DIRS: frozenset[str] = frozenset(
+    {
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".git",
+        "node_modules",
+        ".tox",
+        "dist",
+        "build",
+    }
+)
 
 
 # ------------------------------------------------------------------
 # Checkpoint helpers
 # ------------------------------------------------------------------
+
 
 def save_checkpoint(repo_root: Path, phase: int, data: dict[str, Any]) -> None:
     """Save checkpoint JSON for a completed phase."""
@@ -78,15 +86,18 @@ def latest_completed_phase(repo_root: Path) -> int:
 # Helpers
 # ------------------------------------------------------------------
 
+
 def count_loc(file_path: Path) -> int:
     """Count non-blank lines of code."""
     try:
         return sum(
-            1 for line in file_path.read_text(errors="replace").splitlines()
+            1
+            for line in file_path.read_text(errors="replace").splitlines()
             if line.strip()
         )
     except OSError:
         return 0
+
 
 def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
     """Detect modules from directory structure when commit history is sparse."""
@@ -94,21 +105,21 @@ def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
     for py_file in repo_path.rglob("*.py"):
         if any(part.startswith(".") for part in py_file.parts):
             continue  # Skip hidden dirs
-            
+
         relative = py_file.relative_to(repo_path)
         parts = relative.parts
-        
+
         if "test" in parts or "tests" in parts:
             modules.setdefault("tests", []).append(relative)
             continue
-            
+
         # Use top-level package as module name
         if len(parts) >= 2:
             module_name = parts[0]
         else:
             module_name = "root"
         modules.setdefault(module_name, []).append(relative)
-        
+
     # Merge tiny modules into 'misc'
     small_modules = [k for k, v in modules.items() if len(v) < 3]
     if small_modules:
@@ -117,15 +128,23 @@ def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
             misc_files.extend(modules.pop(k))
         if misc_files:
             modules["misc"] = misc_files
-            
+
     if not modules:
-        return {"main": [str(p.relative_to(repo_path)).replace("\\", "/") for p in repo_path.rglob("*.py") if not any(part.startswith(".") for part in p.parts)]}
-        
+        return {
+            "main": [
+                str(p.relative_to(repo_path)).replace("\\", "/")
+                for p in repo_path.rglob("*.py")
+                if not any(part.startswith(".") for part in p.parts)
+            ]
+        }
+
     return {k: [str(p).replace("\\", "/") for p in v] for k, v in modules.items()}
+
 
 # ------------------------------------------------------------------
 # Phase implementations
 # ------------------------------------------------------------------
+
 
 def _phase1_scan(repo_root: Path) -> dict[str, Any]:
     """Phase 1: Repository Scan."""
@@ -159,6 +178,7 @@ def _phase2_commits(repo_root: Path) -> dict[str, Any]:
         commits = list(repo.traverse_commits())
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(f"Git history extraction failed: {e}")
         commits = []
 
@@ -174,7 +194,7 @@ def _phase2_commits(repo_root: Path) -> dict[str, Any]:
             if m.filename and m.filename.endswith(".py")
         ]
         for i, f1 in enumerate(py_files):
-            for f2 in py_files[i + 1:]:
+            for f2 in py_files[i + 1 :]:
                 if graph.has_edge(f1, f2):
                     graph[f1][f2]["weight"] += 1
                 else:
@@ -273,14 +293,14 @@ def _phase4_embeddings(
             "3. ci — Balanced CI enforcement\n"
             "4. custom — I'll set thresholds manually",
             choices=["1", "2", "3", "4"],
-            default="1"
+            default="1",
         )
         profile_name = choices[answer]
 
         contract: dict[str, Any] = {
             "version": "3.0",
         }
-        
+
         if profile_name != "custom":
             contract["profile"] = profile_name
 
@@ -316,8 +336,14 @@ def _phase4_embeddings(
                        (file_path, function_name, embedding,
                         content_hash, model_name, created_at)
                        VALUES (?, ?, ?, ?, ?, ?)""",
-                    (fp, "__module__", emb_bytes,
-                     content_hash, "all-MiniLM-L6-v2", now_iso),
+                    (
+                        fp,
+                        "__module__",
+                        emb_bytes,
+                        content_hash,
+                        "all-MiniLM-L6-v2",
+                        now_iso,
+                    ),
                 )
 
             # Compute centroid
@@ -468,44 +494,66 @@ def _write_summary(
 # Main command
 # ------------------------------------------------------------------
 
+
 @init_app.callback(invoke_without_command=True)
 def init_command(
     ctx: typer.Context,
     repo: Path = typer.Option(
-        Path("."), "--repo", help="Path to the repository root.",
+        Path("."),
+        "--repo",
+        help="Path to the repository root.",
     ),
     confirm_all: bool = typer.Option(
-        False, "--confirm-all", help="Skip all interactive prompts.",
+        False,
+        "--confirm-all",
+        help="Skip all interactive prompts.",
     ),
     force_ci: bool = typer.Option(
-        False, "--force-ci", help="Bypass shallow clone check in CI.",
+        False,
+        "--force-ci",
+        help="Bypass shallow clone check in CI.",
     ),
     resume: bool = typer.Option(
-        False, "--resume", help="Resume from last saved checkpoint.",
+        False,
+        "--resume",
+        help="Resume from last saved checkpoint.",
     ),
     output: Path | None = typer.Option(
-        None, "--output", help="Write contract to this path.",
+        None,
+        "--output",
+        help="Write contract to this path.",
     ),
     no_llm: bool = typer.Option(
-        False, "--no-llm", help="Skip LLM API calls entirely.",
+        False,
+        "--no-llm",
+        help="Skip LLM API calls entirely.",
     ),
     min_history_commits: int = typer.Option(
         5,
         "--min-history-commits",
         help="Minimum commits needed for co-change analysis (default: 5). "
-             "Below this, falls back to directory-structure detection.",
+        "Below this, falls back to directory-structure detection.",
     ),
     monorepo: bool = typer.Option(
-        False, "--monorepo", help="Initialize each sub package separately",
+        False,
+        "--monorepo",
+        help="Initialize each sub package separately",
     ),
     llm_init: bool = typer.Option(
-        False, "--llm-init", help="Use Claude to generate contract from code structure (requires ANTHROPIC_API_KEY)"
+        False,
+        "--llm-init",
+        help="Use Claude to generate contract from code structure (requires ANTHROPIC_API_KEY)",
     ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     try:
-        from archguard.utils.validation import validate_repo_path, validate_output_path, PathTraversalError
+        from archguard.utils.validation import (
+            validate_repo_path,
+            validate_output_path,
+            PathTraversalError,
+        )
         from archguard.config import EXIT_CONFIG_ERROR
+
         repo = validate_repo_path(repo)
         if output is not None:
             output = validate_output_path(output)
@@ -517,14 +565,17 @@ def init_command(
 
     if monorepo:
         from archguard.utils.monorepo import detect_subpackages
+
         packages = detect_subpackages(repo_root)
         if not packages:
             typer.echo("No sub-packages found. Run without --monorepo.")
             raise typer.Exit(1)
-            
+
         has_error = False
         for pkg in packages:
-            _console.print(f"\n[bold magenta]Initializing sub-package: {pkg.name}[/bold magenta]")
+            _console.print(
+                f"\n[bold magenta]Initializing sub-package: {pkg.name}[/bold magenta]"
+            )
             try:
                 init_command(
                     ctx=ctx,
@@ -544,7 +595,7 @@ def init_command(
             except Exception as e:
                 _console.print(f"[red]Error initializing {pkg.name}: {e}[/red]")
                 has_error = True
-                
+
         if has_error:
             raise typer.Exit(1)
         return
@@ -560,23 +611,30 @@ def init_command(
             repo_obj = Repository(str(repo_root))
             commit_count = len(list(repo_obj.traverse_commits()))
             if commit_count < 100:
-                _console.print(format_error(
-                    "Shallow clone detected (< 100 commits). "
-                    "archguard init requires full history. "
-                    "Use --force-ci to bypass or fetch-depth: 0 "
-                    "in your workflow."
-                ))
+                _console.print(
+                    format_error(
+                        "Shallow clone detected (< 100 commits). "
+                        "archguard init requires full history. "
+                        "Use --force-ci to bypass or fetch-depth: 0 "
+                        "in your workflow."
+                    )
+                )
                 raise typer.Exit(1)
         except ImportError as e:
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure importing pydriller: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure importing pydriller: {e}"
+            )
 
     # Non-TTY auto-confirm
     if not is_tty() and not confirm_all:
-        _console.print(format_warning(
-            "Non-interactive terminal detected. "
-            "Running with --confirm-all behavior."
-        ))
+        _console.print(
+            format_warning(
+                "Non-interactive terminal detected. "
+                "Running with --confirm-all behavior."
+            )
+        )
         confirm_all = True
 
     # Determine start phase
@@ -619,14 +677,13 @@ def init_command(
             phase1_data = _phase1_scan(repo_root)
 
             if phase1_data["total_files"] == 0:
-                _console.print(format_error(
-                    "No Python files found in repository."
-                ))
+                _console.print(format_error("No Python files found in repository."))
                 raise typer.Exit(1)
 
             vprint(
                 f"Found {phase1_data['total_files']} Python files | "
-                f"{phase1_data['total_loc']:,} LOC", ctx
+                f"{phase1_data['total_loc']:,} LOC",
+                ctx,
             )
 
             # Runtime estimate for large repos
@@ -634,38 +691,38 @@ def init_command(
                 est = phase1_data["total_loc"] // 10_000 * 2
                 vprint(
                     f"[blue]Estimated init time: ~{est} minutes "
-                    f"for {phase1_data['total_loc']:,} LOC[/blue]", ctx
+                    f"for {phase1_data['total_loc']:,} LOC[/blue]",
+                    ctx,
                 )
 
             save_checkpoint(repo_root, 1, phase1_data)
 
         # PHASE 2 — Commit History Analysis
         if start_phase <= 2:
-            vprint(
-                "[bold cyan][2/5] Analyzing commit history...[/bold cyan]", ctx
-            )
+            vprint("[bold cyan][2/5] Analyzing commit history...[/bold cyan]", ctx)
             phase2_data = _phase2_commits(repo_root)
 
             vprint(
                 f"Processed {phase2_data['commit_count']} commits | "
-                f"{phase2_data['graph_edges']} co-change pairs", ctx
+                f"{phase2_data['graph_edges']} co-change pairs",
+                ctx,
             )
 
             save_checkpoint(repo_root, 2, phase2_data)
 
         # PHASE 3 — Louvain Community Detection
         if start_phase <= 3:
-            vprint(
-                "[bold cyan][3/5] Detecting module communities..."
-                "[/bold cyan]", ctx
-            )
-            
+            vprint("[bold cyan][3/5] Detecting module communities...[/bold cyan]", ctx)
+
             quiet = ctx.obj.get("quiet", False)
             use_rich = is_tty() and not quiet
-            
+
             if use_rich:
                 from rich.progress import Progress, SpinnerColumn, TextColumn
-                with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=_console) as p:
+
+                with Progress(
+                    SpinnerColumn(), TextColumn("{task.description}"), console=_console
+                ) as p:
                     p.add_task("Detecting communities...", total=None)
                     phase3_data = _phase3_communities(
                         phase2_data["graph_data"],
@@ -686,35 +743,35 @@ def init_command(
             seed_hex = hex(phase3_data["seed"])
             vprint(
                 f"Found {phase3_data['num_communities']} communities | "
-                f"Seed: {seed_hex}", ctx
+                f"Seed: {seed_hex}",
+                ctx,
             )
 
             save_checkpoint(repo_root, 3, phase3_data)
 
         communities: dict[str, list[str]] = phase3_data["communities"]
-        
+
         if ctx.obj.get("verbose"):
             for name, files in communities.items():
                 for f in files:
-                    vprint(f"Found file {f} assigned to module {name}", ctx, level="debug")
+                    vprint(
+                        f"Found file {f} assigned to module {name}", ctx, level="debug"
+                    )
 
         # Interactive review (TTY only, skipped if --confirm-all)
         if not confirm_all and is_tty():
             communities = _interactive_review(communities)
             if not communities:
-                _console.print(format_error(
-                    "All modules were skipped. Cannot generate contract."
-                ))
+                _console.print(
+                    format_error("All modules were skipped. Cannot generate contract.")
+                )
                 raise typer.Exit(1)
             phase3_data["communities"] = communities
             phase3_data["num_communities"] = len(communities)
 
         # PHASE 4 — Embedding Centroid Computation
         if start_phase <= 4:
-            vprint(
-                "[bold cyan][4/5] Computing semantic embeddings..."
-                "[/bold cyan]", ctx
-            )
+            vprint("[bold cyan][4/5] Computing semantic embeddings...[/bold cyan]", ctx)
             phase4_data = _phase4_embeddings(
                 communities, repo_root, phase1_data["python_files"], no_llm=no_llm
             )
@@ -722,42 +779,44 @@ def init_command(
             vprint(
                 f"Embedded {phase4_data['modules_embedded']} modules | "
                 f"{phase4_data['total_functions_embedded']} functions | "
-                f"model: {phase4_data['model_name']}", ctx
+                f"model: {phase4_data['model_name']}",
+                ctx,
             )
 
             save_checkpoint(repo_root, 4, phase4_data)
 
         # Compute fan_out_at_init
         fan_outs = _compute_fan_outs(
-            communities, phase1_data["python_files"], repo_root,
+            communities,
+            phase1_data["python_files"],
+            repo_root,
         )
 
         # PHASE 5 — YAML Contract Write
         if start_phase <= 5:
-            vprint(
-                "[bold cyan][5/5] Writing contract...[/bold cyan]", ctx
-            )
+            vprint("[bold cyan][5/5] Writing contract...[/bold cyan]", ctx)
 
-            from archguard.contract.writer import write_contract
             import tempfile
             import yaml
             from archguard.contract.validator import validate_contract
             import math
             from archguard.contract.writer import _infer_path, _model_weights_version
-            
+
             # Generate Louvain contract dictionary
             louvain_modules = []
             for name, files in communities.items():
                 fan_out = fan_outs.get(name, 0)
                 budget = max(3, math.ceil(fan_out * 1.5))
-                louvain_modules.append({
-                    "name": name,
-                    "path": _infer_path(files),
-                    "fan_out_at_init": fan_out,
-                    "coupling_budget": budget,
-                    "semantic_drift_threshold": 0.25,
-                })
-            
+                louvain_modules.append(
+                    {
+                        "name": name,
+                        "path": _infer_path(files),
+                        "fan_out_at_init": fan_out,
+                        "coupling_budget": budget,
+                        "semantic_drift_threshold": 0.25,
+                    }
+                )
+
             louvain_contract = {
                 "version": "3.0",
                 "model_weights_version": _model_weights_version(),
@@ -767,30 +826,41 @@ def init_command(
                 "fail_threshold": 0.75,
                 "warn_threshold": 0.50,
             }
-            
+
             final_contract = louvain_contract
-            
+
             if llm_init:
-                _console.print("[bold blue]Phase 5: LLM-driven contract generation[/bold blue]")
+                _console.print(
+                    "[bold blue]Phase 5: LLM-driven contract generation[/bold blue]"
+                )
                 try:
                     import asyncio
-                    from archguard.contract.llm_inference import generate_contract_from_llm, _merge_contracts
-                    
+                    from archguard.contract.llm_inference import (
+                        generate_contract_from_llm,
+                        _merge_contracts,
+                    )
+
                     llm_contract = asyncio.run(generate_contract_from_llm(repo_root))
                     final_contract = _merge_contracts(louvain_contract, llm_contract)
-                    _console.print("[green]Successfully merged LLM-driven boundaries with Louvain budgets.[/green]")
+                    _console.print(
+                        "[green]Successfully merged LLM-driven boundaries with Louvain budgets.[/green]"
+                    )
                 except Exception as e:
-                    _console.print(f"[yellow]LLM generation failed: {e}. Using Louvain only.[/yellow]")
+                    _console.print(
+                        f"[yellow]LLM generation failed: {e}. Using Louvain only.[/yellow]"
+                    )
 
             # Validate and Write
             validate_contract(final_contract)
-            
+
             dir_path = output.parent
             dir_path.mkdir(parents=True, exist_ok=True)
             fd, tmp_name = tempfile.mkstemp(suffix=".yml", dir=str(dir_path))
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as tmp:
-                    yaml.dump(final_contract, tmp, default_flow_style=False, sort_keys=False)
+                    yaml.dump(
+                        final_contract, tmp, default_flow_style=False, sort_keys=False
+                    )
                 os.replace(tmp_name, str(output))
             except BaseException:
                 try:
@@ -801,10 +871,16 @@ def init_command(
 
             vprint(f"Contract written to [green]{output}[/green]", ctx)
 
-            save_checkpoint(repo_root, 5, {
-                "output_path": str(output),
-                "modules_written": len(cast(list[Any], final_contract.get("modules", []))),
-            })
+            save_checkpoint(
+                repo_root,
+                5,
+                {
+                    "output_path": str(output),
+                    "modules_written": len(
+                        cast(list[Any], final_contract.get("modules", []))
+                    ),
+                },
+            )
 
         # Write summary
         _write_summary(
@@ -827,7 +903,6 @@ def init_command(
     except Exception as exc:
         _console.print(format_error(f"Phase failed: {exc}"))
         _console.print(
-            "[yellow]Use --resume to continue from the last "
-            "completed phase.[/yellow]"
+            "[yellow]Use --resume to continue from the last completed phase.[/yellow]"
         )
         raise typer.Exit(1) from exc

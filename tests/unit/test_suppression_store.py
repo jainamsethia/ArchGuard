@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,7 +11,6 @@ import pytest
 from archguard.config import SUPPRESSION_FILE
 from archguard.suppression.models import make_violation_hash
 from archguard.suppression.store import (
-    REASON_MAX_LENGTH,
     SuppressionStore,
     SuppressionValidationError,
 )
@@ -43,20 +41,24 @@ class TestSuppressionAdd:
     def test_reason_with_newline(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         with pytest.raises(
-            SuppressionValidationError, match="must not contain newlines",
+            SuppressionValidationError,
+            match="must not contain newlines",
         ):
             store.add("mod", 1, "msg", "line1\nline2")
 
     def test_invalid_layer(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         with pytest.raises(
-            SuppressionValidationError, match="layer must be 1, 2, or 3",
+            SuppressionValidationError,
+            match="layer must be 1, 2, or 3",
         ):
             store.add("mod", 5, "msg", "reason")
 
     def test_layer_4_unsuppressable(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
-        with pytest.raises(SuppressionValidationError, match="Layer 4 violations cannot be suppressed"):
+        with pytest.raises(
+            SuppressionValidationError, match="Layer 4 violations cannot be suppressed"
+        ):
             store.add("mod", 4, "msg", "reason")
 
 
@@ -85,20 +87,23 @@ class TestIsSuppressed:
         assert store.is_suppressed("payments", 1, "bad import") is True
 
     def test_expired_suppression_not_matched(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         store = _make_store(tmp_path)
-        past = (
-            datetime.now(timezone.utc) - timedelta(days=1)
-        ).isoformat()
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         store.add(
-            "payments", 1, "bad import", "temp",
+            "payments",
+            1,
+            "bad import",
+            "temp",
             expires_at=past,
         )
         assert store.is_suppressed("payments", 1, "bad import") is False
 
     def test_inactive_suppression_not_matched(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         store = _make_store(tmp_path)
         s = store.add("payments", 1, "bad import", "old debt")
@@ -119,7 +124,9 @@ class TestIsSuppressed:
             for _ in range(100):
                 store.is_suppressed("mod", 1, "msg")
 
-            store_opens = [c for c in spy.call_args_list if str(SUPPRESSION_FILE) in str(c)]
+            store_opens = [
+                c for c in spy.call_args_list if str(SUPPRESSION_FILE) in str(c)
+            ]
             assert len(store_opens) <= 2
 
 
@@ -145,7 +152,8 @@ class TestOrphans:
 
 class TestMigrate:
     def test_migrate_updates_module_and_hash(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         store = _make_store(tmp_path)
         store.add("old_mod", 1, "msg", "reason")
@@ -155,7 +163,9 @@ class TestMigrate:
         assert loaded[0].module == "new_mod"
         # Hash should be recalculated
         assert loaded[0].violation_hash != make_violation_hash(
-            "old_mod", 1, "reason",
+            "old_mod",
+            1,
+            "reason",
         )
 
 
@@ -167,8 +177,7 @@ class TestConcurrency:
             store.add(f"mod{idx}", 1, f"msg{idx}", f"reason{idx}")
 
         threads = [
-            threading.Thread(target=add_suppression, args=(i,))
-            for i in range(5)
+            threading.Thread(target=add_suppression, args=(i,)) for i in range(5)
         ]
         for t in threads:
             t.start()
@@ -186,12 +195,12 @@ class TestConcurrency:
         from archguard.cache.locking import file_lock
 
         barrier = threading.Barrier(2, timeout=5.0)
-        error_holder: list[BaseException] = []
 
         def hold_lock() -> None:
             with file_lock(lock_path, timeout=5.0):
                 barrier.wait()  # signal: lock is held
                 import time
+
                 time.sleep(1.0)  # hold for 1s
 
         t = threading.Thread(target=hold_lock)

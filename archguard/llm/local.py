@@ -52,12 +52,10 @@ class LocalLLMExplainer:
         model: str | None = None,
         audit_logger: AuditLogger | None = None,
     ) -> None:
-        self._base_url: str = (
-            base_url or os.environ.get("OLLAMA_BASE_URL", OLLAMA_DEFAULT_URL)
+        self._base_url: str = base_url or os.environ.get(
+            "OLLAMA_BASE_URL", OLLAMA_DEFAULT_URL
         )
-        self._model: str = (
-            model or os.environ.get("OLLAMA_MODEL", OLLAMA_DEFAULT_MODEL)
-        )
+        self._model: str = model or os.environ.get("OLLAMA_MODEL", OLLAMA_DEFAULT_MODEL)
         self._audit: AuditLogger | None = audit_logger
 
     @with_retry(max_attempts=3, retryable_exceptions=(Exception,))
@@ -128,9 +126,7 @@ class LocalLLMExplainer:
 
         if response.status_code != 200:
             resp_text = response.text[:200]
-            failure_msg = (
-                f"ollama returned HTTP {response.status_code}: {resp_text}"
-            )
+            failure_msg = f"ollama returned HTTP {response.status_code}: {resp_text}"
             self._log_failure(None, failure_msg)
             return LocalLLMResult(
                 text="",
@@ -146,7 +142,10 @@ class LocalLLMExplainer:
             text = str(data.get("response", ""))
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in local llm parse: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in local llm parse: {e}"
+            )
             text = response.text
 
         return LocalLLMResult(
@@ -167,10 +166,13 @@ class LocalLLMExplainer:
                 f"{self._base_url}/api/tags",
                 timeout=2.0,
             )
-            return response.status_code == 200
+            return bool(response.status_code == 200)
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in local llm is_available: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in local llm is_available: {e}"
+            )
             return False
 
     def _log_failure(

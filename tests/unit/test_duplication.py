@@ -12,8 +12,6 @@ import pytest
 
 from archguard.analysis.duplication import (
     DuplicationAnalyzer,
-    DuplicationMatch,
-    DuplicationResult,
     duplication_score,
 )
 from archguard.cache.db import EmbeddingDB
@@ -65,7 +63,9 @@ class TestDuplicationAnalyzer:
     """Tests for DuplicationAnalyzer.analyze_module."""
 
     def test_stale_cache_skips(
-        self, cache: EmbeddingCache, tmp_path: Path,
+        self,
+        cache: EmbeddingCache,
+        tmp_path: Path,
     ) -> None:
         """Stale cache -> DuplicationResult(skipped=True)."""
         # Store centroid with old timestamp
@@ -84,7 +84,8 @@ class TestDuplicationAnalyzer:
         assert "stale" in result.skip_reason.lower()
 
     def test_invalid_cache_no_skip(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """Invalid cache (hash mismatch) -> skipped=False."""
         # No centroid stored -> is_cache_stale returns False
@@ -93,7 +94,8 @@ class TestDuplicationAnalyzer:
         assert result.skipped is False
 
     def test_empty_corpus(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """Empty corpus -> aggregate_score=0.0, no matches."""
         analyzer = DuplicationAnalyzer(cache)
@@ -102,7 +104,8 @@ class TestDuplicationAnalyzer:
         assert result.matches == []
 
     def test_same_module_excluded(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """Same-module matches are excluded."""
         # Store two embeddings from the same module and one from another
@@ -127,7 +130,9 @@ class TestDuplicationAnalyzer:
 
         with patch.dict(sys.modules, {"faiss": mock_faiss}):
             result = analyzer.analyze_module(
-                "mod", ["a.py"], k=10,
+                "mod",
+                ["a.py"],
+                k=10,
             )
 
         # Only matches with b.py should appear (cross-module)
@@ -135,12 +140,13 @@ class TestDuplicationAnalyzer:
             assert not m.matched_function.startswith("a.py::")
 
     def test_same_function_name_different_files_detected(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """Two files with the same function name are detected as duplicates."""
         v1 = np.ones(384, dtype=np.float32)
         v1 = v1 / np.linalg.norm(v1)
-        
+
         # Store embeddings for a.py::process and b.py::process
         cache.store_embedding("a.py", "process", v1, "h1", "m")
         cache.store_embedding("b.py", "process", v1, "h2", "m")

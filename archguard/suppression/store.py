@@ -58,15 +58,11 @@ class SuppressionStore:
                 f"reason exceeds 500 characters ({len(reason)} chars)"
             )
         if "\n" in reason:
-            raise SuppressionValidationError(
-                "reason must not contain newlines"
-            )
+            raise SuppressionValidationError("reason must not contain newlines")
         if layer == 4:
             raise SuppressionValidationError("Layer 4 violations cannot be suppressed.")
         if layer not in {1, 2, 3}:
-            raise SuppressionValidationError(
-                "layer must be 1, 2, or 3"
-            )
+            raise SuppressionValidationError("layer must be 1, 2, or 3")
 
         suppression = Suppression(
             id=str(uuid.uuid4()),
@@ -101,7 +97,10 @@ class SuppressionStore:
             )
         except Exception as e:  # noqa: BLE001
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in audit log suppression: {e}")
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in audit log suppression: {e}"
+            )
 
         self._cache = None  # Force reload on next access
         return suppression
@@ -127,7 +126,10 @@ class SuppressionStore:
                     suppressions.append(suppression_from_dict(data))
                 except Exception as e:  # noqa: BLE001
                     import logging
-                    logging.getLogger(__name__).warning(f"Non-critical failure in suppression line parse: {e}")
+
+                    logging.getLogger(__name__).warning(
+                        f"Non-critical failure in suppression line parse: {e}"
+                    )
                     logger.warning("Skipping malformed suppression line")
                     continue
 
@@ -150,7 +152,7 @@ class SuppressionStore:
         """Return True if an active, non-expired suppression matches."""
         if layer == 4:
             return False
-            
+
         target_hash = make_violation_hash(module, layer, message)
         now = datetime.now(timezone.utc)
 
@@ -173,10 +175,7 @@ class SuppressionStore:
     def detect_orphans(self, active_modules: list[str]) -> list[Suppression]:
         """Return suppressions whose module is not in *active_modules*."""
         module_set = set(active_modules)
-        return [
-            s for s in self.list_all()
-            if s.module not in module_set
-        ]
+        return [s for s in self.list_all() if s.module not in module_set]
 
     def mark_orphans(self, orphan_ids: list[str]) -> int:
         """Rewrite JSONL setting active=False for given IDs."""
@@ -214,11 +213,17 @@ class SuppressionStore:
                     # Reverse-engineer message from hash is impossible,
                     # so recalculate with the new module name using same reason
                     new_hash = make_violation_hash(
-                        new_name, sup.layer, sup.reason,
+                        new_name,
+                        sup.layer,
+                        sup.reason,
                     )
-                    updated.append(replace(
-                        sup, module=new_name, violation_hash=new_hash,
-                    ))
+                    updated.append(
+                        replace(
+                            sup,
+                            module=new_name,
+                            violation_hash=new_hash,
+                        )
+                    )
                     count += 1
                 else:
                     updated.append(sup)

@@ -51,12 +51,14 @@ def parse_commands(
             cmd = ArchGuardCommand(cmd_str)
         except ValueError:
             continue
-        results.append(SlashCommand(
-            command=cmd,
-            args=args,
-            comment_id=comment_id,
-            author=author,
-        ))
+        results.append(
+            SlashCommand(
+                command=cmd,
+                args=args,
+                comment_id=comment_id,
+                author=author,
+            )
+        )
     return results
 
 

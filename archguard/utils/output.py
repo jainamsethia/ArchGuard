@@ -3,6 +3,7 @@ from rich.console import Console
 
 console = Console()
 
+
 def vprint(message: str, ctx: typer.Context | None = None, level: str = "info") -> None:
     """Print message respecting --verbose/--quiet flags."""
     if ctx:

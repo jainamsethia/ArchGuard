@@ -6,16 +6,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 
 def test_import_parser_throughput(benchmark: Any) -> None:
     """Parser handles 500-import file within 1s."""
     from archguard.analysis.parser import ImportParser
 
-    large_source = "\n".join(
-        f"from module_{i} import Class_{i}" for i in range(500)
-    )
+    large_source = "\n".join(f"from module_{i} import Class_{i}" for i in range(500))
     parser = ImportParser()
     result = benchmark(parser.parse_file, large_source)
     assert len(result) == 500
@@ -36,8 +32,7 @@ def test_validator_throughput(benchmark: Any) -> None:
     contract: dict[str, Any] = {
         "version": "3.0",
         "modules": [
-            {"name": f"module_{i}", "path": [f"src/module_{i}/"]}
-            for i in range(10)
+            {"name": f"module_{i}", "path": [f"src/module_{i}/"]} for i in range(10)
         ],
         "fail_threshold": 0.75,
         "warn_threshold": 0.50,
@@ -53,9 +48,12 @@ def test_analyze_warm_cache(
     # Warm cache with first run
     subprocess.run(
         [
-            "archguard", "analyze",
-            "--repo", str(fixture_repo),
-            "--skip-explanation", "--dry-run",
+            "archguard",
+            "analyze",
+            "--repo",
+            str(fixture_repo),
+            "--skip-explanation",
+            "--dry-run",
         ],
         capture_output=True,
         timeout=120,
@@ -66,9 +64,12 @@ def test_analyze_warm_cache(
         subprocess.run,
         args=(
             [
-                "archguard", "analyze",
-                "--repo", str(fixture_repo),
-                "--skip-explanation", "--dry-run",
+                "archguard",
+                "analyze",
+                "--repo",
+                str(fixture_repo),
+                "--skip-explanation",
+                "--dry-run",
             ],
         ),
         kwargs={"capture_output": True, "timeout": 120},

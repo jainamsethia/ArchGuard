@@ -36,6 +36,7 @@ def write_config(tmp_path: Path) -> Any:
 
     return _write
 
+
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure GEMINI_API_KEY and OLLAMA_HOST are not set during tests unless explicitly patched."""

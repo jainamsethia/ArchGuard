@@ -2,7 +2,7 @@
 set -e
 
 # 1. Builds the Docker image:
-docker build -t archguard-smoke-test . 
+docker build -t archguard-smoke-test .
 
 # 2. Creates a minimal fixture repo in /tmp:
 FIXTURE=/tmp/archguard-smoke-fixture
@@ -34,7 +34,7 @@ docker run --rm \
 
 # 4. Validates outputs:
 echo "=== Smoke test complete ==="
-if [ -f /tmp/archguard-smoke-fixture/.archguard-cache/*.db 2>/dev/null ] || \
+if ls /tmp/archguard-smoke-fixture/.archguard-cache/*.db >/dev/null 2>&1 || \
    [ -f /tmp/archguard-result.json ]; then
   echo "✓ PASS: Output files created"
 else

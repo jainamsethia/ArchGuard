@@ -8,6 +8,7 @@ from archguard.config import AUDIT_LOG_FILENAME
 
 runner = CliRunner()
 
+
 def test_history_trend_cmd_success(tmp_path, monkeypatch):
     # Mock the audit log path
     mock_log = tmp_path / AUDIT_LOG_FILENAME
@@ -17,23 +18,56 @@ def test_history_trend_cmd_success(tmp_path, monkeypatch):
     # Create mock runs
     now = datetime.now(timezone.utc)
     runs = [
-        {"timestamp": (now - timedelta(days=5)).isoformat(), "event": "analysis_run", "score": 70.0, "grade": "C", "violation_count": 10},
-        {"timestamp": (now - timedelta(days=4)).isoformat(), "event": "analysis_run", "score": 75.0, "grade": "C+", "violation_count": 8},
-        {"timestamp": (now - timedelta(days=3)).isoformat(), "event": "analysis_run", "score": 79.5, "grade": "C+", "violation_count": 7},
-        {"timestamp": (now - timedelta(days=2)).isoformat(), "event": "analysis_run", "score": 82.0, "grade": "B-", "violation_count": 5},
-        {"timestamp": (now - timedelta(days=1)).isoformat(), "event": "analysis_run", "score": 87.5, "grade": "B", "violation_count": 3},
+        {
+            "timestamp": (now - timedelta(days=5)).isoformat(),
+            "event": "analysis_run",
+            "score": 70.0,
+            "grade": "C",
+            "violation_count": 10,
+        },
+        {
+            "timestamp": (now - timedelta(days=4)).isoformat(),
+            "event": "analysis_run",
+            "score": 75.0,
+            "grade": "C+",
+            "violation_count": 8,
+        },
+        {
+            "timestamp": (now - timedelta(days=3)).isoformat(),
+            "event": "analysis_run",
+            "score": 79.5,
+            "grade": "C+",
+            "violation_count": 7,
+        },
+        {
+            "timestamp": (now - timedelta(days=2)).isoformat(),
+            "event": "analysis_run",
+            "score": 82.0,
+            "grade": "B-",
+            "violation_count": 5,
+        },
+        {
+            "timestamp": (now - timedelta(days=1)).isoformat(),
+            "event": "analysis_run",
+            "score": 87.5,
+            "grade": "B",
+            "violation_count": 3,
+        },
     ]
 
     with open(mock_log, "w", encoding="utf-8") as f:
         for run in runs:
             f.write(json.dumps(run) + "\n")
 
-    result = runner.invoke(app, ["history", "--format", "trend", "--audit-log", str(mock_log)])
+    result = runner.invoke(
+        app, ["history", "--format", "trend", "--audit-log", str(mock_log)]
+    )
     assert result.exit_code == 0
     assert "87.5" in result.stdout
     assert "79.5" in result.stdout
     assert "Trend: ↑ +17.5 points over 5 runs (improving)" in result.stdout
     assert "Score history:" in result.stdout
+
 
 def test_history_cmd_json(tmp_path, monkeypatch):
     mock_log = tmp_path / AUDIT_LOG_FILENAME
@@ -42,13 +76,21 @@ def test_history_cmd_json(tmp_path, monkeypatch):
 
     now = datetime.now(timezone.utc)
     runs = [
-        {"timestamp": (now - timedelta(days=1)).isoformat(), "event": "analysis_run", "score": 87.5, "grade": "B", "violation_count": 3},
+        {
+            "timestamp": (now - timedelta(days=1)).isoformat(),
+            "event": "analysis_run",
+            "score": 87.5,
+            "grade": "B",
+            "violation_count": 3,
+        },
     ]
     with open(mock_log, "w", encoding="utf-8") as f:
         for run in runs:
             f.write(json.dumps(run) + "\n")
 
-    result = runner.invoke(app, ["history", "--format", "json", "--audit-log", str(mock_log)])
+    result = runner.invoke(
+        app, ["history", "--format", "json", "--audit-log", str(mock_log)]
+    )
     assert result.exit_code == 0
     data = json.loads(result.stdout)
     assert len(data["runs"]) == 1

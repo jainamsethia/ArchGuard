@@ -1,10 +1,10 @@
 import sqlite3
-import pytest
 from archguard.cache.db import EmbeddingDB
+
 
 def test_migration_runs_on_old_schema(tmp_path):
     db_path = tmp_path / "test.db"
-    
+
     # Create old schema manually
     conn = sqlite3.connect(db_path)
     # The actual V1 schema structure (matching _migrate_v1)
@@ -34,23 +34,24 @@ def test_migration_runs_on_old_schema(tmp_path):
     conn.close()
 
     # Opening with new code should run migration
-    with EmbeddingDB(db_path) as db:
+    with EmbeddingDB(db_path):
         pass  # Should not raise
 
     # Verify new column exists
     conn = sqlite3.connect(db_path)
     cols = [row[1] for row in conn.execute("PRAGMA table_info(embeddings)")]
     assert "model_name" in cols
-    
+
     # Verify version was updated
     version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
     assert version == 2
     conn.close()
 
+
 def test_migration_is_idempotent(tmp_path):
     db_path = tmp_path / "test.db"
     # Running migration twice should not fail
-    with EmbeddingDB(db_path) as db:
+    with EmbeddingDB(db_path):
         pass
-    with EmbeddingDB(db_path) as db:
+    with EmbeddingDB(db_path):
         pass  # Should not raise

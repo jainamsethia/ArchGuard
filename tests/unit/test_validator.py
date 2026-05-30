@@ -9,6 +9,7 @@ import pytest
 from archguard.contract.validator import validate_contract
 from archguard.utils.errors import ContractError
 
+
 class TestValidateContract:
     """Tests for validate_contract()."""
 

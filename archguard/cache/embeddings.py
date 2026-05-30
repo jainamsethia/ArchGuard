@@ -10,11 +10,12 @@ from typing import Iterator
 try:
     import numpy as np
     import numpy.typing as npt
+
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
-    np = None  # type: ignore[assignment]
-    npt = None  # type: ignore[assignment]
+    np = None
+    npt = None
 
 from archguard.cache.db import EmbeddingDB
 
@@ -64,7 +65,9 @@ class EmbeddingCache:
                 return None  # stale
             return np.frombuffer(stored_blob, dtype=np.float32).copy()
         except Exception:  # noqa: BLE001
-            logger.warning("Failed to read embedding for %s::%s", file_path, function_name)
+            logger.warning(
+                "Failed to read embedding for %s::%s", file_path, function_name
+            )
             return None
 
     def store_embedding(
@@ -91,13 +94,17 @@ class EmbeddingCache:
             )
             self._db._conn.commit()
         except Exception:  # noqa: BLE001
-            logger.warning("Failed to store embedding for %s::%s", file_path, function_name)
+            logger.warning(
+                "Failed to store embedding for %s::%s", file_path, function_name
+            )
 
     # ----------------------------------------------------------
     # Centroids
     # ----------------------------------------------------------
 
-    def get_centroid(self, module_name: str) -> tuple[npt.NDArray[np.float32], str] | None:
+    def get_centroid(
+        self, module_name: str
+    ) -> tuple[npt.NDArray[np.float32], str] | None:
         """Return ``(centroid_array, content_hash)`` or ``None``."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
@@ -159,7 +166,7 @@ class EmbeddingCache:
             return {}
 
         result: dict[str, npt.NDArray[np.float32] | None] = {k: None for k in keys}
-        
+
         lookup_keys = []
         hash_map = {}
         for k in keys:
@@ -181,7 +188,7 @@ class EmbeddingCache:
                 f"WHERE file_path || '::' || function_name IN ({placeholders})"
             )
             cursor = self._db._conn.execute(query, lookup_keys)
-            
+
             for row in cursor:
                 fp_fn, chash, blob = row
                 expected_hash = hash_map.get(fp_fn)
@@ -209,6 +216,7 @@ class EmbeddingCache:
 
         from archguard.cache.locking import file_lock
         from pathlib import Path
+
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
         lock_path = Path(db_file).with_suffix(".lock")
 
@@ -233,13 +241,15 @@ class EmbeddingCache:
                     "INSERT OR REPLACE INTO embeddings "
                     "(file_path, function_name, embedding, content_hash, model_name, created_at) "
                     "VALUES (?, ?, ?, ?, ?, ?)",
-                    rows
+                    rows,
                 )
                 self._db._conn.commit()
         except Exception:
             logger.warning("Failed to set_batch")
 
-    def iter_embeddings(self, batch_size: int = 500) -> Iterator[list[tuple[str, npt.NDArray[np.float32]]]]:
+    def iter_embeddings(
+        self, batch_size: int = 500
+    ) -> Iterator[list[tuple[str, npt.NDArray[np.float32]]]]:
         """Yield embeddings in batches of batch_size to avoid loading all into RAM."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
@@ -247,6 +257,7 @@ class EmbeddingCache:
             )
         from archguard.cache.locking import file_lock
         from pathlib import Path
+
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
         lock_path = Path(db_file).with_suffix(".lock")
 
@@ -256,14 +267,17 @@ class EmbeddingCache:
                 cursor = self._db._conn.execute(
                     "SELECT file_path, function_name, embedding "
                     "FROM embeddings LIMIT ? OFFSET ?",
-                    (batch_size, offset)
+                    (batch_size, offset),
                 )
                 rows = cursor.fetchall()
 
             if not rows:
                 break
-            
-            batch = [(f"{fp}::{fn}", np.frombuffer(blob, dtype=np.float32).copy()) for fp, fn, blob in rows]
+
+            batch = [
+                (f"{fp}::{fn}", np.frombuffer(blob, dtype=np.float32).copy())
+                for fp, fn, blob in rows
+            ]
             yield batch
             offset += batch_size
 
@@ -294,8 +308,7 @@ class EmbeddingCache:
         """
         try:
             cursor = self._db._conn.execute(
-                "SELECT updated_at FROM module_centroids "
-                "WHERE module_name = ?",
+                "SELECT updated_at FROM module_centroids WHERE module_name = ?",
                 (module_name,),
             )
             row = cursor.fetchone()

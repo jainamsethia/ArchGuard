@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import time
-from pathlib import Path
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 
 from archguard.analysis.layers import AnalysisResult, ViolationDetail
 from archguard.analysis.scoring import (
@@ -21,7 +18,6 @@ from archguard.github.comments import (
 from archguard.github.commands import (
     ArchGuardCommand,
     parse_commands,
-    validate_command_access,
 )
 
 
@@ -69,7 +65,10 @@ class TestPRCommentManager:
 
     def test_existing_comment_patches(self) -> None:
         """Existing comment found -> PATCH (edit) called."""
-        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold body"}]
+        mock_client = MagicMock()
+        mock_client.get_issue_comments.return_value = [
+            {"id": 99, "body": ARCHGUARD_MARKER + "\nold body"}
+        ]
 
         mgr = PRCommentManager(mock_client)
         comment_id = mgr.post_or_update("org/repo", 1, "new body")
@@ -80,7 +79,9 @@ class TestPRCommentManager:
     def test_patch_fails_retries(self) -> None:
         """PATCH fails -> retry after delay."""
         mock_client = MagicMock()
-        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold"}]
+        mock_client.get_issue_comments.return_value = [
+            {"id": 99, "body": ARCHGUARD_MARKER + "\nold"}
+        ]
         mock_client.update_comment.side_effect = [Exception("API error"), None]
 
         mgr = PRCommentManager(mock_client)
@@ -92,7 +93,9 @@ class TestPRCommentManager:
     def test_patch_fails_twice_posts_new(self) -> None:
         """PATCH fails twice -> POST new comment."""
         mock_client = MagicMock()
-        mock_client.get_issue_comments.return_value = [{"id": 99, "body": ARCHGUARD_MARKER + "\nold"}]
+        mock_client.get_issue_comments.return_value = [
+            {"id": 99, "body": ARCHGUARD_MARKER + "\nold"}
+        ]
         mock_client.update_comment.side_effect = Exception("API error")
 
         mgr = PRCommentManager(mock_client)
@@ -135,9 +138,11 @@ class TestPRCommentManager:
         mgr = PRCommentManager(mock_client)
         violations = [
             ViolationDetail(
-                layer=1, module="payments",
+                layer=1,
+                module="payments",
                 message="Imports `auth.internal` (disallowed)",
-                commit_sha="a1b2c3d", file_path="payments/views.py",
+                commit_sha="a1b2c3d",
+                file_path="payments/views.py",
             ),
         ]
         result = _make_result(violations=violations)
@@ -160,7 +165,9 @@ class TestParseCommands:
     def test_accept_contract(self) -> None:
         """/archguard accept-contract payments -> parsed correctly."""
         result = parse_commands(
-            "/archguard accept-contract payments", 1, "user1",
+            "/archguard accept-contract payments",
+            1,
+            "user1",
         )
         assert len(result) == 1
         assert result[0].command == ArchGuardCommand.ACCEPT_CONTRACT
@@ -169,7 +176,9 @@ class TestParseCommands:
     def test_unknown_command_ignored(self) -> None:
         """Unknown command -> empty list."""
         result = parse_commands(
-            "/archguard do-something", 1, "user1",
+            "/archguard do-something",
+            1,
+            "user1",
         )
         assert len(result) == 0
 

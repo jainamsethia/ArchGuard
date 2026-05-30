@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from archguard.cache.db import EmbeddingDB
-from archguard.cache.embeddings import EmbeddingCache, sha256_of
+from archguard.cache.embeddings import EmbeddingCache
 
 
 @pytest.fixture()
@@ -31,7 +31,8 @@ class TestEmbeddingCache:
         np.testing.assert_array_almost_equal(result, emb)
 
     def test_get_different_hash_returns_none(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """get with different hash -> None (stale)."""
         emb = np.random.rand(384).astype(np.float32)
@@ -39,7 +40,8 @@ class TestEmbeddingCache:
         assert cache.get_embedding("a.py", "foo", "hash2") is None
 
     def test_get_missing_returns_none(
-        self, cache: EmbeddingCache,
+        self,
+        cache: EmbeddingCache,
     ) -> None:
         """get for non-existent key -> None."""
         assert cache.get_embedding("nope.py", "bar", "x") is None
@@ -121,35 +123,38 @@ class TestEmbeddingCache:
         cache.store_embedding("b.py", "f2", e2, "h2", "m")
 
         queries = []
+
         def trace(stmt):
             if stmt.strip().upper().startswith("SELECT"):
                 queries.append(stmt)
-                
+
         cache._db._conn.set_trace_callback(trace)
 
         keys = ["a.py::f1::h1", "b.py::f2::h2", "missing.py::f3::h3"]
         result = cache.get_batch(keys)
-        
+
         cache._db._conn.set_trace_callback(None)
-        
+
         assert len(result) == 3
         assert result["a.py::f1::h1"] is not None
         assert result["b.py::f2::h2"] is not None
         assert result.get("missing.py::f3::h3") is None
-        
+
         # Exactly one SELECT query
         assert len(queries) == 1
 
-    def test_iter_embeddings_does_not_load_all_at_once(self, cache: EmbeddingCache) -> None:
+    def test_iter_embeddings_does_not_load_all_at_once(
+        self, cache: EmbeddingCache
+    ) -> None:
         """Verify iter_embeddings streams in batches instead of fetching all at once."""
         # Insert 2000 embeddings
         for i in range(2000):
             emb = np.zeros(384, dtype=np.float32)
             cache.store_embedding(f"file_{i}.py", "func", emb, "hash", "model")
-        
+
         # Call iter_embeddings with batch_size=100
         batches = list(cache.iter_embeddings(batch_size=100))
-        
+
         # Verify it yields 20 batches
         assert len(batches) == 20
         # Verify each batch has length 100

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -101,8 +100,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                     "--json",
                 ],
             )
@@ -147,8 +149,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                     "--json",
                 ],
             )
@@ -184,8 +189,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                 ],
             )
 
@@ -222,8 +230,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                     "--json",
                 ],
             )
@@ -259,9 +270,15 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
-                    "--pr", "1", "--repo-slug", "org/repo",
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
+                    "--pr",
+                    "1",
+                    "--repo-slug",
+                    "org/repo",
                     "--dry-run",
                 ],
             )
@@ -298,11 +315,14 @@ class TestAnalyzeCommand:
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"
 
-            result = runner.invoke(
+            runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                     "--skip-explanation",
                 ],
             )
@@ -316,6 +336,7 @@ class TestAnalyzeCommand:
     def test_missing_contract_exits_with_config_error(self, tmp_path: Path) -> None:
         """No .archguard.yml -> exit with CONFIG_ERROR."""
         from archguard.config import EXIT_CONFIG_ERROR
+
         repo = tmp_path / "empty_repo"
         repo.mkdir()
 
@@ -326,7 +347,9 @@ class TestAnalyzeCommand:
         assert result.exit_code == EXIT_CONFIG_ERROR
 
     def test_github_repository_env_detected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """GITHUB_REPOSITORY env var auto-detected."""
         repo = _setup_repo(tmp_path)
@@ -358,8 +381,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                     "--dry-run",
                 ],
                 env={"GITHUB_REPOSITORY": "org/repo"},
@@ -397,8 +423,11 @@ class TestAnalyzeCommand:
             result = runner.invoke(
                 app,
                 [
-                    "analyze", "--repo", str(repo),
-                    "--changed-files", str(py_file),
+                    "analyze",
+                    "--repo",
+                    str(repo),
+                    "--changed-files",
+                    str(py_file),
                 ],
             )
 

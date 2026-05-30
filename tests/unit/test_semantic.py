@@ -32,10 +32,10 @@ def bar(y):
     return d
 '''
 
-SHORT_FUNC_SOURCE = '''
+SHORT_FUNC_SOURCE = """
 def tiny(x):
     return x
-'''
+"""
 
 DOCSTRING_SOURCE = '''
 def documented(x):
@@ -60,6 +60,7 @@ def analyzer(cache: EmbeddingCache) -> SemanticAnalyzer:
 @pytest.fixture(autouse=True)
 def clear_global_model_cache() -> None:
     from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE
+
     _GLOBAL_MODEL_CACHE.clear()
 
 
@@ -83,7 +84,7 @@ class TestExtractModuleText:
         assert "MyClass" in text
 
     def test_no_docstring(self, tmp_path: Path) -> None:
-        src = 'def foo(): pass\nclass Bar: pass'
+        src = "def foo(): pass\nclass Bar: pass"
         f = tmp_path / "test.py"
         f.write_text(src, encoding="utf-8")
         text = extract_module_text(f)
@@ -91,7 +92,7 @@ class TestExtractModuleText:
         assert "Bar" in text
 
     def test_syntax_error(self, tmp_path: Path) -> None:
-        src = 'def foo(:::'
+        src = "def foo(:::"
         f = tmp_path / "test.py"
         f.write_text(src, encoding="utf-8")
         text = extract_module_text(f)
@@ -102,7 +103,8 @@ class TestComputeCentroid:
     """Tests for SemanticAnalyzer.compute_centroid."""
 
     def test_identical_embeddings(
-        self, analyzer: SemanticAnalyzer,
+        self,
+        analyzer: SemanticAnalyzer,
     ) -> None:
         v = np.array([1.0, 0.0, 0.0], dtype=np.float32)
         result = analyzer.compute_centroid({"a": v, "b": v})
@@ -111,6 +113,7 @@ class TestComputeCentroid:
 
     def test_empty_raises(self, analyzer: SemanticAnalyzer) -> None:
         from archguard.utils.errors import AnalysisError
+
         with pytest.raises(AnalysisError, match="empty"):
             analyzer.compute_centroid({})
 
@@ -137,7 +140,9 @@ class TestComputeDrift:
     """Tests for SemanticAnalyzer.compute_drift."""
 
     def test_no_stored_centroid(
-        self, analyzer: SemanticAnalyzer, tmp_path: Path,
+        self,
+        analyzer: SemanticAnalyzer,
+        tmp_path: Path,
     ) -> None:
         """No stored centroid -> drift_score=0.0, cache_hit=False."""
         py_file = tmp_path / "m.py"
@@ -145,9 +150,9 @@ class TestComputeDrift:
 
         mock_st = MagicMock()
         mock_model = MagicMock()
-        mock_model.encode.side_effect = (
-            lambda texts, **kw: np.random.rand(len(texts), 384).astype(np.float32)
-        )
+        mock_model.encode.side_effect = lambda texts, **kw: np.random.rand(
+            len(texts), 384
+        ).astype(np.float32)
         mock_st.SentenceTransformer.return_value = mock_model
 
         with patch.dict(sys.modules, {"sentence_transformers": mock_st}):
@@ -157,7 +162,9 @@ class TestComputeDrift:
         assert result.cache_hit is False
 
     def test_identical_embeddings_zero_drift(
-        self, cache: EmbeddingCache, tmp_path: Path,
+        self,
+        cache: EmbeddingCache,
+        tmp_path: Path,
     ) -> None:
         """Identical pre/post embeddings -> drift_score=0.0."""
         # Store a known centroid
@@ -171,8 +178,8 @@ class TestComputeDrift:
         # Mock encoder to return the same fixed vector for all inputs
         mock_st = MagicMock()
         mock_model = MagicMock()
-        mock_model.encode.side_effect = (
-            lambda texts, **kw: np.tile(fixed, (len(texts), 1))
+        mock_model.encode.side_effect = lambda texts, **kw: np.tile(
+            fixed, (len(texts), 1)
         )
         mock_st.SentenceTransformer.return_value = mock_model
 
@@ -184,30 +191,33 @@ class TestComputeDrift:
         assert result.cache_hit is True
 
     def test_model_loaded_only_once(
-        self, analyzer: SemanticAnalyzer, cache: EmbeddingCache, tmp_path: Path,
+        self,
+        analyzer: SemanticAnalyzer,
+        cache: EmbeddingCache,
+        tmp_path: Path,
     ) -> None:
         """Model should only be loaded once per analyzer (and globally shared)."""
         import sys
-        from archguard.analysis.semantic import FunctionChunk
-        
+
         mock_st = MagicMock()
         mock_model = MagicMock()
         mock_model.encode.return_value = np.zeros((1, 384), dtype=np.float32)
         mock_st.SentenceTransformer.return_value = mock_model
-        
+
         chunk1 = FunctionChunk("file1.py", "f1", "def f1(): pass", "h1")
         chunk2 = FunctionChunk("file2.py", "f2", "def f2(): pass", "h2")
-        
+
         with patch.dict(sys.modules, {"sentence_transformers": mock_st}):
             # Clear global cache for test
             from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE
+
             _GLOBAL_MODEL_CACHE.clear()
-            
+
             # First call
             analyzer.embed_chunks([chunk1])
             # Second call
             analyzer.embed_chunks([chunk2])
-            
+
             # Create a second analyzer to test global cache
             analyzer2 = SemanticAnalyzer(cache)
             analyzer2.embed_chunks([FunctionChunk("file3.py", "f3", "pass", "h3")])

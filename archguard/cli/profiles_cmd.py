@@ -17,6 +17,7 @@ profiles_app: typer.Typer = typer.Typer(
 
 _console = Console()
 
+
 @profiles_app.command("list")
 def list_profiles() -> None:
     """List all available configuration profiles and their default thresholds."""
@@ -35,8 +36,8 @@ def list_profiles() -> None:
             p["description"],
             f">={t['min_health_score']}%",
             f"<={t['max_coupling']} imports",
-            f"<={t['max_duplication']*100:.0f}%",
-            f">={t['min_cohesion']*100:.0f}%"
+            f"<={t['max_duplication'] * 100:.0f}%",
+            f">={t['min_cohesion'] * 100:.0f}%",
         )
 
     _console.print()

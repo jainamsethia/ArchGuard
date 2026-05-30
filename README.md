@@ -1,5 +1,5 @@
 # ArchGuard
-> **Architectural drift detection for Python CI pipelines**  
+> **Architectural drift detection for Python CI pipelines**
 > Catches import boundary violations, coupling degradation, and semantic drift before they reach main.
 
 [![CI](https://github.com/jainam-b/archguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainam-b/archguard/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/jainam-b/archguard/graph/badge.svg)](https://codecov.io/gh/jainam-b/archguard) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainam-b/archguard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
@@ -235,7 +235,7 @@ archguard analyze --json | jq '.summary'
 ## Testing
 ### Unit Tests
 poetry run pytest tests/unit/ -v
-### Integration Tests  
+### Integration Tests
 poetry run pytest tests/integration/ -v
 ### Docker Smoke Test
 make smoke-test

@@ -13,29 +13,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for co-change analysis
-          
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          
+
       - name: Install archguard (base)
         run: pip install -e .
-        
+
       - name: Validate contract schema
         run: archguard status
-        
+
       - name: Run archguard analyze (dry-run, no ML)
         run: archguard analyze --dry-run --repo . --skip-explanation
         env:
           ARCHGUARD_SKIP_ML: "true"
-          
+
       - name: Install archguard (with ML extras)
         run: pip install -e ".[ml]"
-        
+
       - name: Run archguard init (dry-run)
         run: archguard init --dry-run --repo .
-        
+
       - name: Run archguard analyze (with ML)
         run: archguard analyze --dry-run --repo .
         env:

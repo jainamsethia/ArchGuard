@@ -44,11 +44,7 @@ def _infer_path(files: list[str]) -> str:
         return "/".join(common_parts) + "/"
 
     # Scattered: use most common top-level directory
-    top_dirs = [
-        PurePosixPath(f).parts[0]
-        for f in normalized
-        if PurePosixPath(f).parts
-    ]
+    top_dirs = [PurePosixPath(f).parts[0] for f in normalized if PurePosixPath(f).parts]
     if top_dirs:
         return Counter(top_dirs).most_common(1)[0][0] + "/"
 
@@ -84,13 +80,15 @@ def write_contract(
         budget = max(3, math.ceil(fan_out * 1.5))
         path = _infer_path(files)
 
-        modules.append({
-            "name": name,
-            "path": path,
-            "fan_out_at_init": fan_out,
-            "coupling_budget": budget,
-            "semantic_drift_threshold": 0.25,
-        })
+        modules.append(
+            {
+                "name": name,
+                "path": path,
+                "fan_out_at_init": fan_out,
+                "coupling_budget": budget,
+                "semantic_drift_threshold": 0.25,
+            }
+        )
 
     contract: dict[str, Any] = {
         "version": "3.0",
@@ -110,7 +108,8 @@ def write_contract(
     dir_path.mkdir(parents=True, exist_ok=True)
 
     fd, tmp_name = tempfile.mkstemp(
-        suffix=".yml", dir=str(dir_path),
+        suffix=".yml",
+        dir=str(dir_path),
     )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as tmp:

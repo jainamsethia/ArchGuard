@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -12,9 +12,16 @@ logger = logging.getLogger(__name__)
 
 STDLIB_MODULES: frozenset[str] = frozenset(sys.stdlib_module_names)
 
-_SKIP_DIRS: frozenset[str] = frozenset({
-    "__pycache__", ".venv", "venv", ".git", "node_modules",
-})
+_SKIP_DIRS: frozenset[str] = frozenset(
+    {
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".git",
+        "node_modules",
+    }
+)
+
 
 @dataclass
 class ParseFailure:
@@ -23,6 +30,7 @@ class ParseFailure:
     error_message: str
     is_critical: bool = False
 
+
 @dataclass
 class ParseResult:
     edges: list[ImportEdge]
@@ -30,15 +38,14 @@ class ParseResult:
     is_partial: bool
 
 
-
 @dataclass(frozen=True)
 class ImportEdge:
     """Represents a single import dependency edge."""
 
-    source_file: str          # relative path from repo root
-    imported_module: str      # normalized module name e.g. "os.path"
+    source_file: str  # relative path from repo root
+    imported_module: str  # normalized module name e.g. "os.path"
     is_stdlib: bool
-    is_third_party: bool      # not stdlib and not in repo
+    is_third_party: bool  # not stdlib and not in repo
     is_relative: bool
 
 
@@ -72,29 +79,37 @@ class ImportParser:
         try:
             tree: Any = self._parser.parse(source.encode("utf-8"))
         except SyntaxError as e:
-            self._parse_failures.append(ParseFailure(
-                file_path=Path(file_path),
-                error_type="SyntaxError",
-                error_message=str(e),
-                is_critical=False
-            ))
+            self._parse_failures.append(
+                ParseFailure(
+                    file_path=Path(file_path),
+                    error_type="SyntaxError",
+                    error_message=str(e),
+                    is_critical=False,
+                )
+            )
             return []
         except UnicodeDecodeError as e:
-            self._parse_failures.append(ParseFailure(
-                file_path=Path(file_path),
-                error_type="UnicodeDecodeError",
-                error_message=str(e),
-                is_critical=False
-            ))
+            self._parse_failures.append(
+                ParseFailure(
+                    file_path=Path(file_path),
+                    error_type="UnicodeDecodeError",
+                    error_message=str(e),
+                    is_critical=False,
+                )
+            )
             return []
         except Exception as e:
-            self._parse_failures.append(ParseFailure(
-                file_path=Path(file_path),
-                error_type=type(e).__name__,
-                error_message=str(e),
-                is_critical=True
-            ))
-            logger.warning("Unexpected parse failure in %s: %s", file_path, e, exc_info=True)
+            self._parse_failures.append(
+                ParseFailure(
+                    file_path=Path(file_path),
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    is_critical=True,
+                )
+            )
+            logger.warning(
+                "Unexpected parse failure in %s: %s", file_path, e, exc_info=True
+            )
             return []
 
         first_party_roots = self._get_first_party_roots(module_paths or {})
@@ -102,9 +117,7 @@ class ImportParser:
 
         for node in self._iter_nodes(tree.root_node):
             if node.type == "import_statement":
-                edges.extend(
-                    self._process_import(node, file_path, first_party_roots)
-                )
+                edges.extend(self._process_import(node, file_path, first_party_roots))
             elif node.type == "import_from_statement":
                 edges.extend(
                     self._process_import_from(node, file_path, first_party_roots)
@@ -132,47 +145,56 @@ class ImportParser:
                 rel_path = str(py_file.relative_to(repo_root)).replace("\\", "/")
                 edges.extend(self.parse_file(source, rel_path, module_paths))
             except SyntaxError as e:
-                self._parse_failures.append(ParseFailure(
-                    file_path=py_file,
-                    error_type="SyntaxError",
-                    error_message=str(e),
-                    is_critical=False
-                ))
+                self._parse_failures.append(
+                    ParseFailure(
+                        file_path=py_file,
+                        error_type="SyntaxError",
+                        error_message=str(e),
+                        is_critical=False,
+                    )
+                )
             except UnicodeDecodeError as e:
-                self._parse_failures.append(ParseFailure(
-                    file_path=py_file,
-                    error_type="UnicodeDecodeError",
-                    error_message=str(e),
-                    is_critical=False
-                ))
+                self._parse_failures.append(
+                    ParseFailure(
+                        file_path=py_file,
+                        error_type="UnicodeDecodeError",
+                        error_message=str(e),
+                        is_critical=False,
+                    )
+                )
             except Exception as e:
-                self._parse_failures.append(ParseFailure(
-                    file_path=py_file,
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                    is_critical=True
-                ))
-                logger.warning("Unexpected parse failure in %s: %s", py_file, e, exc_info=True)
-                
+                self._parse_failures.append(
+                    ParseFailure(
+                        file_path=py_file,
+                        error_type=type(e).__name__,
+                        error_message=str(e),
+                        is_critical=True,
+                    )
+                )
+                logger.warning(
+                    "Unexpected parse failure in %s: %s", py_file, e, exc_info=True
+                )
+
         if self._parse_failures:
             critical_failures = [f for f in self._parse_failures if f.is_critical]
             logger.warning(
                 "Parse failures: %d files skipped (%d critical). "
                 "Analysis may be incomplete. Run with --verbose for details.",
                 len(self._parse_failures),
-                len(critical_failures)
+                len(critical_failures),
             )
             if critical_failures and not allow_partial:
                 from archguard.utils.errors import AnalysisPartialError
+
                 raise AnalysisPartialError(
                     f"Critical parse failures in {len(critical_failures)} files",
-                    failures=critical_failures
+                    failures=critical_failures,
                 )
 
         return ParseResult(
             edges=edges,
             failures=self.parse_failures,
-            is_partial=bool(self._parse_failures)
+            is_partial=bool(self._parse_failures),
         )
 
     # ------------------------------------------------------------------
@@ -226,13 +248,15 @@ class ImportParser:
             stdlib = _is_stdlib(root)
             third_party = not stdlib and root not in first_party_roots
 
-            edges.append(ImportEdge(
-                source_file=file_path,
-                imported_module=module_text,
-                is_stdlib=stdlib,
-                is_third_party=third_party,
-                is_relative=False,
-            ))
+            edges.append(
+                ImportEdge(
+                    source_file=file_path,
+                    imported_module=module_text,
+                    is_stdlib=stdlib,
+                    is_third_party=third_party,
+                    is_relative=False,
+                )
+            )
         return edges
 
     def _process_import_from(
@@ -255,21 +279,21 @@ class ImportParser:
         has_wildcard = any(c.type == "wildcard_import" for c in node.children)
 
         if has_wildcard:
-            root = (
-                module_text.lstrip(".").split(".")[0] if not is_relative else ""
-            )
+            root = module_text.lstrip(".").split(".")[0] if not is_relative else ""
             stdlib = _is_stdlib(root) if root else False
             third_party = (
                 not is_relative and not stdlib and root not in first_party_roots
             )
 
-            edges.append(ImportEdge(
-                source_file=file_path,
-                imported_module=module_text,
-                is_stdlib=stdlib,
-                is_third_party=third_party,
-                is_relative=is_relative,
-            ))
+            edges.append(
+                ImportEdge(
+                    source_file=file_path,
+                    imported_module=module_text,
+                    is_stdlib=stdlib,
+                    is_third_party=third_party,
+                    is_relative=is_relative,
+                )
+            )
         else:
             for name_node in node.children_by_field_name("name"):
                 name: str
@@ -291,24 +315,20 @@ class ImportParser:
                 else:
                     imported_module = module_text + "." + name
 
-                root = (
-                    module_text.lstrip(".").split(".")[0]
-                    if not is_relative
-                    else ""
-                )
+                root = module_text.lstrip(".").split(".")[0] if not is_relative else ""
                 stdlib = _is_stdlib(root) if root else False
                 third_party = (
-                    not is_relative
-                    and not stdlib
-                    and root not in first_party_roots
+                    not is_relative and not stdlib and root not in first_party_roots
                 )
 
-                edges.append(ImportEdge(
-                    source_file=file_path,
-                    imported_module=imported_module,
-                    is_stdlib=stdlib,
-                    is_third_party=third_party,
-                    is_relative=is_relative,
-                ))
+                edges.append(
+                    ImportEdge(
+                        source_file=file_path,
+                        imported_module=imported_module,
+                        is_stdlib=stdlib,
+                        is_third_party=third_party,
+                        is_relative=is_relative,
+                    )
+                )
 
         return edges

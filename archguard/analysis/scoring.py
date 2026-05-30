@@ -9,10 +9,12 @@ try:
     import numpy as np
     import numpy.typing as npt
     from scipy.optimize import nnls as _nnls
+
     _ML_AVAILABLE = True
 except ImportError:
     _ML_AVAILABLE = False
     import typing
+
     np: typing.Any = None  # type: ignore[no-redef]
     npt: typing.Any = None  # type: ignore[no-redef]
     _nnls: typing.Any = None  # type: ignore[no-redef]
@@ -21,9 +23,9 @@ except ImportError:
 class ArchDebtBand(str, Enum):
     """Classification bands for ArchDebt composite score."""
 
-    HEALTHY = "Healthy"    # score < warn_threshold
-    WATCH = "Watch"        # warn_threshold <= score < fail_threshold
-    WARN = "Warn"          # score >= fail_threshold (soft)
+    HEALTHY = "Healthy"  # score < warn_threshold
+    WATCH = "Watch"  # warn_threshold <= score < fail_threshold
+    WARN = "Warn"  # score >= fail_threshold (soft)
     CRITICAL = "Critical"  # score >= fail_threshold (composite breach)
 
 
@@ -31,9 +33,9 @@ class ArchDebtBand(str, Enum):
 class LayerScores:
     """Raw scores for each analysis layer (0.0–1.0)."""
 
-    layer1_violation: float    # import boundary violation ratio
-    layer2_coupling: float     # CouplingDelta max across modules
-    layer3_drift: float        # SemanticDrift max across modules
+    layer1_violation: float  # import boundary violation ratio
+    layer2_coupling: float  # CouplingDelta max across modules
+    layer3_drift: float  # SemanticDrift max across modules
     layer4_duplication: float  # DuplicationResult aggregate max
 
 
@@ -45,9 +47,9 @@ class ArchDebtResult:
     band: ArchDebtBand
     layer_scores: LayerScores
     weights: tuple[float, float, float, float]
-    per_component_breach: bool     # any single layer > its threshold
-    composite_breach: bool         # composite_score >= fail_threshold
-    should_fail_ci: bool           # per_component_breach OR composite_breach
+    per_component_breach: bool  # any single layer > its threshold
+    composite_breach: bool  # composite_score >= fail_threshold
+    should_fail_ci: bool  # per_component_breach OR composite_breach
     fail_reasons: list[str] = field(default_factory=list)
 
 

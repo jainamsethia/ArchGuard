@@ -18,8 +18,14 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"\bsk-ant-[a-zA-Z0-9\-]{50,150}\b", "ANTHROPIC_KEY"),
     (r"\bsk-[a-zA-Z0-9]{48}\b", "OPENAI_KEY"),
     (r"\bAKIA[0-9A-Z]{16}\b", "AWS_KEY"),
-    (r"(?i)\baws_secret_access_key\s*=\s*['\"][A-Za-z0-9/+=]{40}['\"]", "AWS_SECRET_ACCESS_KEY"),
-    (r"(?i)(postgres|mysql|mongodb|redis|amqp)://[^:]+:[^@]+@[^\s\"']+", "DATABASE_URL"),
+    (
+        r"(?i)\baws_secret_access_key\s*=\s*['\"][A-Za-z0-9/+=]{40}['\"]",
+        "AWS_SECRET_ACCESS_KEY",
+    ),
+    (
+        r"(?i)(postgres|mysql|mongodb|redis|amqp)://[^:]+:[^@]+@[^\s\"']+",
+        "DATABASE_URL",
+    ),
     (r"\bghp_[a-zA-Z0-9]{36}\b", "GITHUB_PAT"),
     (
         r'(password|passwd|secret|api_key|token)\s*=\s*["\'][^"\']{8,}',

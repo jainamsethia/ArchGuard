@@ -33,7 +33,8 @@ class TestDetectCommunities:
         assert len(result) == 2
 
     def test_communities_sorted_by_size_desc(
-        self, two_cluster_graph: nx.Graph,
+        self,
+        two_cluster_graph: nx.Graph,
     ) -> None:
         """module_0 should be the largest community."""
         result = detect_communities(two_cluster_graph, seed=42)
@@ -41,7 +42,8 @@ class TestDetectCommunities:
         assert sizes == sorted(sizes, reverse=True)
 
     def test_determinism_same_seed(
-        self, two_cluster_graph: nx.Graph,
+        self,
+        two_cluster_graph: nx.Graph,
     ) -> None:
         """Same graph + same seed -> identical partition."""
         r1 = detect_communities(two_cluster_graph, seed=42)
@@ -81,29 +83,36 @@ class TestDetectCommunities:
         result = detect_communities(g, seed=42)
         assert result == {}
 
+
 class TestGetSeedFromRepo:
-    def test_get_seed_from_repo_success(self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_seed_from_repo_success(
+        self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from archguard.analysis.community import get_seed_from_repo
         from unittest.mock import MagicMock
         import sys
-        
+
         mock_pydriller = MagicMock()
         mock_commit = MagicMock()
         mock_commit.hash = "01234567"
-        mock_pydriller.Repository.return_value.traverse_commits.return_value = [mock_commit]
-        
+        mock_pydriller.Repository.return_value.traverse_commits.return_value = [
+            mock_commit
+        ]
+
         with monkeypatch.context() as m:
             m.setitem(sys.modules, "pydriller", mock_pydriller)
             assert get_seed_from_repo(tmp_path) == int("01234567", 16)
 
-    def test_get_seed_from_repo_fallback(self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_seed_from_repo_fallback(
+        self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from archguard.analysis.community import get_seed_from_repo
         from unittest.mock import MagicMock
         import sys
-        
+
         mock_pydriller = MagicMock()
         mock_pydriller.Repository.side_effect = Exception("No repo")
-        
+
         with monkeypatch.context() as m:
             m.setitem(sys.modules, "pydriller", mock_pydriller)
             assert get_seed_from_repo(tmp_path) == 42
