@@ -59,27 +59,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for git-diff in integration tests
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: pip install "poetry==2.4.1" && poetry install --with dev
-      - name: Run unit tests
+      - name: Run unit and integration tests
         run: |
-          poetry run pytest tests/unit/ \
+          poetry run pytest tests/unit/ tests/integration/ \
             --cov=archguard \
-            --cov-report=xml
-        env:
-          ARCHGUARD_AUDIT_STRICT: "1"
-          ARCHGUARD_TEST_MODE: "1"
-      - name: Run integration tests
-        run: |
-          poetry run pytest tests/integration/ -v \
+            --cov-report=xml \
             --timeout=60
         env:
           ARCHGUARD_AUDIT_STRICT: "1"
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ARCHGUARD_MOCK_LLM: "1"  # use mock LLM in tests
+          ARCHGUARD_TEST_MODE: "1"
+          ARCHGUARD_MOCK_LLM: "1"
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

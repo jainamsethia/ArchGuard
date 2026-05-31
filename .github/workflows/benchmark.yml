@@ -22,11 +22,11 @@ jobs:
       - name: Run benchmarks
         run: |
           if [ -f .benchmarks/baseline.json ]; then
-            pytest tests/benchmarks/ --benchmark-json=.benchmarks/current.json
-            python scripts/check_benchmarks.py --baseline .benchmarks/baseline.json --current .benchmarks/current.json
+            poetry run pytest tests/benchmarks/ --benchmark-json=.benchmarks/current.json
+            poetry run python scripts/check_benchmarks.py --baseline .benchmarks/baseline.json --current .benchmarks/current.json
           else
             echo "No baseline found. Generating baseline for future runs."
-            pytest tests/benchmarks/ --benchmark-json=.benchmarks/baseline.json
+            poetry run pytest tests/benchmarks/ --benchmark-json=.benchmarks/baseline.json
           fi
 
       - name: Upload benchmark results

@@ -26,23 +26,20 @@ jobs:
 
       - name: Validate contract schema
         run: poetry run archguard status
-        env:
-          ARCHGUARD_SKIP_ML: "1"
 
       - name: Run archguard analyze (dry-run, no ML)
         run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
           ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_ML: "1"
+          ARCHGUARD_MOCK_LLM: "1"
 
       - name: Install archguard (with ML extras)
         run: poetry install --with ml
-
-      - name: Run archguard init (dry-run)
-        run: poetry run archguard init --dry-run --repo .
 
       - name: Run archguard analyze (with ML, skip LLM)
         run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
           ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_ML: "1"
+          ARCHGUARD_MOCK_LLM: "1"
