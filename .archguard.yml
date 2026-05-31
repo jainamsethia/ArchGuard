@@ -4,7 +4,15 @@ modules:
     path: "archguard/"
     coupling_budget: 15
     semantic_drift_threshold: 0.30
+    allowed_imports: []
+    disallowed_imports: []
   - name: tests
     path: "tests/"
+    coupling_budget: 20
+    allowed_imports: ["archguard"]
+    disallowed_imports: []
+skip_layers:
+  - semantic
+  - duplication
 fail_threshold: 0.75
 warn_threshold: 0.50

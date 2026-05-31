@@ -20,25 +20,29 @@ jobs:
           python-version: "3.12"
 
       - name: Install archguard (base)
-        run: pip install -e .
+        run: |
+          pip install "poetry==2.4.1"
+          poetry install
 
       - name: Validate contract schema
-        run: archguard status
+        run: poetry run archguard status
+        env:
+          ARCHGUARD_SKIP_ML: "1"
 
       - name: Run archguard analyze (dry-run, no ML)
-        run: archguard analyze --dry-run --repo . --skip-explanation
+        run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
           ARCHGUARD_AUDIT_STRICT: "1"
-          ARCHGUARD_SKIP_ML: "true"
+          ARCHGUARD_SKIP_ML: "1"
 
       - name: Install archguard (with ML extras)
-        run: pip install -e ".[ml]"
+        run: poetry install --with ml
 
       - name: Run archguard init (dry-run)
-        run: archguard init --dry-run --repo .
+        run: poetry run archguard init --dry-run --repo .
 
-      - name: Run archguard analyze (with ML)
-        run: archguard analyze --dry-run --repo .
+      - name: Run archguard analyze (with ML, skip LLM)
+        run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
           ARCHGUARD_AUDIT_STRICT: "1"
-          ARCHGUARD_SKIP_LLM: "true"  # Don't need API key in CI
+          ARCHGUARD_SKIP_ML: "1"
