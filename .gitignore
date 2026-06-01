@@ -52,9 +52,6 @@ patch_*.py
 search_*.py
 fix_*.py
 
-# Benchmark baselines (large binary JSON, tracked separately)
-.benchmarks/baseline.json
-
 # Development artifacts
 audit-results.json
 

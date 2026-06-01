@@ -1,3 +1,4 @@
+import os
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -38,6 +39,7 @@ def test_layers_concurrent_violations():
          patch.object(orchestrator, "_run_layer4", return_value=(0.2, l4_violations)) as m4, \
          patch.object(orchestrator, "_get_affected_modules", return_value={"test": [Path("src/test.py")]}), \
          patch.object(orchestrator, "_run_reinference"), \
+         patch.dict(os.environ, {"ARCHGUARD_SKIP_ML": "0"}), \
          patch("archguard.analysis.layers.compute_archdebt") as mock_compute:
          
         mock_compute.return_value = MagicMock()

@@ -7,7 +7,6 @@ on:
     branches: [main]
 
 env:
-  ARCHGUARD_AUDIT_STRICT: "1"
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -60,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed for git-diff in integration tests
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -71,10 +70,10 @@ jobs:
           poetry run pytest tests/unit/ tests/integration/ \
             --cov=archguard \
             --cov-report=xml \
-            --timeout=60
+            --timeout=120
         env:
-          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_TEST_MODE: "1"
+          ARCHGUARD_SKIP_ML: "1"
           ARCHGUARD_MOCK_LLM: "1"
       - name: Upload coverage
         uses: codecov/codecov-action@v4

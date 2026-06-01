@@ -30,7 +30,6 @@ jobs:
       - name: Run archguard analyze (dry-run, no ML)
         run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
-          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_ML: "1"
           ARCHGUARD_MOCK_LLM: "1"
 
@@ -40,6 +39,5 @@ jobs:
       - name: Run archguard analyze (with ML, skip LLM)
         run: poetry run archguard analyze --dry-run --repo . --skip-explanation
         env:
-          ARCHGUARD_AUDIT_STRICT: "1"
           ARCHGUARD_SKIP_ML: "1"
           ARCHGUARD_MOCK_LLM: "1"

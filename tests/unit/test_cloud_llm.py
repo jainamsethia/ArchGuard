@@ -253,6 +253,7 @@ class TestCloudLLMExplainer:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Verify the model sent in API calls matches the configured FALLBACK_MODEL."""
+        monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
         monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
         mock_anthropic_module = MagicMock()
         monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_anthropic_module)
