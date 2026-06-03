@@ -21,6 +21,24 @@ def _make_store(tmp_path: Path) -> SuppressionStore:
 
 
 class TestSuppressionAdd:
+    def test_add_persists_across_new_instance(self, tmp_path: Path) -> None:
+        store1 = _make_store(tmp_path)
+        store1.add("payments", 1, "bad import", "tech debt")
+        
+        store2 = _make_store(tmp_path)
+        loaded = store2.list_all()
+        assert len(loaded) == 1
+        assert loaded[0].module == "payments"
+        assert loaded[0].layer == 1
+
+    def test_is_suppressed_returns_false_for_non_suppressed(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.add("payments", 1, "bad import", "tech debt")
+        
+        assert store.is_suppressed("payments", 1, "different import") is False
+        assert store.is_suppressed("other_module", 1, "bad import") is False
+        assert store.is_suppressed("payments", 2, "bad import") is False
+
     def test_valid_add_readable(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
         s = store.add("payments", 1, "bad import", "tech debt")
@@ -50,16 +68,17 @@ class TestSuppressionAdd:
         store = _make_store(tmp_path)
         with pytest.raises(
             SuppressionValidationError,
-            match="layer must be 1, 2, or 3",
+            match="layer must be 1, 2, 3, or 4",
         ):
             store.add("mod", 5, "msg", "reason")
 
-    def test_layer_4_unsuppressable(self, tmp_path: Path) -> None:
-        store = _make_store(tmp_path)
-        with pytest.raises(
-            SuppressionValidationError, match="Layer 4 violations cannot be suppressed"
-        ):
-            store.add("mod", 4, "msg", "reason")
+    def test_layer4_violations_can_be_suppressed(self, tmp_path: Path) -> None:
+        """After Bug N-1 fix, Layer 4 violations must be suppressable."""
+        from archguard.suppression.store import SuppressionStore
+        store = SuppressionStore(tmp_path)
+        store.add(module="api", layer=4, message="Duplicate function body", reason="test")
+        assert store.is_suppressed("api", 4, "Duplicate function body") is True
+        assert store.is_suppressed("api", 4, "Different message") is False
 
 
 class TestSuppressionList:
@@ -239,7 +258,6 @@ class TestConcurrency:
             # Thread A acquiring the lock and reading/writing the data!
             # Since Thread B is "another process", we just append to the file.
             with store._path.open("a", encoding="utf-8") as f:
-                import json
                 from archguard.suppression.models import suppression_to_jsonl, Suppression
                 import uuid
                 from datetime import datetime, timezone

@@ -20,11 +20,11 @@ def test_run_orchestrator_fail_fast_layer1():
     
     # We just want to ensure it calls _build_partial_result correctly and returns it
     mock_partial_result = MagicMock()
-    orchestrator._build_partial_result.return_value = mock_partial_result
     
     with patch("archguard.analysis._layer_runners._run_layer1") as m_l1, \
          patch("archguard.analysis._layer_runners._run_layer2") as m_l2, \
-         patch("archguard.analysis._orchestrator_utils._get_affected_modules", return_value=[]):
+         patch("archguard.analysis._orchestrator_utils._get_affected_modules", return_value=[]), \
+         patch("archguard.analysis._orchestrator_utils._build_partial_result", return_value=mock_partial_result) as mock_bpr:
         
         # layer 1 returns score 0.8 (exceeds 0.5 threshold)
         m_l1.return_value = (0.8, [ViolationDetail(1, "m", "msg", "file", "sha")])
@@ -32,10 +32,10 @@ def test_run_orchestrator_fail_fast_layer1():
         
         result = _run_orchestrator(orchestrator, [Path("/tmp/a.py")], "sha", fail_fast=True, quiet=True)
         assert result is mock_partial_result
-        orchestrator._build_partial_result.assert_called_once()
-        args = orchestrator._build_partial_result.call_args[0]
-        # the first argument is layer1 score
-        assert args[0] == 0.8
+        mock_bpr.assert_called_once()
+        args = mock_bpr.call_args[0]
+        # the first argument is repo_root, second is contract, third is filter_fn, fourth is layer1 score
+        assert args[3] == 0.8
 
 def test_run_orchestrator_layer3_ml_exception():
     orchestrator = MagicMock()

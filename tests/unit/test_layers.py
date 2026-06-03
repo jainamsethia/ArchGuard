@@ -1,3 +1,5 @@
+from archguard.analysis._suppression_filter import _filter_suppressed
+from archguard.analysis._orchestrator_utils import _get_affected_modules
 from archguard.analysis.layers import AnalysisOrchestrator
 
 
@@ -36,7 +38,7 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
 
     changed_files = [api_file, core_file, util_file1, util_file2, unknown_file]
 
-    affected = orchestrator._get_affected_modules(changed_files)
+    affected = _get_affected_modules(orchestrator.repo_root, orchestrator.contract, changed_files)
 
     assert "api" in affected
     assert api_file in affected["api"]
@@ -92,15 +94,15 @@ def test_drift_computed_once_per_run(tmp_path):
 
     with (
         patch(
-            "archguard.analysis.layers.AnalysisOrchestrator._run_layer1",
+            "archguard.analysis._layer_runners._run_layer1",
             return_value=(0.0, []),
         ),
         patch(
-            "archguard.analysis.layers.AnalysisOrchestrator._run_layer2",
+            "archguard.analysis._layer_runners._run_layer2",
             return_value=(0.0, []),
         ),
         patch(
-            "archguard.analysis.layers.AnalysisOrchestrator._run_layer4",
+            "archguard.analysis._layer_runners._run_layer4",
             return_value=(0.0, []),
         ),
         patch(
@@ -151,3 +153,38 @@ def test_analysis_orchestrator_context_manager(tmp_path):
     
     with pytest.raises(sqlite3.ProgrammingError, match="Cannot operate on a closed database"):
         db_instance.count_embeddings()
+
+def test_filter_suppressed_layer_4(tmp_path):
+    from unittest.mock import patch
+    from archguard.analysis.layers import AnalysisOrchestrator, ViolationDetail
+    from archguard.analysis._models import Severity
+    
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    
+    contract = {"modules": []}
+    
+    class MockOrchestrator(AnalysisOrchestrator):
+        def __init__(self):
+            self.repo_root = repo_root
+            self.contract = contract
+            
+    orchestrator = MockOrchestrator()
+    
+    violation = ViolationDetail(
+        module="api",
+        layer=4,
+        message="Duplicate function body",
+        severity=Severity.HIGH,
+        file_path="src/api.py",
+        commit_sha="abcd123"
+    )
+    
+    with patch("archguard.suppression.store.SuppressionStore") as mock_store_cls:
+        mock_store = mock_store_cls.return_value
+        mock_store.is_suppressed.return_value = True
+        
+        filtered = _filter_suppressed(orchestrator.repo_root, [violation])
+        
+        assert len(filtered) == 0
+        mock_store.is_suppressed.assert_called_once_with("api", 4, "Duplicate function body")

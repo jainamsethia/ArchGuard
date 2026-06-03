@@ -6,7 +6,8 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from rich.console import Console
 
-from archguard.cli.analyze_cmd import AnalyzeOptions, _analyze_command_impl
+from archguard.cli.analyze_cmd import AnalyzeOptions
+from archguard.cli._analyze_core import _analyze_command_impl
 
 
 class AnalysisEventHandler(FileSystemEventHandler):

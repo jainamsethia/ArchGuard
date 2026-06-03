@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "archguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Architectural drift detector for Python codebases."
 authors = []
 readme = "README.md"
@@ -19,7 +19,6 @@ typer = {extras = ["all"], version = ">=0.9,<1.0"}
 rich = ">=13.0"
 pyyaml = ">=6.0"
 jsonschema = ">=4.17"
-requests = ">=2.28"
 ruamel-yaml = ">=0.18"
 tree-sitter = ">=0.21,<0.22"
 tree-sitter-python = ">=0.21,<0.22"
@@ -28,6 +27,7 @@ python-louvain = ">=0.16"
 pydriller = ">=2.5"
 httpx = ">=0.25"
 watchdog = ">=3.0.0"
+anthropic = "^0.105.2"
 
 [tool.poetry.extras]
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
@@ -54,12 +54,13 @@ sentence-transformers = ">=2.2"
 faiss-cpu = ">=1.7"
 
 [tool.poetry.group.cloud.dependencies]
-anthropic = ">=0.20,<1.0"
+anthropic = ">=0.105.0"
 boto3 = ">=1.28.0"
 
 [tool.poetry.group.dashboard.dependencies]
 fastapi = ">=0.100.0"
 uvicorn = ">=0.23.0"
+cachetools = ">=5.0"
 
 [tool.mypy]
 python_version = "3.12"

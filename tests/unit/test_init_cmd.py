@@ -11,10 +11,10 @@ import pytest
 from typer.testing import CliRunner
 
 from archguard.cli.main import app
-from archguard.cli.init_cmd import (
-    latest_completed_phase,
-    save_checkpoint,
-)
+from archguard.cli._init_checkpoints import save_checkpoint, latest_completed_phase
+from archguard.cli._init_contract import _phase4_embeddings
+from archguard.cli._init_wizard import _interactive_review
+
 
 runner: CliRunner = CliRunner()
 
@@ -67,7 +67,7 @@ class TestInitCommand:
 
     @pytest.fixture(autouse=True)
     def mock_prompt(self):
-        with patch("archguard.cli.init_cmd.Prompt.ask", return_value="1"):
+        with patch("archguard.cli._init_contract.Prompt.ask", return_value="1"):
             yield
 
     def test_empty_dir_exit_1(self, tmp_path: Path) -> None:
@@ -239,7 +239,7 @@ class TestInitCommand:
         _create_py_files(tmp_path)
         mocks = _make_mock_deps()
         with (
-            patch("archguard.cli.init_cmd.is_tty", return_value=False),
+            patch("archguard.cli._init_dispatch.is_tty", return_value=False),
             patch.dict(sys.modules, mocks),
         ):
             result = runner.invoke(
@@ -251,7 +251,6 @@ class TestInitCommand:
 
     def test_phase4_embeddings_no_llm(self, tmp_path: Path) -> None:
         """_phase4_embeddings returns mock data when no_llm is True."""
-        from archguard.cli.init_cmd import _phase4_embeddings
 
         communities = {"mod1": ["file1.py"]}
         res = _phase4_embeddings(communities, tmp_path, ["file1.py"], no_llm=True)
@@ -262,7 +261,6 @@ class TestInitCommand:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """_phase4_embeddings must not raise NameError."""
-        from archguard.cli.init_cmd import _phase4_embeddings
 
         _create_py_files(tmp_path)
         communities = {"mod1": ["file1.py", "file2.py", "file3.py"]}
@@ -270,9 +268,9 @@ class TestInitCommand:
 
         mocks = _make_mock_deps()
         with patch.dict(sys.modules, mocks):
-            monkeypatch.setattr("archguard.cli.init_cmd._console", MagicMock())
+            monkeypatch.setattr("archguard.cli._init_contract._console", MagicMock())
             monkeypatch.setattr(
-                "archguard.cli.init_cmd.Prompt.ask", lambda *args, **kwargs: "1"
+                "archguard.cli._init_contract.Prompt.ask", lambda *args, **kwargs: "1"
             )
 
             res = _phase4_embeddings(communities, tmp_path, python_files, no_llm=False)
@@ -282,7 +280,6 @@ class TestInitCommand:
 
     def test_interactive_review_accept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_interactive_review handles 'y'."""
-        from archguard.cli.init_cmd import _interactive_review
 
         communities = {"mod1": ["file1.py"]}
         monkeypatch.setattr("typer.prompt", lambda *a, **k: "y")
@@ -291,7 +288,6 @@ class TestInitCommand:
 
     def test_interactive_review_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_interactive_review handles 'n'."""
-        from archguard.cli.init_cmd import _interactive_review
 
         communities = {"mod1": ["file1.py"]}
         monkeypatch.setattr("typer.prompt", lambda *a, **k: "n")
@@ -300,7 +296,6 @@ class TestInitCommand:
 
     def test_interactive_review_rename(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_interactive_review handles 'rename'."""
-        from archguard.cli.init_cmd import _interactive_review
 
         communities = {"mod1": ["file1.py"]}
         prompts = iter(["rename", "mod2"])

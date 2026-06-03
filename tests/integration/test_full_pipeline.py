@@ -148,7 +148,7 @@ def test_incremental_reads_from_cache_dir(git_repo):
         changed_files=["api/routes.py", "db/models.py", "utils/helpers.py"]
     )
 
-    with patch("archguard.cli.analyze_cmd.AnalysisOrchestrator.run", return_value=fake_result):
+    with patch("archguard.cli._analyze_core.AnalysisOrchestrator.run", return_value=fake_result):
         # 1. First run generates cache and audit log
         res1 = runner.invoke(
             app,
@@ -185,7 +185,7 @@ def test_incremental_reads_from_cache_dir(git_repo):
             changed_files=["api/routes.py"]
         )
 
-    with patch("archguard.cli.analyze_cmd.AnalysisOrchestrator.run", return_value=fake_result2):
+    with patch("archguard.cli._analyze_core.AnalysisOrchestrator.run", return_value=fake_result2):
         # 3. Second run incrementally
         res2 = runner.invoke(
             app,

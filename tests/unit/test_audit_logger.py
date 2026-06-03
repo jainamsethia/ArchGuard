@@ -17,7 +17,6 @@ def test_read_last_run_finds_written_event():
 
 
 def test_analysis_orchestrator_logs_parse_failure(tmp_path):
-    from pathlib import Path
     from unittest.mock import patch
     from archguard.audit.logger import AuditLogger
     from archguard.analysis.layers import AnalysisOrchestrator
@@ -41,13 +40,14 @@ def test_analysis_orchestrator_logs_parse_failure(tmp_path):
         error_message = "unexpected EOF"
         is_critical = True
 
-    def mock_l1(py_files, affected, commit_sha, parse_failures):
+    def mock_l1(*args, **kwargs):
+        parse_failures = args[-1]
         parse_failures.append(MockFailure())
         return 0.0, []
 
-    with patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer1", side_effect=mock_l1), \
-         patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer2", return_value=(0.0, [])), \
-         patch("archguard.analysis.layers.AnalysisOrchestrator._run_layer4", return_value=(0.0, [])):
+    with patch("archguard.analysis._layer_runners._run_layer1", side_effect=mock_l1), \
+         patch("archguard.analysis._layer_runners._run_layer2", return_value=(0.0, [])), \
+         patch("archguard.analysis._layer_runners._run_layer4", return_value=(0.0, [])):
         result = orchestrator.run([bad_py], commit_sha="1234567", quiet=True)
 
     assert log_file.exists(), "Audit log should have been created."

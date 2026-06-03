@@ -52,6 +52,31 @@ class ArchDebtResult:
     should_fail_ci: bool  # per_component_breach OR composite_breach
     fail_reasons: list[str] = field(default_factory=list)
 
+    @property
+    def health_score(self) -> float:
+        """Health score 0–100 where HIGHER = BETTER. Inverse of composite debt.
+        composite_score is 0.0–1.0 where HIGHER = WORSE.
+        health_score = (1.0 - composite_score) * 100
+        Examples:
+        composite_score=0.125 → health_score=87.5  (healthy)
+        composite_score=0.750 → health_score=25.0  (unhealthy)
+        """
+        return round((1.0 - self.composite_score) * 100, 1)
+
+    @property
+    def health_grade(self) -> str:
+        """Letter grade A/B/C/D/F based on health_score (higher = better)."""
+        h = self.health_score
+        if h >= 90:
+            return "A"
+        if h >= 80:
+            return "B"
+        if h >= 70:
+            return "C"
+        if h >= 60:
+            return "D"
+        return "F"
+
 
 DEFAULT_WEIGHTS: tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25)
 

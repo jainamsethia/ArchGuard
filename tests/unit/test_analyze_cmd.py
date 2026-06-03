@@ -76,6 +76,7 @@ class TestAnalyzeCommand:
         # Mock the orchestrator to avoid real analysis
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.30
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.should_fail_ci = False
         mock_result.archdebt.layer_scores.layer1_violation = 0.1
@@ -89,7 +90,7 @@ class TestAnalyzeCommand:
         mock_result.skipped_layers_names = []
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_orch_cls:
             mock_orch = MagicMock()
             mock_orch.contract = {}
@@ -126,6 +127,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.80
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Critical"
         mock_result.archdebt.band = MagicMock()
         mock_result.archdebt.should_fail_ci = True
@@ -139,7 +141,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -167,6 +169,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.30
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.should_fail_ci = False
         mock_result.archdebt.layer_scores.layer1_violation = 0.1
@@ -179,7 +182,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -206,6 +209,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.30
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.band = MagicMock()
         mock_result.archdebt.should_fail_ci = True  # per-component breach
@@ -220,7 +224,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -248,6 +252,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.30
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.should_fail_ci = False
         mock_result.archdebt.layer_scores.layer1_violation = 0.1
@@ -260,7 +265,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -295,6 +300,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.10
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.band = MagicMock()
         mock_result.archdebt.should_fail_ci = False
@@ -308,7 +314,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -358,6 +364,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.10
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.band = MagicMock()
         mock_result.archdebt.should_fail_ci = False
@@ -371,7 +378,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -400,6 +407,7 @@ class TestAnalyzeCommand:
 
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.10
+        mock_result.archdebt.health_score = 90.0
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.band = MagicMock()
         mock_result.archdebt.should_fail_ci = False
@@ -413,7 +421,7 @@ class TestAnalyzeCommand:
         mock_result.changed_files = ["src/core/main.py"]
 
         with patch(
-            "archguard.cli.analyze_cmd.AnalysisOrchestrator",
+            "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
             mock_orch.run.return_value = mock_result
@@ -435,9 +443,9 @@ class TestAnalyzeCommand:
         assert result.exit_code == 0
 
     def test_run_llm_explanation_success(self, tmp_path: Path) -> None:
-        from archguard.cli.analyze_cmd import _run_llm_explanation, AnalyzeOptions
+        from archguard.cli._analyze_core import _run_llm_explanation
+        from archguard.cli._analyze_options import AnalyzeOptions
         from archguard.analysis.layers import AnalysisResult
-        import archguard.cli.analyze_cmd
 
         mock_result = MagicMock(spec=AnalysisResult)
         mock_result.archdebt = MagicMock()
@@ -451,7 +459,7 @@ class TestAnalyzeCommand:
 
         with patch("archguard.llm.cloud.CloudLLMExplainer") as mock_explainer_cls, \
              patch("archguard.utils.async_utils.run_async") as mock_run_async, \
-             patch("archguard.cli.analyze_cmd.attach_explanations") as mock_attach:
+             patch("archguard.cli._analyze_core.attach_explanations") as mock_attach:
              
             mock_run_async.return_value = ["Expl 1"]
             mock_attach.return_value = "new_result"
@@ -461,26 +469,28 @@ class TestAnalyzeCommand:
             mock_attach.assert_called_once_with(mock_result, ["Expl 1"])
 
     def test_format_rich_output_quiet(self, tmp_path: Path) -> None:
-        from archguard.cli.analyze_cmd import _format_rich_output, AnalyzeOptions
+        from archguard.cli._analyze_output import _format_rich_output, AnalyzeOptions
         mock_result = MagicMock()
         mock_result.archdebt.should_fail_ci = False
         mock_result.archdebt.composite_score = 0.5
+        mock_result.archdebt.health_score = 90.0
         
         ctx = MagicMock()
         ctx.obj = {"quiet": True}
         opts = AnalyzeOptions(ctx=ctx, repo=tmp_path)
         
-        with patch("archguard.cli.analyze_cmd._console.print") as mock_print:
+        with patch("archguard.cli._analyze_output._console.print") as mock_print:
             _format_rich_output(mock_result, opts)
             mock_print.assert_called_once()
             assert "PASSED" in mock_print.call_args[0][0]
 
     def test_write_json_output_to_file(self, tmp_path: Path) -> None:
-        from archguard.cli.analyze_cmd import _write_json_output, AnalyzeOptions
+        from archguard.cli._analyze_output import _write_json_output, AnalyzeOptions
         
         mock_result = MagicMock()
         mock_result.archdebt.band.name = "HEALTHY"
         mock_result.archdebt.composite_score = 0.5
+        mock_result.archdebt.health_score = 90.0
         mock_result.violations = []
         
         out_file = tmp_path / "out.json"
@@ -494,11 +504,12 @@ class TestAnalyzeCommand:
         assert data["band"] == "PASS"
 
     def test_write_audit_log(self, tmp_path: Path) -> None:
-        from archguard.cli.analyze_cmd import _write_audit_log, AnalyzeOptions
+        from archguard.cli._analyze_output import _write_audit_log, AnalyzeOptions
         
         mock_result = MagicMock()
         mock_result.archdebt.band.name = "HEALTHY"
         mock_result.archdebt.composite_score = 0.5
+        mock_result.archdebt.health_score = 90.0
         mock_result.violations = []
         
         ctx = MagicMock()
@@ -510,11 +521,12 @@ class TestAnalyzeCommand:
             mock_audit.return_value.log.assert_called_once()
 
     def test_post_github_annotations(self, tmp_path: Path) -> None:
-        from archguard.cli.analyze_cmd import _post_github_annotations, AnalyzeOptions
+        from archguard.cli._analyze_github import _post_github_annotations, AnalyzeOptions
         
         mock_result = MagicMock()
         mock_result.commit_sha = "abc1234"
         mock_result.archdebt.composite_score = 0.5
+        mock_result.archdebt.health_score = 90.0
         mock_result.violations = []
         
         ctx = MagicMock()

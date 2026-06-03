@@ -11,8 +11,5 @@ modules:
     coupling_budget: 20
     allowed_imports: ["archguard"]
     disallowed_imports: []
-skip_layers:
-  - semantic
-  - duplication
 fail_threshold: 0.75
 warn_threshold: 0.50

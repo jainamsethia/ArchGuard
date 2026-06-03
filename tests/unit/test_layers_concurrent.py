@@ -1,5 +1,4 @@
 import os
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import concurrent.futures
@@ -33,14 +32,14 @@ def test_layers_concurrent_violations():
     l3_violations = [MockViolationDetail(layer=3, message="L3 violation")]
     l4_violations = [MockViolationDetail(layer=4, message="L4 violation")]
     
-    with patch.object(orchestrator, "_run_layer1", return_value=(0.5, l1_violations)) as m1, \
-         patch.object(orchestrator, "_run_layer2", return_value=(0.3, l2_violations)) as m2, \
-         patch.object(orchestrator, "_run_layer3", return_value=(0.1, {}, l3_violations)) as m3, \
-         patch.object(orchestrator, "_run_layer4", return_value=(0.2, l4_violations)) as m4, \
-         patch.object(orchestrator, "_get_affected_modules", return_value={"test": [Path("src/test.py")]}), \
-         patch.object(orchestrator, "_run_reinference"), \
+    with patch("archguard.analysis._layer_runners._run_layer1", return_value=(0.5, l1_violations)) as m1, \
+         patch("archguard.analysis._layer_runners._run_layer2", return_value=(0.3, l2_violations)) as m2, \
+         patch("archguard.analysis._layer_runners._run_layer3", return_value=(0.1, {}, l3_violations)) as m3, \
+         patch("archguard.analysis._layer_runners._run_layer4", return_value=(0.2, l4_violations)) as m4, \
+         patch("archguard.analysis._orchestrator_utils._get_affected_modules", return_value={"test": [Path("src/test.py")]}), \
+         patch("archguard.analysis._reinference._run_reinference"), \
          patch.dict(os.environ, {"ARCHGUARD_SKIP_ML": "0"}), \
-         patch("archguard.analysis.layers.compute_archdebt") as mock_compute:
+         patch("archguard.analysis._orchestrator_run.compute_archdebt") as mock_compute:
          
         mock_compute.return_value = MagicMock()
         

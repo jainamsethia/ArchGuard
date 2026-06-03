@@ -39,6 +39,6 @@ def test_report_cmd_success(tmp_path):
     html_content = output_html.read_text("utf-8")
     assert "<title>ArchGuard Health Report</title>" in html_content
     assert "vis-network.min.js" in html_content
-    assert "chart.js" in html_content
+    assert "Chart(" in html_content
     assert "const SUMMARY =" in html_content
     assert "const VIOLATIONS =" in html_content

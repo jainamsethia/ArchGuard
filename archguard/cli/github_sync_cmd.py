@@ -81,7 +81,7 @@ def github_sync(
         if cmd.command == ArchGuardCommand.SUPPRESS:
             _execute_suppress(cmd, repo_root, repo_slug or "", pr_number or 0)
         elif cmd.command == ArchGuardCommand.RE_ANALYZE:
-            _execute_re_analyze(repo_root, repo_slug or "", pr_number or 0, None)  # type: ignore[arg-type]
+            _execute_re_analyze(repo_root, repo_slug or "", pr_number or 0, None)
         else:
             _console.print(
                 f"Command {cmd.command} is not implemented in github-sync yet."
@@ -94,41 +94,73 @@ def _execute_suppress(
     from archguard.suppression.store import SuppressionStore, SuppressionValidationError
     from archguard.github.client import post_comment
 
-    store = SuppressionStore(repo_root)
-    violation_str = " ".join(cmd.args)
-
-    if not violation_str:
+    if len(cmd.args) < 3:
+        usage_msg = (
+            f"❌ @{cmd.author} Usage: "
+            "`/archguard suppress <module> <layer> <message>`\n"
+            "Example: `/archguard suppress api 1 Imports from db directly`"
+        )
+        if repo_slug and pr_number:
+            post_comment(repo_slug, usage_msg, pr_number=pr_number)
         return
+
+    module = cmd.args[0]
+    try:
+        layer = int(cmd.args[1])
+    except ValueError:
+        error_msg = f"❌ @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
+        if repo_slug and pr_number:
+            post_comment(repo_slug, error_msg, pr_number=pr_number)
+        return
+
+    message = " ".join(cmd.args[2:])
+    store = SuppressionStore(repo_root)
 
     try:
         store.add(
-            module="unknown",
-            layer=1,
-            message=violation_str,
-            reason=f"Suppressed via PR comment by {cmd.author}",
+            module=module,
+            layer=layer,
+            message=message,
+            reason=f"Suppressed via PR comment by @{cmd.author}",
             pr_number=pr_number,
         )
-        msg = f"✅ @{cmd.author} Suppressed violation: `{violation_str}`"
+        success_msg = f"✅ @{cmd.author} Suppressed `{module}` L{layer}: `{message}`"
     except SuppressionValidationError as exc:
-        msg = f"❌ @{cmd.author} Failed to suppress violation: {exc}"
+        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
+    except Exception as exc:
+        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
 
     if repo_slug and pr_number:
-        post_comment(repo_slug, msg, pr_number=pr_number)
+        post_comment(repo_slug, success_msg, pr_number=pr_number)
 
 
 def _execute_re_analyze(
-    repo_root: Path, repo_slug: str, pr_number: int, ctx: typer.Context
+    repo_root: Path, repo_slug: str, pr_number: int, _ctx: object | None
 ) -> None:
-    from archguard.cli.analyze_cmd import analyze_command
-
+    """Trigger re-analysis without requiring a Typer context.
+    Calls AnalysisOrchestrator directly — never calls a Typer command.
+    Typer commands require a live Typer context; the analysis engine does not.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        analyze_command(
-            ctx=ctx,
-            repo=repo_root,
-            pr=pr_number,
-            repo_slug=repo_slug,
-            json_output=False,
-            dry_run=False,
-        )
-    except typer.Exit:
-        pass
+        from archguard.analysis.layers import AnalysisOrchestrator
+        from archguard.cli._analyze_core import _resolve_changed_files
+        from archguard.github.client import GitHubClient
+        from archguard.github.comments import PRCommentManager
+
+        commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
+        changed_files = _resolve_changed_files(repo_root, None, pr_number, repo_slug)
+        
+        with AnalysisOrchestrator(repo_root) as orchestrator:
+            result = orchestrator.run(changed_files=changed_files, commit_sha=commit_sha, quiet=True)
+            
+        if result and repo_slug and pr_number:
+            client = GitHubClient()
+            manager = PRCommentManager(client)
+            body = manager.format_report(result)
+            client.post_comment(repo_slug, body, pr_number=pr_number)
+            
+    except Exception as exc:
+        logger.error("Re-analysis failed: %s", exc)

@@ -119,3 +119,37 @@ def test_compute_archdebt_clamping():
         LayerScores(2.0, 2.0, 2.0, 2.0), [1.0, 1.0, 1.0, 1.0]
     )  # over 1.0
     assert result.composite_score == 1.0
+
+
+class TestHealthScoreAndGrade:
+    """Tests for health_score and health_grade properties."""
+
+    def _make_result(self, composite: float):
+        from archguard.analysis.scoring import ArchDebtResult, ArchDebtBand, LayerScores
+        return ArchDebtResult(
+            composite_score=composite,
+            band=ArchDebtBand.HEALTHY,
+            layer_scores=LayerScores(0, 0, 0, 0),
+            weights=(1, 1, 1, 1),
+            per_component_breach=False,
+            composite_breach=False,
+            should_fail_ci=False
+        )
+
+    def test_health_score_calculation(self) -> None:
+        r = self._make_result(0.125)
+        assert r.health_score == 87.5
+        assert r.health_score == round((1.0 - r.composite_score) * 100, 1)
+
+    def test_grades(self) -> None:
+        assert self._make_result(0.0).health_score == 100.0
+        assert self._make_result(0.0).health_grade == "A"
+        
+        assert self._make_result(1.0).health_score == 0.0
+        assert self._make_result(1.0).health_grade == "F"
+        
+        assert self._make_result(0.15).health_score == 85.0
+        assert self._make_result(0.15).health_grade == "B"
+        
+        assert self._make_result(0.35).health_score == 65.0
+        assert self._make_result(0.35).health_grade == "D"

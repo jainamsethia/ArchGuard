@@ -1,7 +1,10 @@
 import os
 import logging
 import time
+import threading
+from cachetools import TTLCache as RateLimitCache
 from collections import deque
+from fastapi import Path as FastAPIPath
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -10,35 +13,42 @@ from archguard.config import AUDIT_LOG_FILENAME
 from typing import Any
 from pathlib import Path
 
-app = FastAPI(title="ArchGuard Dashboard", version="0.1.0")
+app = FastAPI(title="ArchGuard Dashboard", version="0.2.0")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
 security = HTTPBearer(auto_error=False)
 
-RATE_LIMITS: dict[str, deque[float]] = {}
 RATE_LIMIT_WINDOW = 60.0
 RATE_LIMIT_MAX_REQUESTS = 50
+
+_RATE_LOCK = threading.Lock()
+# In-memory cache with maxsize=10_000 evicts the oldest entry when full, providing OOM protection
+RATE_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
+    maxsize=10_000,
+    ttl=RATE_LIMIT_WINDOW * 2
+)
 
 def rate_limiter(request: Request) -> None:
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     
-    if client_ip not in RATE_LIMITS:
-        RATE_LIMITS[client_ip] = deque()
+    with _RATE_LOCK:
+        if client_ip not in RATE_LIMITS:
+            RATE_LIMITS[client_ip] = deque()
+            
+        history = RATE_LIMITS[client_ip]
         
-    history = RATE_LIMITS[client_ip]
-    
-    while history and history[0] < now - RATE_LIMIT_WINDOW:
-        history.popleft()
-        
-    if len(history) >= RATE_LIMIT_MAX_REQUESTS:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many requests"
-        )
-        
-    history.append(now)
+        while history and history[0] < now - RATE_LIMIT_WINDOW:
+            history.popleft()
+            
+        if len(history) >= RATE_LIMIT_MAX_REQUESTS:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests"
+            )
+            
+        history.append(now)
 
 def check_token(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> None:
     token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN")
@@ -92,8 +102,17 @@ def get_modules() -> Any:
     return {"modules": modules}
 
 
+
 @app.get("/api/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_module_trends(module: str, limit: int = Query(default=30, ge=1, le=500)) -> Any:
+def get_module_trends(
+    module: str = FastAPIPath(
+        ...,
+        min_length=1,
+        max_length=128,
+        pattern=r"^[a-zA-Z0-9_\-\.]+$"
+    ),
+    limit: int = Query(default=30, ge=1, le=500)
+) -> Any:
     logger = AuditLogger(get_audit_path())
     runs = logger.read_last_n_runs(n=limit)
     trend = [

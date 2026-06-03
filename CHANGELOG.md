@@ -2,7 +2,7 @@
 
 All notable changes to archguard are documented here.
 
-## [0.2.0] - 2025-XX-XX
+## [0.2.0] - 2026-06-03
 ### Fixed
 - C-7: Unified audit event name — restores trends, history, incremental mode
 - C-1: compute_archdebt no longer requires ML deps
