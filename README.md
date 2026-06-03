@@ -67,15 +67,16 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 
 ## Screenshots
 
-![Demo](docs/demo.gif)
+<!-- Demo GIF: run `vhs docs/demo.tape` to generate docs/demo.gif -->
+> 📹 **Demo:** Clone the repo and run `vhs docs/demo.tape` to generate the demo GIF.
 
-![Screenshot: rich terminal output of archguard analyze with score table and violations](docs/assets/terminal_output.png)
+<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
 *Rich terminal output of archguard analyze with score table and violations.*
 
-![Screenshot: PR comment with ArchDebt score and module breakdown](docs/assets/pr_comment.png)
+<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
 *Automated PR comment detailing ArchDebt score and architectural regressions.*
 
-![Screenshot: HTML report with trend chart](docs/assets/html_report.png)
+<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
 *Interactive HTML dashboard charting structural health trends.*
 
 ## Technical Highlights
@@ -167,7 +168,7 @@ archguard profiles list
 
 You can also specify a profile globally by answering the interactive prompt during `archguard init` or manually placing it at the root of your `.archguard.yml` file:
 ```yaml
-schema_version: "3.0"
+version: "3.0"
 profile: "ci"
 modules:
 ...
@@ -242,11 +243,14 @@ make smoke-test
 
 ## FAQ
 
-**How do I use a local LLM instead of Gemini?**
-Set `export ARCHGUARD_LLM_PROVIDER=ollama` and ensure you have an ollama instance running locally. The CLI will pick up local models automatically.
+**How do I use a local LLM instead of Claude?**
+Set `export ARCHGUARD_LLM_PROVIDER=ollama` and ensure you have an ollama instance running locally (defaults to `llama3` on `http://localhost:11434`). The CLI will pick up local models automatically.
 
 **How do I suppress a false positive?**
 Run `archguard suppress add <violation-message>` to explicitly whitelist specific violations.
+Alternatively, you can suppress violations via a PR comment using the syntax:
+`/archguard suppress <module> <layer> <message>`
+Example: `/archguard suppress api 1 "Imports from db directly"`
 
 **What does the health score mean?**
 The health score (0-100) measures your project's architectural integrity against the baseline contract. A grade below your configured fail threshold will exit non-zero and fail CI.
