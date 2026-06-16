@@ -62,6 +62,39 @@ def _run_orchestrator(
         )
         progress.start()
 
+    def _evaluate_fitness(res: AnalysisResult) -> None:
+        """Helper to run fitness functions and attach to result."""
+        from archguard.config import parse_fitness_functions
+        from archguard.fitness.evaluator import FitnessFunctionEvaluator
+
+        fitness_configs = parse_fitness_functions(orchestrator.contract)
+        if fitness_configs:
+            desc_fit = "Fitness Functions Evaluation..."
+            if progress:
+                task_fit = progress.add_task(desc_fit, total=None)
+            else:
+                if not quiet:
+                    print(desc_fit)
+
+            evaluator = FitnessFunctionEvaluator(orchestrator.repo_root, orchestrator.contract)
+            rules = [c.rule for c in fitness_configs]
+            fitness_results = evaluator.evaluate(res, rules)
+            res.archdebt.apply_fitness_results(fitness_results, fitness_configs)
+
+            from archguard.audit.logger import serialize_fitness_results
+            res.metrics["fitness_results"] = serialize_fitness_results(fitness_results, fitness_configs)
+
+            if progress:
+                failures = sum(1 for r in fitness_results if not getattr(r, 'passed', True))
+                if failures > 0:
+                    progress.update(task_fit, description=f"[bold red]✗ Fitness Functions:[/bold red] {failures} failures")
+                else:
+                    progress.update(task_fit, description=f"[green]✓ Fitness Functions:[/green] all passed")
+                progress.stop_task(task_fit)
+            else:
+                if not quiet:
+                    print(f"[OK] Fitness Functions complete")
+
     try:
         import time
         from concurrent.futures import ThreadPoolExecutor
@@ -114,7 +147,7 @@ def _run_orchestrator(
                 progress.stop_task(task1)
             else:
                 if not quiet:
-                    print(f"✓ Layer 1 complete ({l1_violations} violations)")
+                    print(f"[OK] Layer 1 complete ({l1_violations} violations)")
 
             layer2, l2_viols = future_l2.result()
             l2_violations = len(l2_viols)
@@ -126,7 +159,7 @@ def _run_orchestrator(
                 progress.stop_task(task2)
             else:
                 if not quiet:
-                    print(f"✓ Layer 2 complete ({l2_violations} violations)")
+                    print(f"[OK] Layer 2 complete ({l2_violations} violations)")
             
             violations.extend(l1_viols)
             violations.extend(l2_viols)
@@ -183,6 +216,7 @@ def _run_orchestrator(
                 )
                 res.parse_failures = unique_failures
                 res.partial_analysis = bool(unique_failures)
+                _evaluate_fitness(res)
                 return res
 
             if layer2 >= fail_threshold:
@@ -213,6 +247,7 @@ def _run_orchestrator(
                 )
                 res.parse_failures = unique_failures
                 res.partial_analysis = bool(unique_failures)
+                _evaluate_fitness(res)
                 return res
 
         # --- Layer 3: Semantic drift ---
@@ -262,7 +297,7 @@ def _run_orchestrator(
                     progress.stop_task(task3)
                 else:
                     if not quiet:
-                        print(f"✓ Layer 3 complete ({l3_violations} violations)")
+                        print(f"[OK] Layer 3 complete ({l3_violations} violations)")
             except RuntimeError as e:
                 if "ML dependencies" in str(e):
                     if progress:
@@ -303,6 +338,7 @@ def _run_orchestrator(
             )
             res.parse_failures = unique_failures
             res.partial_analysis = bool(unique_failures)
+            _evaluate_fitness(res)
             return res
 
         # --- Reinference: check staleness + create proposals ---
@@ -348,7 +384,7 @@ def _run_orchestrator(
                     progress.stop_task(task4)
                 else:
                     if not quiet:
-                        print(f"✓ Layer 4 complete ({l4_violations} violations)")
+                        print(f"[OK] Layer 4 complete ({l4_violations} violations)")
             except RuntimeError as e:
                 if "ML dependencies" in str(e):
                     if progress:
@@ -386,7 +422,7 @@ def _run_orchestrator(
             warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
         )
 
-        return AnalysisResult(
+        res = AnalysisResult(
             archdebt=archdebt,
             violations=violations,
             layer_scores=scores,
@@ -397,6 +433,9 @@ def _run_orchestrator(
             parse_failures=unique_failures,
             partial_analysis=bool(unique_failures),
         )
+
+        _evaluate_fitness(res)
+        return res
     finally:
         if progress:
             progress.stop()

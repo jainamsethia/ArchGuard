@@ -16,6 +16,8 @@ from archguard.cli.sync_cmd import sync_cache
 from archguard.cli.history_cmd import show_history
 from archguard.cli.diff_cmd import diff_app
 from archguard.cli.dashboard_cmd import dashboard_app
+from archguard.cli.fitness_cmd import fitness_app
+from archguard.cli.history_analyze_cmd import history_analyze_app
 
 app: typer.Typer = typer.Typer(
     name="archguard",
@@ -39,6 +41,8 @@ app.command("sync")(sync_cache)
 app.command("history")(show_history)
 app.add_typer(diff_app, name="diff")
 app.add_typer(dashboard_app, name="dashboard")
+app.add_typer(fitness_app, name="fitness")
+app.add_typer(history_analyze_app, name="history-analyze")
 
 
 @app.command("cache-check")

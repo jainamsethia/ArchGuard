@@ -78,5 +78,22 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
                 "layer4": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             },
         },
+        "fitness_functions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name", "rule"],
+                "additionalProperties": False,
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "rule": {"type": "string", "minLength": 1},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "warn", "info"],
+                    },
+                    "rationale": {"type": "string"},
+                },
+            },
+        },
     },
 }

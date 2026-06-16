@@ -86,6 +86,40 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 - **Fallback LLM chain**: Claude (primary) → Ollama (local fallback) with concurrent async calls
 - **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
+## Phase 3: Architecture Intelligence
+
+ArchGuard integrates multiple intelligent components to actively evaluate and guide architectural evolution:
+
+### Architecture Fitness Functions
+Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
+
+### AI Advisor
+An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Supports streaming responses via the Anthropic SDK.
+
+### Architecture Evolution Tracking
+Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
+
+### AI Remediation Plans
+A dedicated remediation engine (`archguard.llm.remediation`) capable of analyzing layer-specific violation thresholds and automatically synthesizing step-by-step refactoring recommendations. 
+
+### PR Risk Analysis
+The `PRRiskAnalyzer` automatically computes contextual risk scores for inbound code changes by traversing dependencies directly affected by modified files and highlighting downstream risks.
+
+### Dependency Health Score
+Native integration with `pip-audit` to evaluate real-time third-party vulnerability awareness, merging software supply chain health into overall project architectural scoring.
+
+## CLI Commands
+
+The core commands include:
+```bash
+archguard init                  # Auto-detect architecture and create .archguard.yml
+archguard analyze               # Run full 4-layer drift analysis
+archguard fitness check         # Evaluate configured fitness functions
+archguard fitness check --json  # Return fitness results as JSON
+archguard history               # Show ArchDebt trend across runs
+archguard history --format json # Output history trend as JSON
+```
+
 ## Installation
 ### Full Install (recommended)
 ```bash

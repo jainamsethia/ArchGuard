@@ -1,20 +1,16 @@
 Output docs/demo.gif
-Set FontSize 14
+Set FontSize 16
 Set Width 1200
 Set Height 700
 
-Type "cd demo-repo"
+Type "archguard analyze --repo ."
 Enter
-Sleep 500ms
+Sleep 5s
 
-Type "archguard analyze --verbose"
+Type "archguard fitness check --repo ."
 Enter
 Sleep 3s
 
-Type "archguard history --format trend"
+Type "archguard history"
 Enter
-Sleep 2s
-
-Type "archguard report --output dashboard.html"
-Enter
-Sleep 2s
+Sleep 5s

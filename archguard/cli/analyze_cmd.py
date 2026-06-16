@@ -174,11 +174,55 @@ def analyze_command(
             verbose=verbose,
         )
         from archguard.cli._analyze_dispatch import _run_analyze_cli
-        _run_analyze_cli(
-            opts, json_output, watch, monorepo, verbose, repo, pr, repo_slug, profile,
-            changed_files, skip_explanation, full, fail_on_warn, dry_run, incremental,
-            no_incremental, no_llm, out_file, fail_fast, fail_threshold
-        )
+        
+        # We will catch typer.Exit to run dep health before exiting
+        caught_exit = None
+        try:
+            _run_analyze_cli(
+                opts, json_output, watch, monorepo, verbose, repo, pr, repo_slug, profile,
+                changed_files, skip_explanation, full, fail_on_warn, dry_run, incremental,
+                no_incremental, no_llm, out_file, fail_fast, fail_threshold
+            )
+        except typer.Exit as e:
+            caught_exit = e
+            
+        # Run Dependency Health Score calculation
+        from archguard.analysis.deps import analyze_dependencies
+        from rich.panel import Panel
+        from rich.table import Table
+        
+        dep_res = analyze_dependencies(repo)
+        
+        if not json_output:
+            if dep_res.skipped:
+                _console.print(f"[dim]Dependency Health skipped: {dep_res.skip_reason}[/dim]")
+            else:
+                table = Table(title="Dependency Vulnerabilities (pip-audit)", show_header=True)
+                table.add_column("Package", style="cyan")
+                table.add_column("Version", style="blue")
+                table.add_column("CVE/GHSA", style="red")
+                table.add_column("Description", overflow="fold")
+                
+                for v in dep_res.vulnerabilities[:5]: # Top 5
+                    table.add_row(v.package, v.version, v.vulnerability_id, v.description)
+                    
+                summary = (
+                    f"[bold]Score:[/bold] {dep_res.score:.1f}/100\n"
+                    f"[bold]Scanned:[/bold] {dep_res.scanned_packages} packages\n"
+                    f"[bold]Vulnerabilities:[/bold] {len(dep_res.vulnerabilities)}"
+                )
+                
+                panel_content = summary
+                if dep_res.vulnerabilities:
+                    _console.print(table)
+                    if len(dep_res.vulnerabilities) > 5:
+                        _console.print(f"[dim]... and {len(dep_res.vulnerabilities) - 5} more vulnerabilities.[/dim]")
+                
+                _console.print(Panel(panel_content, title="Dependency Health Score", border_style="cyan"))
+        
+        if caught_exit is not None:
+            raise caught_exit
+            
     except typer.Exit:
         raise
     except Exception as e:

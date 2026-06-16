@@ -67,7 +67,10 @@ class ImportParser:
         except TypeError:
             lang = Language(tspython.language(), "python")
         self._parser: Any = Parser()
-        self._parser.set_language(lang)
+        try:
+            self._parser.set_language(lang)
+        except AttributeError:
+            self._parser = Parser(lang)
         self._parse_failures: list[ParseFailure] = []
 
     @property

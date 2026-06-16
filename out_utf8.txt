@@ -1,0 +1,35 @@
+Analyzing 2 changed file(s)
+Layer 1: Boundary Analysis...
+Layer 2: Coupling Analysis...
+[OK] Layer 1 complete (0 violations)
+[OK] Layer 2 complete (0 violations)
+Layer 3: Semantic Cohesion...
+⚠ Layer 3 Skipped (config)
+Layer 4: Duplication Detection...
+⚠ Layer 4 Skipped (config)
+
+ArchGuard Analysis
+──────────────────────────────────────
+Repo:    
+C:\Users\Admin\Downloads\archguard\archguard\ArchGuard\tests\fixtures\sample_re
+po
+Commit:  4cc02b2
+Files:   2 changed Python files
+
+            ArchGuard Analysis Summary            
+┌────────────────┬────────┬───────┬──────────────┐
+│ Layer          │ Status │ Score │ Details      │
+├────────────────┼────────┼───────┼──────────────┤
+│ L1 Boundaries  │  PASS  │  0.00 │ 0 violations │
+│ L2 Coupling    │  PASS  │  0.00 │ 0 violations │
+│ L3 Drift       │  PASS  │  0.00 │ 0 violations │
+│ L4 Duplication │  PASS  │  0.00 │ 0 violations │
+└────────────────┴────────┴───────┴──────────────┘
+
+Health Score: 100.0 (Grade A) — ✅ Healthy
+Result: CI PASSED
+
+
+Result: CI PASSED
+Dependency Health skipped: No requirements file found (requirements.txt, 
+requirements/base.txt, requirements/prod.txt, pyproject.toml).

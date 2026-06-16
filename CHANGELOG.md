@@ -2,6 +2,18 @@
 
 All notable changes to archguard are documented here.
 
+## [0.3.0] - 2026-06-10
+
+### Added
+- Architecture Fitness Functions
+- AI Architecture Advisor
+- Architecture Evolution Tracking
+- AI Remediation Plans
+- PR Risk Analysis
+- Dependency Health Score
+- fitness CLI support
+- history CLI enhancements
+
 ## [0.2.0] - 2026-06-03
 ### Fixed
 - C-7: Unified audit event name — restores trends, history, incremental mode

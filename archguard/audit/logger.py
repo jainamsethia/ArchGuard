@@ -210,3 +210,37 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
             f"Non-critical failure in read_last_run: {e}"
         )
     return None
+
+
+def serialize_fitness_results(
+    fitness_results: list[Any],
+    configs: list[Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Serialize fitness function results for audit log persistence.
+
+    Args:
+        fitness_results: List of FitnessFunctionResult objects.
+        configs: Optional list of FitnessFunctionConfig objects for metadata.
+
+    Returns:
+        List of dicts suitable for JSON serialization in audit logs.
+    """
+    config_map: dict[str, Any] = {}
+    if configs:
+        for c in configs:
+            config_map[getattr(c, "rule", "")] = c
+
+    serialized: list[dict[str, Any]] = []
+    for fr in fitness_results:
+        rule = getattr(fr, "rule", "")
+        cfg = config_map.get(rule)
+        entry: dict[str, Any] = {
+            "name": getattr(cfg, "name", rule) if cfg else rule,
+            "rule": rule,
+            "passed": getattr(fr, "passed", True),
+            "severity": getattr(cfg, "severity", "warn") if cfg else "warn",
+            "evidence": getattr(fr, "details", None) or getattr(fr, "error", None) or "",
+            "rationale": getattr(cfg, "rationale", "") if cfg else "",
+        }
+        serialized.append(entry)
+    return serialized

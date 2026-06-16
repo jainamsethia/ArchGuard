@@ -33,7 +33,7 @@ def _run_analyze_cli(
         opts.ctx.obj["quiet"] = True
 
     if watch:
-        from archguard.cli.watch_cmd import run_watch_mode
+        from archguard.cli._analyze_watch import run_watch_mode
         run_watch_mode(opts, Path(repo))
     elif monorepo:
         from archguard.utils.monorepo import detect_subpackages

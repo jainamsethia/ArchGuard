@@ -31,6 +31,101 @@ _LAYER_LABELS: list[str] = [
 ]
 
 
+def build_fitness_section(fitness_results: list[dict]) -> str:
+    """Build the Architecture Fitness Functions markdown section."""
+    if not fitness_results:
+        return ""
+
+    total = len(fitness_results)
+    passed_results = [r for r in fitness_results if r.get("passed", True)]
+    failed_results = [r for r in fitness_results if not r.get("passed", True)]
+    passed_count = len(passed_results)
+    failed_count = len(failed_results)
+
+    lines = ["## Architecture Fitness Functions", ""]
+
+    if failed_count == 0:
+        lines.append(f"✅ All {total} fitness function(s) passed.")
+    else:
+        lines.append(f"❌ {failed_count} of {total} fitness function(s) failed.")
+
+    critical_failures = [r for r in failed_results if r.get("severity") == "critical"]
+    if critical_failures:
+        lines.append("")
+        lines.append("### ⛔ Critical Failures")
+        lines.append("")
+        lines.append("| Function | Rule | Evidence |")
+        lines.append("|----------|------|----------|")
+        for f in critical_failures:
+            lines.append(f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |")
+
+    warn_failures = [r for r in failed_results if r.get("severity") == "warn"]
+    if warn_failures:
+        lines.append("")
+        lines.append("### ⚠️ Warnings")
+        lines.append("")
+        lines.append("| Function | Rule | Evidence |")
+        lines.append("|----------|------|----------|")
+        for f in warn_failures:
+            lines.append(f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |")
+
+    if passed_results:
+        lines.append("")
+        first_5 = passed_results[:5]
+        names = [f.get("name", f.get("rule", "")) for f in first_5]
+        passing_str = f"✅ Passing: {', '.join(names)}"
+        if passed_count > 5:
+            passing_str += f" (+{passed_count - 5} more)"
+        lines.append(passing_str)
+
+    return "\n".join(lines)
+
+
+def build_risk_section(report: Any) -> str:
+    """Build the PR Risk Assessment markdown section."""
+    if not report or getattr(report, "overall_risk", "none").lower() == "none":
+        return ""
+
+    overall_risk = getattr(report, "overall_risk", "unknown").lower()
+    risk_emoji = {
+        "critical": "🚨",
+        "high": "🛑",
+        "medium": "⚠️",
+        "low": "ℹ️",
+    }.get(overall_risk, "❓")
+
+    lines = [
+        "## Risk Assessment",
+        "",
+        f"**Overall Risk**: {risk_emoji} {overall_risk.capitalize()}",
+        "",
+    ]
+
+    module_risks = getattr(report, "module_risks", [])
+    if module_risks:
+        lines.append("### Module Risk Table")
+        lines.append("")
+        lines.append("| Module | Risk Level | Details |")
+        lines.append("|--------|------------|---------|")
+        
+        # Cap displayed modules at 10
+        displayed = module_risks[:10]
+        for mr in displayed:
+            module_name = getattr(mr, "module", "Unknown")
+            risk_level = getattr(mr, "risk_level", "Unknown").capitalize()
+            reasons = getattr(mr, "reasons", [])
+            details = ", ".join(reasons) if reasons else "No specific reasons provided."
+            lines.append(f"| {module_name} | {risk_level} | {details} |")
+        
+        if len(module_risks) > 10:
+            lines.append("")
+            lines.append(f"*(+{len(module_risks) - 10} more modules hidden)*")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+
 class PRCommentManager:
     """Manages ArchGuard report comments on GitHub PRs."""
 
@@ -145,6 +240,13 @@ class PRCommentManager:
                     lines.append(f"*{v.explanation}*")
                     lines.append("")
             lines.append("")
+
+        fitness_data = getattr(result, "metrics", {}).get("fitness_results", [])
+        if fitness_data:
+            fitness_section = build_fitness_section(fitness_data)
+            if fitness_section:
+                lines.append(fitness_section)
+                lines.append("")
 
         # Layer scores in collapsible section
         layer_values = [

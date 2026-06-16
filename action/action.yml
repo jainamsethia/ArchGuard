@@ -42,6 +42,14 @@ inputs:
   slack-webhook:
     description: 'Slack webhook URL for trend alerts'
     required: false
+  run-fitness-check:
+    description: 'Run architecture fitness function checks.'
+    required: false
+    default: 'true'
+  fitness-as-warning:
+    description: 'Treat fitness failures as warnings.'
+    required: false
+    default: 'false'
 
 outputs:
   archdebt-score:
@@ -62,6 +70,8 @@ runs:
     INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
     INPUT_GITHUB_SHA: ${{ inputs.github-sha }}
     INPUT_SLACK_WEBHOOK: ${{ inputs.slack-webhook }}
+    INPUT_RUN_FITNESS_CHECK: ${{ inputs.run-fitness-check }}
+    INPUT_FITNESS_AS_WARNING: ${{ inputs.fitness-as-warning }}
 
 # Exit codes:
 # 0 - Success, no violations above threshold

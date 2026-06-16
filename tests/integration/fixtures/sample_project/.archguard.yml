@@ -24,3 +24,16 @@ weights:
 skip_layers:
   - semantic
   - duplication
+
+fitness_functions:
+  - name: "no_circular_deps"
+    rule: "graph.cycles == 0"
+    severity: critical
+
+  - name: "api_cannot_import_db"
+    rule: "module[api] must not import module[db]"
+    severity: critical
+
+  - name: "low_violation_count"
+    rule: "violation_count <= 50"
+    severity: warn

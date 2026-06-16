@@ -13,3 +13,70 @@ modules:
     disallowed_imports: []
 fail_threshold: 0.75
 warn_threshold: 0.50
+
+# ── Architectural Fitness Functions ──────────────────────────────────
+#
+# Supported rule syntax:
+#   module[X] must not import module[Y]   – import boundary guard
+#   graph.cycles == 0                     – no circular dependencies
+#   module[X].fan_out <= N                – outbound coupling limit
+#   module[X].fan_in <= N                 – inbound coupling limit
+#   module[X].coupling_budget <= N        – coupling budget cap
+#   health_score >= N                     – minimum health score gate
+#   layer[N].debt <= F                    – per-layer debt ceiling
+#   violation_count <= N                  – total violation cap
+#
+fitness_functions:
+  # ── Critical Guards ──────────────────────────────────────────────────
+  - name: no_circular_dependencies
+    rule: "graph.cycles == 0"
+    severity: critical
+    rationale: "Circular module dependencies are strictly forbidden; they prevent independent testing and deployment."
+
+  - name: archguard_cannot_import_tests
+    rule: "module[archguard] must not import module[tests]"
+    severity: critical
+    rationale: "Production code must never depend on test code; this guards the build boundary."
+
+  # ── Layer Debt Ceilings ──────────────────────────────────────────────
+  # Current layer_score = 74.5 → debt ≈ 0.745. Allow up to 0.80.
+  - name: layer1_import_budget
+    rule: "layer[1].debt <= 0.80"
+    severity: warn
+    rationale: "Layer 1 boundary violations must remain bounded to prevent import sprawl."
+
+  # Current coupling_score = 53.3 → debt ≈ 0.533. Allow up to 0.60.
+  - name: layer2_coupling_budget
+    rule: "layer[2].debt <= 0.60"
+    severity: warn
+    rationale: "Module coupling must stay manageable to preserve independent deployability."
+
+  # Current duplication_score = 0.0 → debt = 0.0. Allow up to 0.15.
+  - name: layer3_duplication_ceiling
+    rule: "layer[3].debt <= 0.15"
+    severity: warn
+    rationale: "Duplicated code should be kept near zero; any growth signals missed abstractions."
+
+  # Current semantic_score ≈ 0.0 → debt ≈ 0.0. Allow up to 0.15.
+  - name: layer4_semantic_ceiling
+    rule: "layer[4].debt <= 0.15"
+    severity: warn
+    rationale: "Semantic drift should remain minimal to keep modules cohesive."
+
+  # ── Aggregate Gates ──────────────────────────────────────────────────
+  # Current violation_count = 314. Allow up to 350 (headroom for minor churn).
+  - name: violation_sanity
+    rule: "violation_count <= 350"
+    severity: warn
+    rationale: "Total violation count must remain manageable; exceeding 350 indicates architectural regression."
+
+  # health_score from fitness evaluator currently = 100.0. Keep gate at 80.
+  - name: health_gate
+    rule: "health_score >= 80"
+    severity: critical
+    rationale: "Minimum acceptable architectural health score across all layers."
+
+# Note: All 4 layers now run.
+# Layer 3 (semantic) and Layer 4 (duplication)
+# require the [ml] extras group.
+# CI installs these dependencies automatically.

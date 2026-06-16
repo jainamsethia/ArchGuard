@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 try:
     import numpy as np
@@ -51,6 +52,35 @@ class ArchDebtResult:
     composite_breach: bool  # composite_score >= fail_threshold
     should_fail_ci: bool  # per_component_breach OR composite_breach
     fail_reasons: list[str] = field(default_factory=list)
+    fitness_results: list[Any] = field(default_factory=list)
+    fitness_passed: bool = True
+
+    def apply_fitness_results(self, fitness_results: list[Any], configs: list[Any] | None = None) -> None:
+        """Apply evaluated fitness results to this ArchDebtResult.
+
+        Updates should_fail_ci and fail_reasons based on critical failures.
+        The configs list provides severity/rationale metadata from FitnessFunctionConfig.
+        """
+        self.fitness_results = fitness_results
+        config_map: dict[str, Any] = {}
+        if configs:
+            for c in configs:
+                config_map[getattr(c, "rule", "")] = c
+
+        for fr in fitness_results:
+            rule = getattr(fr, "rule", "")
+            passed = getattr(fr, "passed", True)
+            cfg = config_map.get(rule)
+            severity = getattr(cfg, "severity", "warn") if cfg else "warn"
+            name = getattr(cfg, "name", rule) if cfg else rule
+
+            if not passed and severity == "critical":
+                self.should_fail_ci = True
+                self.fitness_passed = False
+                details = getattr(fr, "details", None) or getattr(fr, "error", None) or ""
+                self.fail_reasons.append(
+                    f"Fitness function '{name}' FAILED (critical): {details}"
+                )
 
     @property
     def health_score(self) -> float:
