@@ -24,17 +24,19 @@ class TestSuppressionAdd:
     def test_add_persists_across_new_instance(self, tmp_path: Path) -> None:
         store1 = _make_store(tmp_path)
         store1.add("payments", 1, "bad import", "tech debt")
-        
+
         store2 = _make_store(tmp_path)
         loaded = store2.list_all()
         assert len(loaded) == 1
         assert loaded[0].module == "payments"
         assert loaded[0].layer == 1
 
-    def test_is_suppressed_returns_false_for_non_suppressed(self, tmp_path: Path) -> None:
+    def test_is_suppressed_returns_false_for_non_suppressed(
+        self, tmp_path: Path
+    ) -> None:
         store = _make_store(tmp_path)
         store.add("payments", 1, "bad import", "tech debt")
-        
+
         assert store.is_suppressed("payments", 1, "different import") is False
         assert store.is_suppressed("other_module", 1, "bad import") is False
         assert store.is_suppressed("payments", 2, "bad import") is False
@@ -75,8 +77,11 @@ class TestSuppressionAdd:
     def test_layer4_violations_can_be_suppressed(self, tmp_path: Path) -> None:
         """After Bug N-1 fix, Layer 4 violations must be suppressable."""
         from archguard.suppression.store import SuppressionStore
+
         store = SuppressionStore(tmp_path)
-        store.add(module="api", layer=4, message="Duplicate function body", reason="test")
+        store.add(
+            module="api", layer=4, message="Duplicate function body", reason="test"
+        )
         assert store.is_suppressed("api", 4, "Duplicate function body") is True
         assert store.is_suppressed("api", 4, "Different message") is False
 
@@ -234,35 +239,38 @@ class TestConcurrency:
 
     def test_mark_orphans_toctou_dataloss(self, tmp_path: Path) -> None:
         """Test that mark_orphans doesn't use stale cache leading to data loss.
-        
+
         Thread B appends a new suppression. Thread A's mark_orphans shouldn't
         overwrite it due to stale cache.
         """
         store = _make_store(tmp_path)
         s1 = store.add("mod1", 1, "msg1", "reason1")
-        
+
         # Populate thread A's cache
         store.list_all()
-        
+
         # We need to simulate Thread B adding a suppression *while* Thread A is
         # executing mark_orphans, specifically after cache is loaded but before it writes.
-        # But since add() locks, Thread B will block until Thread A is done, OR Thread B 
+        # But since add() locks, Thread B will block until Thread A is done, OR Thread B
         # executes before Thread A gets the lock.
         # Let's patch _read_all_raw to have Thread B append to the file directly to simulate
         # a TOCTOU race (e.g. bypassing the lock or NFS delays).
-        
+
         original_read = store._read_all_raw
-        
+
         def mock_read():
             # This simulates Thread B appending a suppression exactly between
             # Thread A acquiring the lock and reading/writing the data!
             # Since Thread B is "another process", we just append to the file.
             with store._path.open("a", encoding="utf-8") as f:
-                from archguard.suppression.models import suppression_to_jsonl, Suppression
+                from archguard.suppression.models import (
+                    suppression_to_jsonl,
+                    Suppression,
+                )
                 import uuid
                 from datetime import datetime, timezone
                 from archguard.suppression.models import make_violation_hash
-                
+
                 s2 = Suppression(
                     id=str(uuid.uuid4()),
                     module="mod2",
@@ -274,22 +282,23 @@ class TestConcurrency:
                     expires_at=None,
                     pr_number=None,
                     commit_sha="unknown",
-                    active=True
+                    active=True,
                 )
                 f.write(suppression_to_jsonl(s2) + "\n")
-                
+
             return original_read()
-            
+
         from unittest.mock import patch
+
         with patch.object(store, "_read_all_raw", side_effect=mock_read):
             store.mark_orphans([s1.id])
-            
+
         # If _force_reload() wasn't called at the start of mark_orphans,
         # _read_all_raw would return the old cache [s1], and then write_all_raw
         # would overwrite the file with ONLY s1 (modified), deleting s2!
         # With _force_reload(), mock_read's original_read() will parse the new file
         # and see s2!
-        
+
         loaded = store.list_all(include_inactive=True)
         assert len(loaded) == 2
         assert any(s.module == "mod2" for s in loaded)

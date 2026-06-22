@@ -257,7 +257,7 @@ class TestCloudLLMExplainer:
         monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
         mock_anthropic_module = MagicMock()
         monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_anthropic_module)
-        monkeypatch.setattr("archguard.llm.cloud._ML_AVAILABLE", True)
+        monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", True)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -282,6 +282,17 @@ class TestCloudLLMExplainer:
 
         mock_messages.create.assert_called_once()
         assert mock_messages.create.call_args[1]["model"] == "test-model-123"
+
+    def test_missing_anthropic_error_mentions_cloud_extra(self, monkeypatch):
+        import archguard.llm.cloud as cloud_module
+
+        monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
+        monkeypatch.setattr(cloud_module, "_ANTHROPIC_AVAILABLE", False)
+        explainer = cloud_module.CloudLLMExplainer.__new__(
+            cloud_module.CloudLLMExplainer
+        )
+        with pytest.raises(RuntimeError, match=r"archguard\[cloud\]"):
+            explainer._call_api("prompt", "model")
 
 
 class TestParseLLMResponse:

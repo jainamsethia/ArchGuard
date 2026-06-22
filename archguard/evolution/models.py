@@ -4,10 +4,12 @@ from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
 
+
 class TrendClassification(str, Enum):
     IMPROVING = "improving"
     STABLE = "stable"
     DECLINING = "declining"
+
 
 class MetricTrend(BaseModel):
     name: str
@@ -16,6 +18,7 @@ class MetricTrend(BaseModel):
     classification: TrendClassification
     delta: Optional[float]
 
+
 class EvolutionSnapshot(BaseModel):
     timestamp: datetime
     health_score: float
@@ -23,6 +26,7 @@ class EvolutionSnapshot(BaseModel):
     violation_count: int
     fitness_passed: Optional[int] = None
     fitness_total: Optional[int] = None
+
 
 class EvolutionReport(BaseModel):
     snapshots: List[EvolutionSnapshot]

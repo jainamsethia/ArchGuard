@@ -55,7 +55,9 @@ class ArchDebtResult:
     fitness_results: list[Any] = field(default_factory=list)
     fitness_passed: bool = True
 
-    def apply_fitness_results(self, fitness_results: list[Any], configs: list[Any] | None = None) -> None:
+    def apply_fitness_results(
+        self, fitness_results: list[Any], configs: list[Any] | None = None
+    ) -> None:
         """Apply evaluated fitness results to this ArchDebtResult.
 
         Updates should_fail_ci and fail_reasons based on critical failures.
@@ -77,7 +79,9 @@ class ArchDebtResult:
             if not passed and severity == "critical":
                 self.should_fail_ci = True
                 self.fitness_passed = False
-                details = getattr(fr, "details", None) or getattr(fr, "error", None) or ""
+                details = (
+                    getattr(fr, "details", None) or getattr(fr, "error", None) or ""
+                )
                 self.fail_reasons.append(
                     f"Fitness function '{name}' FAILED (critical): {details}"
                 )
@@ -210,11 +214,9 @@ def calibrate_weights(
 
     Falls back to ``DEFAULT_WEIGHTS`` on any failure.
     """
-    if not _ML_AVAILABLE:
-        raise RuntimeError(
-            "ML dependencies are not installed. Run: pip install archguard[ml]"
-        )
     if not historical_scores:
+        return DEFAULT_WEIGHTS
+    if not _ML_AVAILABLE:
         return DEFAULT_WEIGHTS
 
     try:

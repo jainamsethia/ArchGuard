@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
+
 @dataclass
 class CommitHealthSnapshot:
     sha: str
@@ -11,6 +12,7 @@ class CommitHealthSnapshot:
     violation_count: int
     author: str
     message: str
+
 
 @dataclass
 class EvolutionReport:
@@ -25,7 +27,7 @@ class EvolutionReport:
             return 0.0
         total_delta = 0.0
         for i in range(1, len(recent)):
-            total_delta += recent[i-1].health_score - recent[i].health_score
+            total_delta += recent[i - 1].health_score - recent[i].health_score
         return total_delta / (len(recent) - 1)
 
     @property

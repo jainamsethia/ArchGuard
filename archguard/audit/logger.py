@@ -45,7 +45,10 @@ class AuditLogger:
 
             audit_secret = os.environ.get("ARCHGUARD_AUDIT_SECRET")
             if not audit_secret:
-                strict_mode = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in ("1", "true")
+                strict_mode = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in (
+                    "1",
+                    "true",
+                )
                 key_file = self._log_path.parent / "audit.key"
                 if strict_mode and not key_file.exists():
                     from archguard.utils.errors import ConfigError
@@ -58,7 +61,7 @@ class AuditLogger:
                 else:
                     import secrets
                     import logging as _logging
-                    
+
                     audit_secret = secrets.token_hex(32)
                     self._log_path.parent.mkdir(parents=True, exist_ok=True)
                     # Write with 0600 permissions
@@ -68,7 +71,9 @@ class AuditLogger:
                         key_file.chmod(0o600)
                     except Exception:
                         pass
-                    _logging.getLogger(__name__).info("Generated new audit HMAC key at %s", key_file)
+                    _logging.getLogger(__name__).info(
+                        "Generated new audit HMAC key at %s", key_file
+                    )
             secret = audit_secret.encode("utf-8")
             signature = hmac.new(
                 secret, entry_str.encode("utf-8"), hashlib.sha256
@@ -136,7 +141,7 @@ class AuditLogger:
                     f.seek(pos, 0)
                     chunk = f.read(read_size)
                     buffer = bytearray(chunk) + buffer
-                    lines = buffer.split(b'\n')
+                    lines = buffer.split(b"\n")
                     buffer = lines[0]
                     for line in reversed(lines[1:]):
                         if not line.strip():
@@ -149,7 +154,7 @@ class AuditLogger:
                                     break
                         except json.JSONDecodeError:
                             pass
-                
+
                 if len(runs) < n and buffer.strip():
                     try:
                         entry = json.loads(buffer.decode("utf-8", errors="replace"))
@@ -159,8 +164,11 @@ class AuditLogger:
                         pass
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in read_last_n_runs: {e}")
-            
+
+            logging.getLogger(__name__).warning(
+                f"Non-critical failure in read_last_n_runs: {e}"
+            )
+
         return list(reversed(runs))
 
 
@@ -170,7 +178,7 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
         return None
     try:
         from archguard.config import AUDIT_EVENT_ANALYSIS
-        
+
         with open(log_path, "rb") as f:
             f.seek(0, 2)
             pos = f.tell()
@@ -182,7 +190,7 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                 f.seek(pos, 0)
                 chunk = f.read(read_size)
                 buffer = bytearray(chunk) + buffer
-                lines = buffer.split(b'\n')
+                lines = buffer.split(b"\n")
                 buffer = lines[0]
                 for line in reversed(lines[1:]):
                     if not line.strip():
@@ -191,15 +199,17 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                         event = json.loads(line.decode("utf-8", errors="replace"))
                         if event.get("event") == AUDIT_EVENT_ANALYSIS:
                             from typing import cast
+
                             return cast(dict[str, Any], event)
                     except json.JSONDecodeError:
                         continue
-            
+
             if buffer.strip():
                 try:
                     event = json.loads(buffer.decode("utf-8", errors="replace"))
                     if event.get("event") == AUDIT_EVENT_ANALYSIS:
                         from typing import cast
+
                         return cast(dict[str, Any], event)
                 except json.JSONDecodeError:
                     pass
@@ -239,7 +249,9 @@ def serialize_fitness_results(
             "rule": rule,
             "passed": getattr(fr, "passed", True),
             "severity": getattr(cfg, "severity", "warn") if cfg else "warn",
-            "evidence": getattr(fr, "details", None) or getattr(fr, "error", None) or "",
+            "evidence": getattr(fr, "details", None)
+            or getattr(fr, "error", None)
+            or "",
             "rationale": getattr(cfg, "rationale", "") if cfg else "",
         }
         serialized.append(entry)

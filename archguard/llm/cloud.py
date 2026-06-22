@@ -10,9 +10,9 @@ from typing import Any, TYPE_CHECKING
 try:
     import anthropic
 
-    _ML_AVAILABLE = True
+    _ANTHROPIC_AVAILABLE = True
 except ImportError:
-    _ML_AVAILABLE = False
+    _ANTHROPIC_AVAILABLE = False
     anthropic = None  # type: ignore[assignment]
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
@@ -44,7 +44,7 @@ _CLOUD_RETRYABLE = (
         anthropic.RateLimitError,
         anthropic.InternalServerError,
     )
-    if _ML_AVAILABLE
+    if _ANTHROPIC_AVAILABLE
     else (Exception,)
 )
 _CLOUD_NON_RETRYABLE = (
@@ -54,7 +54,7 @@ _CLOUD_NON_RETRYABLE = (
         ValueError,
         TypeError,
     )
-    if _ML_AVAILABLE
+    if _ANTHROPIC_AVAILABLE
     else (ValueError, TypeError)
 )
 
@@ -204,8 +204,10 @@ class CloudLLMExplainer:
         """Fetch explanations for all violations concurrently."""
         import asyncio
 
-        if not _ML_AVAILABLE:
-            raise RuntimeError("ML dependencies are not installed.")
+        if not _ANTHROPIC_AVAILABLE:
+            raise RuntimeError(
+                "The Anthropic SDK is not installed. Run: pip install archguard[cloud]"
+            )
 
         summary = build_contract_summary(contract)
         safe_violations = self._redact_violations(violations)
@@ -237,9 +239,9 @@ class CloudLLMExplainer:
         """Call the Anthropic API. Lazy-imports the SDK."""
         if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
             return "Mock LLM explanation for testing", "end_turn"
-        if not _ML_AVAILABLE:
+        if not _ANTHROPIC_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "The Anthropic SDK is not installed. Run: pip install archguard[cloud]"
             )
 
         try:

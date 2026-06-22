@@ -1,9 +1,10 @@
 import ipaddress
 from urllib.parse import urlparse
 
+
 def validate_webhook_url(url: str) -> None:
     """Validate that a webhook URL is safe to call.
-    
+
     Prevents SSRF by rejecting:
     - Non-HTTPS URLs
     - Localhost / loopback addresses
@@ -28,6 +29,6 @@ def validate_webhook_url(url: str) -> None:
         ip = ipaddress.ip_address(host)
     except ValueError:
         ip = None
-        
+
     if ip and ip.is_private:
         raise ValueError(f"Webhook URL cannot point to a private IP address ({host})")

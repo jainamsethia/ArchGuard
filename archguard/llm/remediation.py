@@ -19,13 +19,15 @@ VALID_PRIORITIES = {"critical", "high", "medium", "low"}
 # Data models
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RemediationTask:
     """A single actionable remediation task."""
+
     title: str
     description: str
-    priority: str               # "critical" | "high" | "medium" | "low"
-    effort_days: int            # estimated calendar days
+    priority: str  # "critical" | "high" | "medium" | "low"
+    effort_days: int  # estimated calendar days
     acceptance_criteria: list[str] = field(default_factory=list)
 
     def __eq__(self, other: object) -> bool:
@@ -40,6 +42,7 @@ class RemediationTask:
 @dataclass
 class RemediationPlan:
     """Full remediation plan grouped by priority."""
+
     critical: list[RemediationTask] = field(default_factory=list)
     high: list[RemediationTask] = field(default_factory=list)
     medium: list[RemediationTask] = field(default_factory=list)
@@ -57,6 +60,7 @@ class RemediationPlan:
 # ---------------------------------------------------------------------------
 # Provider abstraction
 # ---------------------------------------------------------------------------
+
 
 class RemediationProvider(abc.ABC):
     """Abstract provider for generating remediation tasks from a context string."""
@@ -112,7 +116,9 @@ class RemediationEngine:
         score = findings.get("score")
         band = findings.get("band")
         if score is not None:
-            lines.append(f"Health Score: {float(score):.2f} (Grade: {band or 'UNKNOWN'})")
+            lines.append(
+                f"Health Score: {float(score):.2f} (Grade: {band or 'UNKNOWN'})"
+            )
 
         violations: list[dict[str, Any]] = findings.get("violations", [])
         if violations:
@@ -126,7 +132,9 @@ class RemediationEngine:
 
         fitness_failures: list[dict[str, Any]] = findings.get("fitness_failures", [])
         if fitness_failures:
-            lines.append(f"\nFitness Function Failures ({len(fitness_failures)} total):")
+            lines.append(
+                f"\nFitness Function Failures ({len(fitness_failures)} total):"
+            )
             for ff in fitness_failures:
                 name = ff.get("name") or ff.get("rule", "Unknown")
                 evidence = ff.get("evidence", "")
@@ -154,7 +162,11 @@ class RemediationEngine:
         """Partition tasks into priority buckets, sorted within each bucket."""
         plan = RemediationPlan()
         for task in tasks:
-            p = task.priority.lower() if task.priority.lower() in VALID_PRIORITIES else "medium"
+            p = (
+                task.priority.lower()
+                if task.priority.lower() in VALID_PRIORITIES
+                else "medium"
+            )
             getattr(plan, p).append(task)
         return plan
 
@@ -190,7 +202,9 @@ class OpenAIRemediationProvider(RemediationProvider):
     ) -> None:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4-turbo")
-        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.base_url = base_url or os.environ.get(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        )
         self.timeout = timeout
 
     def generate_tasks(self, context: str) -> list[RemediationTask]:
@@ -233,7 +247,11 @@ class OpenAIRemediationProvider(RemediationProvider):
             if status_code == 429:
                 logger.error("Rate limit exceeded calling OpenAI for remediation.")
             else:
-                logger.error("HTTP %s calling OpenAI for remediation: %s", status_code, e.response.text)
+                logger.error(
+                    "HTTP %s calling OpenAI for remediation: %s",
+                    status_code,
+                    e.response.text,
+                )
             return []
         except httpx.RequestError as e:
             logger.error("Network error calling OpenAI for remediation: %s", e)
@@ -268,14 +286,16 @@ class OpenAIRemediationProvider(RemediationProvider):
             acceptance_criteria = item.get("acceptance_criteria", [])
 
             if not (title and description):
-                logger.warning("Skipping remediation task missing title/description: %s", item)
+                logger.warning(
+                    "Skipping remediation task missing title/description: %s", item
+                )
                 continue
 
             if priority not in VALID_PRIORITIES:
                 priority = "medium"
 
             try:
-                effort_days = max(1, int(effort_days))
+                effort_days = max(1, int(effort_days or 0))
             except (TypeError, ValueError):
                 effort_days = 1
 
@@ -300,7 +320,10 @@ class OpenAIRemediationProvider(RemediationProvider):
 # Convenience async function (Step 15)
 # ---------------------------------------------------------------------------
 
-async def generate_remediation_plan(violations: list[dict[str, Any]] | list[Any] | None = None) -> dict[str, Any]:
+
+async def generate_remediation_plan(
+    violations: list[dict[str, Any]] | list[Any] | None = None,
+) -> dict[str, Any]:
     """Generate a remediation plan from a list of violations.
 
     Parameters
@@ -355,4 +378,3 @@ async def generate_remediation_plan(violations: list[dict[str, Any]] | list[Any]
     except Exception as exc:
         logger.error("generate_remediation_plan failed: %s", exc)
         return {"tasks": []}
-

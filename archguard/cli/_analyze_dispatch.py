@@ -3,6 +3,7 @@ from pathlib import Path
 from rich.console import Console
 from archguard.cli.analyze_cmd import AnalyzeOptions
 
+
 def _run_analyze_cli(
     opts: AnalyzeOptions,
     json_output: bool,
@@ -27,16 +28,18 @@ def _run_analyze_cli(
 ) -> None:
     from archguard.cli._analyze_core import _analyze_command_impl
     from archguard.cli._analyze_output import _show_monorepo_summary
-    
+
     if json_output:
         opts.ctx.ensure_object(dict)
         opts.ctx.obj["quiet"] = True
 
     if watch:
         from archguard.cli._analyze_watch import run_watch_mode
+
         run_watch_mode(opts, Path(repo))
     elif monorepo:
         from archguard.utils.monorepo import detect_subpackages
+
         _console = Console()
         packages = detect_subpackages(Path(repo))
         if not packages:
@@ -47,7 +50,9 @@ def _run_analyze_cli(
         for pkg in packages:
             pkg_contract = pkg / ".archguard.yml"
             if not pkg_contract.exists():
-                _console.print(f"[yellow]No .archguard.yml in {pkg.name}, skipping[/yellow]")
+                _console.print(
+                    f"[yellow]No .archguard.yml in {pkg.name}, skipping[/yellow]"
+                )
                 continue
             pkg_opts = AnalyzeOptions(
                 ctx=opts.ctx,

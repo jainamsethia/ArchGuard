@@ -41,12 +41,13 @@ def test_read_last_run(tmp_path: Path) -> None:
     assert last_run["event"] == "analysis_run"
     assert last_run["data"] == "b"
 
+
 def test_read_last_n_runs_backward_reading(tmp_path: Path) -> None:
     log_file = tmp_path / "audit.jsonl"
     logger = AuditLogger(log_file)
     for i in range(10):
         logger.log("analysis_run", data=i)
-        
+
     runs = logger.read_last_n_runs(3)
     assert len(runs) == 3
     assert runs[0]["data"] == 7

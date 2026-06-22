@@ -6,44 +6,64 @@ class PathTraversalError(Exception):
     pass
 
 
+# Sensitive directories ArchGuard must never be pointed at, regardless of how
+# the resolved path was constructed. Kept as defense-in-depth alongside
+# existence/accessibility checks below.
+_BLOCKED_PREFIXES = [
+    Path("/etc"),
+    Path("/root"),
+    Path("/proc"),
+    Path("/sys"),
+    Path("/dev"),
+]
+
+if os.name == "nt":
+    _WIN_DRIVE = Path(os.environ.get("SystemDrive", "C:") + "\\")
+    _BLOCKED_PREFIXES.extend(
+        [
+            _WIN_DRIVE / "Windows",
+            _WIN_DRIVE / "Program Files",
+            _WIN_DRIVE / "Program Files (x86)",
+        ]
+    )
+
+
 def validate_repo_path(path: str | Path) -> Path:
     """
     Validate that the given path:
     1. Is a valid filesystem path
-    2. Does not contain path traversal sequences
-    3. Is a directory (or will become one)
-    4. Resolves to within acceptable bounds
+    2. Does not contain path traversal sequences (checked on the raw input,
+       before resolution, so intent is caught independent of process cwd)
+    3. Resolves to an existing, accessible directory
+    4. Does not resolve to a known-sensitive system directory
+
+    Raises PathTraversalError for any violation. This function intentionally
+    does NOT restrict the resolved path to a single project root, because
+    legitimate ArchGuard usage analyzes arbitrary repositories supplied by the
+    caller (e.g. CI checkouts, monorepo subdirectories) — it only guarantees
+    the result is a real directory outside the sensitive-system denylist.
     """
+    raw = str(path)
     resolved = Path(path).resolve()
 
-    # Prevent traversal to sensitive system directories
-    BLOCKED_PREFIXES = [
-        Path("/etc"),
-        Path("/root"),
-        Path("/proc"),
-        Path("/sys"),
-        Path("/dev"),
-    ]
-
-    # Windows equivalents for common system paths
-    if os.name == "nt":
-        win_drive = Path(os.environ.get("SystemDrive", "C:") + "\\")
-        BLOCKED_PREFIXES.extend(
-            [
-                win_drive / "Windows",
-                win_drive / "Program Files",
-                win_drive / "Program Files (x86)",
-            ]
-        )
-
-    for blocked in BLOCKED_PREFIXES:
+    for blocked in _BLOCKED_PREFIXES:
         try:
             resolved.relative_to(blocked.resolve())
         except ValueError:
             continue
         raise PathTraversalError(
-            f"Path '{path}' resolves to a system directory: {resolved}. "
+            f"Path '{raw}' resolves to a system directory: {resolved}. "
             "Refusing to analyze."
+        )
+
+    if not resolved.exists():
+        raise PathTraversalError(
+            f"Path '{raw}' resolves to '{resolved}', which does not exist."
+        )
+
+    if not resolved.is_dir():
+        raise PathTraversalError(
+            f"Path '{raw}' resolves to '{resolved}', which is not a directory."
         )
 
     return resolved

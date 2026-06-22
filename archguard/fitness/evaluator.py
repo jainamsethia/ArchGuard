@@ -24,7 +24,7 @@ class FitnessFunctionEvaluator:
         self._module_paths: Dict[str, List[str]] = {}
         self._graph_prepared = False
 
-    def _prepare_graph(self):
+    def _prepare_graph(self) -> None:
         if self._graph_prepared:
             return
         self._graph_prepared = True
@@ -65,10 +65,10 @@ class FitnessFunctionEvaluator:
 
     def _has_cycles(self) -> Tuple[bool, str]:
         deps = self._get_module_dependencies()
-        visited = set()
-        rec_stack = set()
+        visited: Set[str] = set()
+        rec_stack: Set[str] = set()
         
-        def dfs(node, path):
+        def dfs(node: str, path: List[str]) -> bool:
             visited.add(node)
             rec_stack.add(node)
             path.append(node)
@@ -87,7 +87,7 @@ class FitnessFunctionEvaluator:
 
         for node in deps:
             if node not in visited:
-                path = []
+                path: List[str] = []
                 if dfs(node, path):
                     cycle_str = " -> ".join(path[path.index(path[-1]):])
                     return True, f"Cycle found: {cycle_str}"
@@ -197,11 +197,11 @@ class FitnessFunctionEvaluator:
         # 6. health_score >= N
         m = re.match(r"health_score >= ([\d\.]+)", rule_str)
         if m:
-            limit = float(m.group(1))
+            health_limit = float(m.group(1))
             val = result.archdebt.health_score
             return FitnessFunctionResult(
                 rule=rule_str,
-                passed=(val >= limit),
+                passed=(val >= health_limit),
                 details=f"health_score={val}"
             )
 
@@ -209,18 +209,18 @@ class FitnessFunctionEvaluator:
         m = re.match(r"layer\[(\d+)\]\.debt <= ([\d\.]+)", rule_str)
         if m:
             layer_idx = int(m.group(1))
-            limit = float(m.group(2))
-            val = None
+            layer_limit = float(m.group(2))
+            layer_val: float | None = None
             if layer_idx == 1:
-                val = result.layer_scores.layer1_violation
+                layer_val = result.layer_scores.layer1_violation
             elif layer_idx == 2:
-                val = result.layer_scores.layer2_coupling
+                layer_val = result.layer_scores.layer2_coupling
             elif layer_idx == 3:
-                val = result.layer_scores.layer3_drift
+                layer_val = result.layer_scores.layer3_drift
             elif layer_idx == 4:
-                val = result.layer_scores.layer4_duplication
+                layer_val = result.layer_scores.layer4_duplication
 
-            if val is None:
+            if layer_val is None:
                 return FitnessFunctionResult(
                     rule=rule_str,
                     passed=False,
@@ -228,8 +228,8 @@ class FitnessFunctionEvaluator:
                 )
             return FitnessFunctionResult(
                 rule=rule_str,
-                passed=(val <= limit),
-                details=f"layer{layer_idx}_score={val}"
+                passed=(layer_val <= layer_limit),
+                details=f"layer{layer_idx}_score={layer_val}"
             )
 
         # 8. violation_count <= N

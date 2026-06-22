@@ -5,17 +5,27 @@ from typing import Any
 from rich.console import Console
 from archguard.analysis.layers import AnalysisOrchestrator, AnalysisResult
 from archguard.analysis.scoring import ArchDebtBand
-from archguard.config import EXIT_SUCCESS, EXIT_VIOLATION, EXIT_CONFIG_ERROR, EXIT_ANALYSIS_ERROR
-from archguard.utils.errors import format_error, format_warning
+from archguard.config import (
+    EXIT_SUCCESS,
+    EXIT_VIOLATION,
+    EXIT_CONFIG_ERROR,
+    EXIT_ANALYSIS_ERROR,
+)
+from archguard.utils.errors import format_error
 from archguard.utils.output import vprint
-from archguard.utils.tty import is_tty
 from archguard.profiles.defaults import apply_profile
 from archguard.cli.analyze_cmd import AnalyzeOptions
 
-from archguard.cli._analyze_output import _format_rich_output, _write_json_output, _write_audit_log, _send_slack_alerts
+from archguard.cli._analyze_output import (
+    _format_rich_output,
+    _write_json_output,
+    _write_audit_log,
+    _send_slack_alerts,
+)
 from archguard.cli._analyze_github import _post_github_annotations
 
 _console = Console()
+
 
 def attach_explanations(
     result: AnalysisResult,
@@ -30,6 +40,7 @@ def attach_explanations(
         new_violations.append(dc_replace(v, explanation=explanation))
 
     return dc_replace(result, violations=new_violations)
+
 
 def _resolve_changed_files(
     repo_root: Path,
@@ -123,12 +134,22 @@ def _resolve_changed_files(
 
     return []
 
-def _merge_incremental_results(result: AnalysisResult, repo_root: Path, unchanged: list[Path], commit_sha: str, contract: dict[str, Any], opts: AnalyzeOptions) -> None:
+
+def _merge_incremental_results(
+    result: AnalysisResult,
+    repo_root: Path,
+    unchanged: list[Path],
+    commit_sha: str,
+    contract: dict[str, Any],
+    opts: AnalyzeOptions,
+) -> None:
     from archguard.audit.logger import AuditLogger
     from archguard.analysis.layers import ViolationDetail
     from archguard.analysis.scoring import compute_archdebt, LayerScores
 
-    last_run = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl").read_last_run()
+    last_run = AuditLogger(
+        log_path=repo_root / ".archguard-cache" / "audit.jsonl"
+    ).read_last_run()
     if last_run:
         unchanged_rel = {
             str(f.relative_to(repo_root)).replace("\\", "/") for f in unchanged
@@ -164,14 +185,25 @@ def _merge_incremental_results(result: AnalysisResult, repo_root: Path, unchange
             result.archdebt = compute_archdebt(
                 scores,
                 weights=weights,
-                fail_threshold=opts.fail_threshold if opts.fail_threshold is not None else float(contract.get("fail_threshold", 0.75)),
+                fail_threshold=opts.fail_threshold
+                if opts.fail_threshold is not None
+                else float(contract.get("fail_threshold", 0.75)),
                 warn_threshold=float(contract.get("warn_threshold", 0.50)),
             )
         result.changed_files.extend(list(unchanged_rel))
 
-def _save_incremental_cache(repo_root: Path, py_changed: list[Path], unchanged: list[Path]) -> None:
-    from archguard.cache.incremental import save_cache, load_cache, FileRecord, compute_hash
+
+def _save_incremental_cache(
+    repo_root: Path, py_changed: list[Path], unchanged: list[Path]
+) -> None:
+    from archguard.cache.incremental import (
+        save_cache,
+        load_cache,
+        FileRecord,
+        compute_hash,
+    )
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc).isoformat()
     cache_records = load_cache(repo_root)
     for f in py_changed + unchanged:
@@ -181,47 +213,9 @@ def _save_incremental_cache(repo_root: Path, py_changed: list[Path], unchanged: 
         )
     save_cache(repo_root, cache_records)
 
-def _run_llm_explanation(result: AnalysisResult, contract: dict[str, Any], opts: AnalyzeOptions) -> AnalysisResult:
-    quiet = opts.ctx.obj.get("quiet", False)
-    use_rich = is_tty() and not quiet
-    if not opts.skip_explanation and result.archdebt.should_fail_ci and result.violations:
-        vprint(f"Requesting LLM explanations for {len(result.violations)} violations...", opts.ctx, level="debug")
-        progress = None
-        task = None
-        if use_rich:
-            from rich.progress import Progress, SpinnerColumn, TextColumn
-            progress = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=_console, transient=True)
-            progress.start()
-            task = progress.add_task("[yellow]Generating LLM Explanations...[/yellow]", total=None)
-        try:
-            from archguard.llm.cloud import CloudLLMExplainer
-            from archguard.utils.async_utils import run_async
-            explainer = CloudLLMExplainer()
-            raw_explanations = run_async(explainer.explain_violations_concurrent(result.violations, contract, result.changed_files))
-            explanations = []
-            for exp in raw_explanations:
-                if isinstance(exp, Exception):
-                    import logging
-                    logging.getLogger(__name__).warning(f"Concurrent explanation failed: {exp}")
-                    explanations.append("[Explanation unavailable]")
-                else:
-                    explanations.append(exp)
-            vprint("LLM explanations received and attached.", opts.ctx, level="debug")
-            result = attach_explanations(result, explanations)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Non-critical failure in LLM explanation: {e}")
-            if not quiet:
-                _console.print(format_warning("LLM explanation failed. Continuing without explanations."))
-        finally:
-            if progress:
-                if task is not None:
-                    progress.update(task, description="[green]✓ Explanations Generated[/green]")
-                progress.stop()
-    return result
-
 def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | None]:
     import os
+
     SKIP_LLM = os.getenv("ARCHGUARD_SKIP_LLM", "").lower() in ("1", "true", "yes")
     if opts.no_llm or SKIP_LLM:
         opts.skip_explanation = True
@@ -230,6 +224,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
     opts.repo_slug = opts.repo_slug or os.environ.get("GITHUB_REPOSITORY")
     if opts.pr_number is None:
         from archguard.github.client import _get_pr_number
+
         opts.pr_number = _get_pr_number()
 
     try:
@@ -242,15 +237,24 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         profile_to_use = opts.profile or orchestrator.contract.get("profile")
         if profile_to_use:
             orchestrator.contract = apply_profile(orchestrator.contract, profile_to_use)
-            vprint(f"Applied configuration profile: [bold cyan]{profile_to_use}[/bold cyan]", opts.ctx)
+            vprint(
+                f"Applied configuration profile: [bold cyan]{profile_to_use}[/bold cyan]",
+                opts.ctx,
+            )
 
-        all_changed = _resolve_changed_files(repo_root, opts.changed_files, opts.pr_number, opts.repo_slug)
-        vprint(f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]", opts.ctx)
+        all_changed = _resolve_changed_files(
+            repo_root, opts.changed_files, opts.pr_number, opts.repo_slug
+        )
+        vprint(
+            f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]",
+            opts.ctx,
+        )
         py_changed = [f for f in all_changed if str(f).endswith(".py")]
 
         unchanged: list[Path] = []
         if opts.incremental and not opts.no_incremental:
             from archguard.cache.incremental import get_changed_files
+
             py_changed, unchanged = get_changed_files(py_changed, repo_root)
 
         if not py_changed and not unchanged:
@@ -260,25 +264,41 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
 
         try:
-            vprint(f"Analyzing {len(py_changed)} changed files...", opts.ctx, level="debug")
+            vprint(
+                f"Analyzing {len(py_changed)} changed files...", opts.ctx, level="debug"
+            )
             result = orchestrator.run(
-                py_changed, commit_sha, skip_explanation=opts.skip_explanation,
-                progress_callback=None, fail_fast=opts.fail_fast, quiet=opts.json_output,
+                py_changed,
+                commit_sha,
+                skip_explanation=opts.skip_explanation,
+                progress_callback=None,
+                fail_fast=opts.fail_fast,
+                quiet=opts.json_output,
             )
 
             if opts.verbose or opts.metrics_flag:
                 from rich.table import Table
+
                 table = Table(title="Performance Metrics")
                 table.add_column("Layer", style="cyan")
                 table.add_column("Duration", justify="right", style="magenta")
-                for layer, duration in result.metrics.get("layer_durations", {}).items():
+                for layer, duration in result.metrics.get(
+                    "layer_durations", {}
+                ).items():
                     table.add_row(layer, f"{duration:.3f}s")
                 _console.print(table)
 
             vprint("Analysis core completed.", opts.ctx, level="debug")
 
             if opts.incremental and not opts.no_incremental and unchanged:
-                _merge_incremental_results(result, repo_root, unchanged, commit_sha, orchestrator.contract, opts)
+                _merge_incremental_results(
+                    result,
+                    repo_root,
+                    unchanged,
+                    commit_sha,
+                    orchestrator.contract,
+                    opts,
+                )
             if opts.incremental and not opts.no_incremental:
                 _save_incremental_cache(repo_root, py_changed, unchanged)
 
@@ -294,8 +314,9 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             _console.print(format_error(f"Analysis failed: {exc}"))
             return EXIT_ANALYSIS_ERROR, None
 
+        from archguard.cli._analyze_llm import _run_llm_explanation
         result = _run_llm_explanation(result, orchestrator.contract, opts)
-        
+
         if opts.json_output or opts.out_file is not None:
             _write_json_output(result, opts)
         if not opts.json_output:
@@ -305,52 +326,29 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         _post_github_annotations(result, opts, orchestrator.contract)
 
         if opts.pr_number and py_changed:
-            from archguard.risk.pr_risk import PRRiskAnalyzer
-            from archguard.fitness.evaluator import FitnessFunctionEvaluator
-            from archguard.analysis._orchestrator_utils import _get_module_paths
-            
-            analyzer = PRRiskAnalyzer()
-            module_paths = {m["name"]: _get_module_paths(m) for m in orchestrator.contract.get("modules", [])}
-            changed_files_str = [str(f.relative_to(repo_root)).replace("\\", "/") for f in py_changed]
-            try:
-                evaluator = FitnessFunctionEvaluator(repo_root, orchestrator.contract)
-                dep_set = evaluator._get_module_dependencies()
-                dependency_graph = {k: list(v) for k, v in dep_set.items()}
-                
-                risk_report = analyzer.analyze(
-                    changed_files=changed_files_str,
-                    module_paths=module_paths,
-                    dependency_graph=dependency_graph
-                )
-                if not opts.json_output and not opts.ctx.obj.get("quiet"):
-                    from rich.table import Table
-                    rtable = Table(title=f"PR Risk Analysis (Score: {risk_report.risk_score})")
-                    rtable.add_column("Module", style="cyan")
-                    rtable.add_column("Risk Level", style="magenta")
-                    for mr in risk_report.module_risks:
-                        rtable.add_row(mr.module, mr.risk_level)
-                    _console.print(rtable)
-                    _console.print(f"Overall Risk: [bold]{risk_report.overall_risk.upper()}[/bold]")
-                
-                from archguard.config import ArchGuardConfig
-                cfg = ArchGuardConfig()
-                if cfg.fail_on_critical_risk and risk_report.overall_risk.lower() == "critical":
-                    if not opts.ctx.obj.get("quiet"):
-                        _console.print("[bold red]Failing build due to CRITICAL PR risk.[/bold red]")
-                    return EXIT_VIOLATION, result
-            except Exception as exc:
-                import logging
-                logging.getLogger(__name__).warning(f"PR Risk Analysis failed: {exc}")
+            from archguard.cli._analyze_risk import _check_pr_risk
 
+            exit_code, result = _check_pr_risk(
+                result, opts, orchestrator, py_changed, repo_root, EXIT_VIOLATION
+            )
+            if exit_code != 0:
+                return exit_code, result
 
-        has_critical_parse_failures = any(f.is_critical for f in getattr(result, "parse_failures", []))
+        has_critical_parse_failures = any(
+            f.is_critical for f in getattr(result, "parse_failures", [])
+        )
         if has_critical_parse_failures:
             if not opts.ctx.obj.get("quiet"):
-                _console.print("[bold red]Critical parse failures detected. Analysis is invalid.[/bold red]")
+                _console.print(
+                    "[bold red]Critical parse failures detected. Analysis is invalid.[/bold red]"
+                )
             return 3, result
 
         should_fail = result.archdebt.should_fail_ci
-        if opts.fail_on_warn and result.archdebt.band in (ArchDebtBand.WATCH, ArchDebtBand.WARN):
+        if opts.fail_on_warn and result.archdebt.band in (
+            ArchDebtBand.WATCH,
+            ArchDebtBand.WARN,
+        ):
             should_fail = True
 
         _send_slack_alerts(result, repo_root)
@@ -358,4 +356,3 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         if should_fail:
             return EXIT_VIOLATION, result
         return EXIT_SUCCESS, result
-

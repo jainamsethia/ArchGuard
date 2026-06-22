@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-from typing import Any
 
 import httpx
 
@@ -26,6 +25,7 @@ Each object MUST have exactly these keys:
 If the context shows no issues or violations, return an empty array: []
 """
 
+
 class OpenAIAdvisorProvider(AdvisorProvider):
     """OpenAI implementation of the Architecture Advisor provider."""
 
@@ -38,13 +38,17 @@ class OpenAIAdvisorProvider(AdvisorProvider):
     ) -> None:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
         self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4-turbo")
-        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.base_url = base_url or os.environ.get(
+            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        )
         self.timeout = timeout
-        
+
     def generate_recommendations(self, context: str) -> list[Recommendation]:
         """Generate recommendations by calling the OpenAI API."""
         if not self.api_key:
-            logger.warning("OPENAI_API_KEY is missing. Cannot generate recommendations.")
+            logger.warning(
+                "OPENAI_API_KEY is missing. Cannot generate recommendations."
+            )
             return []
 
         messages = [
@@ -56,24 +60,23 @@ class OpenAIAdvisorProvider(AdvisorProvider):
             "model": self.model,
             "messages": messages,
             "temperature": 0.2,
-            "response_format": {"type": "json_object"} if "gpt-4" in self.model or "gpt-3.5-turbo-1106" in self.model else None,
+            "response_format": {"type": "json_object"}
+            if "gpt-4" in self.model or "gpt-3.5-turbo-1106" in self.model
+            else None,
         }
-        
+
         # When forcing JSON object, the system prompt must explicitly instruct returning a JSON object.
         # But we need an array. So we'll wrap it in a JSON object with a `recommendations` key.
         # Let's adjust the payload and prompt for compatibility with JSON mode.
-        
+
         # Safer prompt for JSON mode compatibility:
         adjusted_prompt = SYSTEM_PROMPT.replace(
-            "You MUST return the output as a JSON array of objects.", 
-            'You MUST return a JSON object with a single key "recommendations" containing an array of objects.'
-        ).replace(
-            "return an empty array: []",
-            'return {"recommendations": []}'
-        )
-        
+            "You MUST return the output as a JSON array of objects.",
+            'You MUST return a JSON object with a single key "recommendations" containing an array of objects.',
+        ).replace("return an empty array: []", 'return {"recommendations": []}')
+
         messages[0]["content"] = adjusted_prompt
-        
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -82,14 +85,12 @@ class OpenAIAdvisorProvider(AdvisorProvider):
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
-                    f"{self.base_url}/chat/completions",
-                    json=payload,
-                    headers=headers
+                    f"{self.base_url}/chat/completions", json=payload, headers=headers
                 )
-                
+
             response.raise_for_status()
             data = response.json()
-            
+
             raw_content = data["choices"][0]["message"]["content"]
             return self._parse_response(raw_content)
 
@@ -100,7 +101,9 @@ class OpenAIAdvisorProvider(AdvisorProvider):
             if e.response.status_code == 429:
                 logger.error("Rate limit exceeded while calling OpenAI API.")
             else:
-                logger.error(f"HTTP error {e.response.status_code} calling OpenAI API: {e.response.text}")
+                logger.error(
+                    f"HTTP error {e.response.status_code} calling OpenAI API: {e.response.text}"
+                )
             return []
         except httpx.RequestError as e:
             logger.error(f"Network error calling OpenAI API: {e}")
@@ -113,44 +116,46 @@ class OpenAIAdvisorProvider(AdvisorProvider):
         """Parse and validate the JSON response into Recommendation objects."""
         if not raw_content.strip():
             return []
-            
+
         try:
             parsed = json.loads(raw_content)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM JSON response: {e}")
             return []
-            
+
         # Extract array from the wrapping object
         recs_data = parsed.get("recommendations", [])
         if not isinstance(recs_data, list):
             logger.error("LLM response did not contain a 'recommendations' array.")
             return []
-            
+
         recommendations = []
         for item in recs_data:
             if not isinstance(item, dict):
                 continue
-                
+
             title = item.get("title")
             description = item.get("description")
             severity = str(item.get("severity", "low")).lower()
             expected_impact = item.get("expected_impact")
             priority_score = item.get("priority_score")
-            
+
             # Validation
             if not (title and description and expected_impact):
-                logger.warning(f"Skipping malformed recommendation missing required string fields: {item}")
+                logger.warning(
+                    f"Skipping malformed recommendation missing required string fields: {item}"
+                )
                 continue
-                
+
             if severity not in {"critical", "high", "medium", "low"}:
                 severity = "medium"
-                
+
             try:
-                priority_score = int(priority_score)
+                priority_score = int(priority_score or 0)
                 priority_score = max(0, min(100, priority_score))
             except (TypeError, ValueError):
                 priority_score = 50
-                
+
             recommendations.append(
                 Recommendation(
                     title=str(title),
@@ -160,5 +165,5 @@ class OpenAIAdvisorProvider(AdvisorProvider):
                     priority_score=priority_score,
                 )
             )
-            
+
         return recommendations

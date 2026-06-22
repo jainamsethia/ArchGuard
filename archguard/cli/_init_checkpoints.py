@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 from archguard.config import CHECKPOINTS_DIR
 
+
 def save_checkpoint(repo_root: Path, phase: int, data: dict[str, Any]) -> None:
     """Save checkpoint JSON for a completed phase."""
     cp_dir = repo_root / CHECKPOINTS_DIR
@@ -28,6 +29,7 @@ def load_checkpoint(repo_root: Path, phase: int) -> dict[str, Any] | None:
         return None
     try:
         import typing
+
         with path.open("r", encoding="utf-8") as f:
             return typing.cast(typing.Dict[str, Any], json.load(f))
     except (json.JSONDecodeError, OSError):

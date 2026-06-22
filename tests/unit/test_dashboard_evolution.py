@@ -5,9 +5,10 @@ from unittest.mock import patch, MagicMock
 
 client = TestClient(app)
 
+
 @pytest.fixture
 def mock_audit_logger():
-    with patch("archguard.dashboard.app.AuditLogger") as mock_logger_cls:
+    with patch("archguard.dashboard.routes.evolution.AuditLogger") as mock_logger_cls:
         mock_instance = MagicMock()
         # Mock some raw snapshots
         mock_instance.read_last_n_runs.return_value = [
@@ -27,19 +28,22 @@ def mock_audit_logger():
         mock_logger_cls.return_value = mock_instance
         yield mock_instance
 
+
 @pytest.fixture
 def mock_audit_logger_empty():
-    with patch("archguard.dashboard.app.AuditLogger") as mock_logger_cls:
+    with patch("archguard.dashboard.routes.evolution.AuditLogger") as mock_logger_cls:
         mock_instance = MagicMock()
         mock_instance.read_last_n_runs.return_value = []
         mock_logger_cls.return_value = mock_instance
         yield mock_instance
 
+
 def test_api_evolution_summary(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
-    
+
     response = client.get("/api/evolution/summary")
     assert response.status_code == 200
     data = response.json()
@@ -48,11 +52,13 @@ def test_api_evolution_summary(mock_audit_logger, monkeypatch):
     assert "health_trend" in data
     assert data["health_trend"]["classification"] == "improving"
 
+
 def test_api_evolution_history(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
-    
+
     response = client.get("/api/evolution/history")
     assert response.status_code == 200
     data = response.json()
@@ -60,11 +66,13 @@ def test_api_evolution_history(mock_audit_logger, monkeypatch):
     assert data["total"] == 2
     assert len(data["history"]) == 2
 
+
 def test_api_evolution_trends(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
-    
+
     response = client.get("/api/evolution/trends")
     assert response.status_code == 200
     data = response.json()
@@ -73,11 +81,13 @@ def test_api_evolution_trends(mock_audit_logger, monkeypatch):
     assert "fitness_trend" in data
     assert data["fitness_trend"]["classification"] == "improving"
 
+
 def test_api_evolution_empty(mock_audit_logger_empty, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
-    
+
     response = client.get("/api/evolution/summary")
     assert response.status_code == 200
     data = response.json()

@@ -2,6 +2,7 @@ import typer
 from pathlib import Path
 from dataclasses import dataclass
 
+
 @dataclass
 class AnalyzeOptions:
     ctx: typer.Context

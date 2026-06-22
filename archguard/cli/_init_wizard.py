@@ -5,6 +5,7 @@ from archguard.contract.writer import _infer_path
 
 _console: Console = Console()
 
+
 def _interactive_review(
     communities: dict[str, list[str]],
 ) -> dict[str, list[str]]:

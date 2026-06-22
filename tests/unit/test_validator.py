@@ -83,17 +83,17 @@ class TestValidateContract:
                     "coupling_budget": 10,
                     "semantic_drift_threshold": 0.2,
                     "allowed_imports": [],
-                    "disallowed_imports": []
+                    "disallowed_imports": [],
                 }
             ],
             "fail_threshold": 0.75,
-            "warn_threshold": 0.50
+            "warn_threshold": 0.50,
         }
 
         class MockContent:
             def __init__(self, text):
                 self.text = text
-                
+
         class MockResponse:
             def __init__(self, text):
                 self.content = [MockContent(text)]
@@ -105,8 +105,10 @@ class TestValidateContract:
         class MockClient:
             def __init__(self, **kwargs):
                 self.messages = MockMessages()
+
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 return False
 
@@ -114,7 +116,7 @@ class TestValidateContract:
             AsyncAnthropic = MockClient
 
         with patch("os.environ.get", return_value="fake_key"):
-            with patch.dict('sys.modules', {'anthropic': MockAnthropicModule()}):
+            with patch.dict("sys.modules", {"anthropic": MockAnthropicModule()}):
                 result = await generate_contract_from_llm(Path("."))
                 assert result["version"] == "3.0"
 
@@ -136,17 +138,17 @@ class TestValidateContract:
                     "coupling_budget": 10,
                     "semantic_drift_threshold": 0.2,
                     "allowed_imports": [],
-                    "disallowed_imports": []
+                    "disallowed_imports": [],
                 }
             ],
             "fail_threshold": 0.75,
-            "warn_threshold": 0.50
+            "warn_threshold": 0.50,
         }
 
         class MockContent:
             def __init__(self, text):
                 self.text = text
-                
+
         class MockResponse:
             def __init__(self, text):
                 self.content = [MockContent(text)]
@@ -158,8 +160,10 @@ class TestValidateContract:
         class MockClient:
             def __init__(self, **kwargs):
                 self.messages = MockMessages()
+
             async def __aenter__(self):
                 return self
+
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 return False
 
@@ -167,8 +171,10 @@ class TestValidateContract:
             AsyncAnthropic = MockClient
 
         with patch("os.environ.get", return_value="fake_key"):
-            with patch.dict('sys.modules', {'anthropic': MockAnthropicModule()}):
-                with pytest.raises(ValueError, match="LLM generated an invalid contract"):
+            with patch.dict("sys.modules", {"anthropic": MockAnthropicModule()}):
+                with pytest.raises(
+                    ValueError, match="LLM generated an invalid contract"
+                ):
                     await generate_contract_from_llm(Path("."))
 
     def test_duplication_threshold_valid(self) -> None:

@@ -1,6 +1,7 @@
 """PR comment create/update/delete for ArchGuard reports."""
 
 from __future__ import annotations
+from typing import Any
 
 import logging
 import time
@@ -31,7 +32,7 @@ _LAYER_LABELS: list[str] = [
 ]
 
 
-def build_fitness_section(fitness_results: list[dict]) -> str:
+def build_fitness_section(fitness_results: list[dict[str, Any]]) -> str:
     """Build the Architecture Fitness Functions markdown section."""
     if not fitness_results:
         return ""
@@ -57,7 +58,9 @@ def build_fitness_section(fitness_results: list[dict]) -> str:
         lines.append("| Function | Rule | Evidence |")
         lines.append("|----------|------|----------|")
         for f in critical_failures:
-            lines.append(f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |")
+            lines.append(
+                f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |"
+            )
 
     warn_failures = [r for r in failed_results if r.get("severity") == "warn"]
     if warn_failures:
@@ -67,7 +70,9 @@ def build_fitness_section(fitness_results: list[dict]) -> str:
         lines.append("| Function | Rule | Evidence |")
         lines.append("|----------|------|----------|")
         for f in warn_failures:
-            lines.append(f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |")
+            lines.append(
+                f"| {f.get('name', f.get('rule', ''))} | {f.get('rule', '')} | {f.get('evidence', '')} |"
+            )
 
     if passed_results:
         lines.append("")
@@ -107,7 +112,7 @@ def build_risk_section(report: Any) -> str:
         lines.append("")
         lines.append("| Module | Risk Level | Details |")
         lines.append("|--------|------------|---------|")
-        
+
         # Cap displayed modules at 10
         displayed = module_risks[:10]
         for mr in displayed:
@@ -116,14 +121,13 @@ def build_risk_section(report: Any) -> str:
             reasons = getattr(mr, "reasons", [])
             details = ", ".join(reasons) if reasons else "No specific reasons provided."
             lines.append(f"| {module_name} | {risk_level} | {details} |")
-        
+
         if len(module_risks) > 10:
             lines.append("")
             lines.append(f"*(+{len(module_risks) - 10} more modules hidden)*")
         lines.append("")
 
     return "\n".join(lines)
-
 
 
 class PRCommentManager:

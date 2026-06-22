@@ -1,15 +1,103 @@
-"""Execution logic for AnalysisOrchestrator."""
-
-from __future__ import annotations
-
-import logging
+from typing import Any, Callable
 from pathlib import Path
-from typing import Any
 
-from archguard.analysis.scoring import compute_archdebt, LayerScores
-from archguard.analysis.layers import AnalysisResult, ViolationDetail
+from archguard.analysis._models import AnalysisResult, ViolationDetail
+from archguard.analysis.scoring import LayerScores
+from archguard.analysis.scoring import compute_archdebt
+from archguard.analysis._orchestrator_stages import _run_layer_1_2, _run_layer_3
+from archguard.analysis._orchestrator_layer4 import _run_layer_4
+from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
 
-logger = logging.getLogger(__name__)
+def _finalize_result(
+    orchestrator: Any,
+    violations: list[ViolationDetail],
+    commit_sha: str,
+    metrics: Any,
+    evaluate_fitness: Callable[[AnalysisResult], None],
+    layer1: float,
+    layer2: float,
+    layer3: float,
+    layer4: float,
+    affected: Any,
+    rel_files: list[str],
+    unique_failures: list[Any],
+) -> AnalysisResult:
+    violations = _filter_suppressed_fn(orchestrator.repo_root, violations)
+
+    scores = LayerScores(layer1, layer2, layer3, layer4)
+
+    # Get weights from contract if available
+    weights_cfg = orchestrator.contract.get("weights")
+    if weights_cfg and isinstance(weights_cfg, dict):
+        weights = (
+            float(weights_cfg.get("layer1", 0.25)),
+            float(weights_cfg.get("layer2", 0.25)),
+            float(weights_cfg.get("layer3", 0.25)),
+            float(weights_cfg.get("layer4", 0.25)),
+        )
+    else:
+        weights = (0.25, 0.25, 0.25, 0.25)
+
+    archdebt = compute_archdebt(
+        scores,
+        weights=weights,
+        fail_threshold=float(orchestrator.contract.get("fail_threshold", 0.75)),
+        warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
+    )
+
+    res = AnalysisResult(
+        archdebt=archdebt,
+        violations=violations,
+        layer_scores=scores,
+        modules_analyzed=len(affected),
+        changed_files=rel_files,
+        commit_sha=commit_sha,
+        metrics=metrics.to_dict(),
+        parse_failures=unique_failures,
+        partial_analysis=bool(unique_failures),
+    )
+
+    evaluate_fitness(res)
+    return res
+
+
+def _evaluate_fitness_helper(
+    orchestrator: Any, res: AnalysisResult, progress: Any, quiet: bool
+) -> None:
+    from archguard.config import parse_fitness_functions
+    from archguard.fitness.evaluator import FitnessFunctionEvaluator
+
+    fitness_configs = parse_fitness_functions(orchestrator.contract)
+    if not fitness_configs:
+        return
+
+    desc_fit = "Fitness Functions Evaluation..."
+    task_fit = progress.add_task(desc_fit, total=None) if progress else None
+    if not progress and not quiet:
+        print(desc_fit)
+
+    evaluator = FitnessFunctionEvaluator(orchestrator.repo_root, orchestrator.contract)
+    rules = [c.rule for c in fitness_configs]
+    fitness_results = evaluator.evaluate(res, rules)
+    res.archdebt.apply_fitness_results(fitness_results, fitness_configs)
+
+    from archguard.audit.logger import serialize_fitness_results
+
+    res.metrics["fitness_results"] = serialize_fitness_results(
+        fitness_results, fitness_configs
+    )
+
+    if progress:
+        failures = sum(1 for r in fitness_results if not getattr(r, "passed", True))
+        desc = (
+            f"[bold red]✗ Fitness Functions:[/bold red] {failures} failures"
+            if failures > 0
+            else "[green]✓ Fitness Functions:[/green] all passed"
+        )
+        progress.update(task_fit, description=desc)
+        progress.stop_task(task_fit)
+    elif not quiet:
+        print("[OK] Fitness Functions complete")
 
 
 def _run_orchestrator(
@@ -21,7 +109,6 @@ def _run_orchestrator(
     fail_fast: bool = False,
     quiet: bool = False,
 ) -> AnalysisResult:
-    """Run the full Layer 1–4 pipeline."""
     py_files = [f for f in changed_files if str(f).endswith(".py")]
     rel_files = [
         str(f.relative_to(orchestrator.repo_root)).replace("\\", "/")
@@ -29,7 +116,6 @@ def _run_orchestrator(
         else str(f).replace("\\", "/")
         for f in py_files
     ]
-
     if not py_files:
         scores = LayerScores(0.0, 0.0, 0.0, 0.0)
         return AnalysisResult(
@@ -39,11 +125,13 @@ def _run_orchestrator(
             commit_sha=commit_sha,
         )
 
-    from archguard.analysis._orchestrator_utils import _get_affected_modules as _get_affected_modules_fn
-    affected = _get_affected_modules_fn(orchestrator.repo_root, orchestrator.contract, py_files)
-    violations: list[ViolationDetail] = []
+    from archguard.analysis._orchestrator_utils import (
+        _get_affected_modules as _get_affected_modules_fn,
+    )
 
-    fail_threshold = float(orchestrator.contract.get("fail_threshold", 0.75))
+    affected = _get_affected_modules_fn(
+        orchestrator.repo_root, orchestrator.contract, py_files
+    )
 
     import sys
 
@@ -53,389 +141,74 @@ def _run_orchestrator(
         from rich.progress import Progress, SpinnerColumn, TextColumn
         from rich.console import Console
 
-        console = Console()
         progress = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
-            console=console,
+            console=Console(),
             transient=True,
         )
         progress.start()
 
-    def _evaluate_fitness(res: AnalysisResult) -> None:
-        """Helper to run fitness functions and attach to result."""
-        from archguard.config import parse_fitness_functions
-        from archguard.fitness.evaluator import FitnessFunctionEvaluator
-
-        fitness_configs = parse_fitness_functions(orchestrator.contract)
-        if fitness_configs:
-            desc_fit = "Fitness Functions Evaluation..."
-            if progress:
-                task_fit = progress.add_task(desc_fit, total=None)
-            else:
-                if not quiet:
-                    print(desc_fit)
-
-            evaluator = FitnessFunctionEvaluator(orchestrator.repo_root, orchestrator.contract)
-            rules = [c.rule for c in fitness_configs]
-            fitness_results = evaluator.evaluate(res, rules)
-            res.archdebt.apply_fitness_results(fitness_results, fitness_configs)
-
-            from archguard.audit.logger import serialize_fitness_results
-            res.metrics["fitness_results"] = serialize_fitness_results(fitness_results, fitness_configs)
-
-            if progress:
-                failures = sum(1 for r in fitness_results if not getattr(r, 'passed', True))
-                if failures > 0:
-                    progress.update(task_fit, description=f"[bold red]✗ Fitness Functions:[/bold red] {failures} failures")
-                else:
-                    progress.update(task_fit, description=f"[green]✓ Fitness Functions:[/green] all passed")
-                progress.stop_task(task_fit)
-            else:
-                if not quiet:
-                    print(f"[OK] Fitness Functions complete")
+    def _eval_fitness(res: AnalysisResult) -> None:
+        _evaluate_fitness_helper(orchestrator, res, progress, quiet)
 
     try:
-        import time
-        from concurrent.futures import ThreadPoolExecutor
-
-        start_time = time.perf_counter()
-
         from archguard.observability.metrics import AnalysisMetrics
 
         metrics = AnalysisMetrics()
 
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            desc1 = "Layer 1: Boundary Analysis..."
-            desc2 = "Layer 2: Coupling Analysis..."
+        v1_2, l1, l2, f_1_2, res1_2 = _run_layer_1_2(
+            orchestrator,
+            py_files,
+            affected,
+            progress,
+            quiet,
+            fail_fast,
+            _eval_fitness,
+            metrics,
+            commit_sha,
+            rel_files,
+        )
+        if res1_2:
+            return res1_2
 
-            if progress:
-                task1 = progress.add_task(desc1, total=None)
-                task2 = progress.add_task(desc2, total=None)
-            else:
-                if not quiet:
-                    print(desc1)
-                    print(desc2)
+        v3, l3, res3 = _run_layer_3(
+            orchestrator,
+            py_files,
+            v1_2,
+            affected,
+            progress,
+            quiet,
+            fail_fast,
+            _eval_fitness,
+            metrics,
+            commit_sha,
+            rel_files,
+            l1,
+            l2,
+            f_1_2,
+        )
+        if res3:
+            return res3
 
-            l1_failures: list[Any] = []
-            l2_failures: list[Any] = []
-
-            def run_l1() -> tuple[float, list[ViolationDetail]]:
-                with metrics.time_layer("layer1"):
-                    from archguard.analysis._layer_runners import _run_layer1 as _run_l1
-                    return _run_l1(
-                        orchestrator.repo_root, orchestrator.contract, py_files, affected, commit_sha, l1_failures
-                    )
-
-            def run_l2() -> tuple[float, list[ViolationDetail]]:
-                with metrics.time_layer("layer2"):
-                    from archguard.analysis._layer_runners import _run_layer2 as _run_l2
-                    return _run_l2(
-                        orchestrator.repo_root, orchestrator.contract, affected, commit_sha, l2_failures
-                    )
-
-            future_l1 = executor.submit(run_l1)
-            future_l2 = executor.submit(run_l2)
-
-            layer1, l1_viols = future_l1.result()
-            l1_violations = len(l1_viols)
-            if progress:
-                progress.update(
-                    task1,
-                    description=f"[green]✓ Layer 1:[/green] {l1_violations} violations",
-                )
-                progress.stop_task(task1)
-            else:
-                if not quiet:
-                    print(f"[OK] Layer 1 complete ({l1_violations} violations)")
-
-            layer2, l2_viols = future_l2.result()
-            l2_violations = len(l2_viols)
-            if progress:
-                progress.update(
-                    task2,
-                    description=f"[green]✓ Layer 2:[/green] {l2_violations} violations",
-                )
-                progress.stop_task(task2)
-            else:
-                if not quiet:
-                    print(f"[OK] Layer 2 complete ({l2_violations} violations)")
-            
-            violations.extend(l1_viols)
-            violations.extend(l2_viols)
-
-        elapsed = time.perf_counter() - start_time
-        logger.debug(f"Layer 1 and 2 concurrent execution time: {elapsed:.2f}s")
-
-        parse_failures = l1_failures + l2_failures
-        # De-duplicate by file_path and error_type
-        unique_failures = []
-        seen = set()
-        for f in parse_failures:
-            key = (str(f.file_path), f.error_type)
-            if key not in seen:
-                seen.add(key)
-                unique_failures.append(f)
-
-        if unique_failures and orchestrator._audit:
-            for f in unique_failures:
-                orchestrator._audit.log(
-                    "parse_failure",
-                    file=str(f.file_path),
-                    error_type=f.error_type,
-                    error_message=f.error_message,
-                    is_critical=f.is_critical,
-                )
-
-        if fail_fast:
-            if layer1 >= fail_threshold:
-                if progress:
-                    progress.stop()
-                from rich.console import Console
-
-                Console().print(
-                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 1 (Boundaries) score {layer1:.2f} "
-                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
-                )
-                from archguard.analysis._orchestrator_utils import _build_partial_result as _build_partial_result_fn
-                from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
-                res = _build_partial_result_fn(
-                    orchestrator.repo_root,
-                    orchestrator.contract,
-                    _filter_suppressed_fn,
-                    layer1,
-                    layer2,
-                    0.0,
-                    0.0,
-                    ["semantic", "duplication"],
-                    violations,
-                    affected,
-                    rel_files,
-                    commit_sha,
-                    metrics.to_dict(),
-                )
-                res.parse_failures = unique_failures
-                res.partial_analysis = bool(unique_failures)
-                _evaluate_fitness(res)
-                return res
-
-            if layer2 >= fail_threshold:
-                if progress:
-                    progress.stop()
-                from rich.console import Console
-
-                Console().print(
-                    f"[bold red]✗ FAIL-FAST:[/bold red] Layer 2 (Coupling) score {layer2:.2f} "
-                    f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
-                )
-                from archguard.analysis._orchestrator_utils import _build_partial_result as _build_partial_result_fn
-                from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
-                res = _build_partial_result_fn(
-                    orchestrator.repo_root,
-                    orchestrator.contract,
-                    _filter_suppressed_fn,
-                    layer1,
-                    layer2,
-                    0.0,
-                    0.0,
-                    ["semantic", "duplication"],
-                    violations,
-                    affected,
-                    rel_files,
-                    commit_sha,
-                    metrics.to_dict(),
-                )
-                res.parse_failures = unique_failures
-                res.partial_analysis = bool(unique_failures)
-                _evaluate_fitness(res)
-                return res
-
-        # --- Layer 3: Semantic drift ---
-        skip_layers = list(orchestrator.contract.get("skip_layers", []))
-        import os
-
-        SKIP_ML = os.getenv("ARCHGUARD_SKIP_ML", "").lower() in ("1", "true", "yes")
-        if SKIP_ML:
-            if "semantic" not in skip_layers:
-                skip_layers.append("semantic")
-            if "duplication" not in skip_layers:
-                skip_layers.append("duplication")
-
-        desc3 = "Layer 3: Semantic Cohesion..."
-        if progress:
-            task3 = progress.add_task(desc3, total=None)
-        else:
-            if not quiet:
-                print(desc3)
-
-        if "semantic" in skip_layers:
-            layer3 = 0.0
-            module_drifts: dict[str, float] = {}
-            if progress:
-                progress.update(
-                    task3,
-                    description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]",
-                )
-                progress.stop_task(task3)
-            else:
-                if not quiet:
-                    print("⚠ Layer 3 Skipped (config)")
-        else:
-            try:
-                with metrics.time_layer("layer3"):
-                    from archguard.analysis._layer_runners import _run_layer3 as _run_l3
-                    layer3, module_drifts, l3_viols = _run_l3(
-                        orchestrator.cache, orchestrator.contract, affected, py_files, commit_sha, orchestrator.repo_root
-                    )
-                    violations.extend(l3_viols)
-                l3_violations = len(l3_viols)
-                if progress:
-                    progress.update(
-                        task3,
-                        description=f"[green]✓ Layer 3:[/green] {l3_violations} violations",
-                    )
-                    progress.stop_task(task3)
-                else:
-                    if not quiet:
-                        print(f"[OK] Layer 3 complete ({l3_violations} violations)")
-            except RuntimeError as e:
-                if "ML dependencies" in str(e):
-                    if progress:
-                        progress.update(
-                            task3,
-                            description="[bold red]✗ Layer 3: Failed (Missing ML dependencies)[/bold red]",
-                        )
-                        progress.stop_task(task3)
-                    raise
-                else:
-                    raise
-
-        if fail_fast and layer3 >= fail_threshold:
-            if progress:
-                progress.stop()
-            from rich.console import Console
-
-            Console().print(
-                f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} "
-                f"exceeds fail threshold {fail_threshold}. Skipping remaining layers."
-            )
-            from archguard.analysis._orchestrator_utils import _build_partial_result as _build_partial_result_fn
-            from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
-            res = _build_partial_result_fn(
-                orchestrator.repo_root,
-                orchestrator.contract,
-                _filter_suppressed_fn,
-                layer1,
-                layer2,
-                layer3,
-                0.0,
-                ["duplication"],
-                violations,
-                affected,
-                rel_files,
-                commit_sha,
-                metrics.to_dict(),
-            )
-            res.parse_failures = unique_failures
-            res.partial_analysis = bool(unique_failures)
-            _evaluate_fitness(res)
-            return res
-
-        # --- Reinference: check staleness + create proposals ---
-        from archguard.analysis._reinference import _run_reinference as _run_reinference_fn
-        _run_reinference_fn(
-            orchestrator.repo_root, orchestrator.cache, orchestrator._audit, orchestrator.contract,
-            affected, commit_sha, drift_results=module_drifts,
+        v4, l4 = _run_layer_4(
+            orchestrator, v3, affected, progress, quiet, metrics, commit_sha
         )
 
-        # --- Layer 4: Duplication ---
-        desc4 = "Layer 4: Duplication Detection..."
-        if progress:
-            task4 = progress.add_task(desc4, total=None)
-        else:
-            if not quiet:
-                print(desc4)
-
-        if "duplication" in skip_layers:
-            layer4 = 0.0
-            if progress:
-                progress.update(
-                    task4,
-                    description="[yellow]⚠ Layer 4: Skipped (config)[/yellow]",
-                )
-                progress.stop_task(task4)
-            else:
-                if not quiet:
-                    print("⚠ Layer 4 Skipped (config)")
-        else:
-            try:
-                with metrics.time_layer("layer4"):
-                    from archguard.analysis._layer_runners import _run_layer4 as _run_l4
-                    layer4, l4_viols = _run_l4(
-                        orchestrator.repo_root, orchestrator.cache, orchestrator.contract, affected, commit_sha
-                    )
-                    violations.extend(l4_viols)
-                l4_violations = len(l4_viols)
-                if progress:
-                    progress.update(
-                        task4,
-                        description=f"[green]✓ Layer 4:[/green] {l4_violations} violations",
-                    )
-                    progress.stop_task(task4)
-                else:
-                    if not quiet:
-                        print(f"[OK] Layer 4 complete ({l4_violations} violations)")
-            except RuntimeError as e:
-                if "ML dependencies" in str(e):
-                    if progress:
-                        progress.update(
-                            task4,
-                            description="[bold red]✗ Layer 4: Failed (Missing ML dependencies)[/bold red]",
-                        )
-                        progress.stop_task(task4)
-                    raise
-                else:
-                    raise
-
-        # --- Filter out suppressed violations ---
-        from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
-        violations = _filter_suppressed_fn(orchestrator.repo_root, violations)
-
-        scores = LayerScores(layer1, layer2, layer3, layer4)
-
-        # Get weights from contract if available
-        weights_cfg = orchestrator.contract.get("weights")
-        if weights_cfg and isinstance(weights_cfg, dict):
-            weights = (
-                float(weights_cfg.get("layer1", 0.25)),
-                float(weights_cfg.get("layer2", 0.25)),
-                float(weights_cfg.get("layer3", 0.25)),
-                float(weights_cfg.get("layer4", 0.25)),
-            )
-        else:
-            weights = (0.25, 0.25, 0.25, 0.25)
-
-        archdebt = compute_archdebt(
-            scores,
-            weights=weights,
-            fail_threshold=float(orchestrator.contract.get("fail_threshold", 0.75)),
-            warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
+        return _finalize_result(
+            orchestrator,
+            v4,
+            commit_sha,
+            metrics,
+            _eval_fitness,
+            l1,
+            l2,
+            l3,
+            l4,
+            affected,
+            rel_files,
+            f_1_2,
         )
-
-        res = AnalysisResult(
-            archdebt=archdebt,
-            violations=violations,
-            layer_scores=scores,
-            modules_analyzed=len(affected),
-            changed_files=rel_files,
-            commit_sha=commit_sha,
-            metrics=metrics.to_dict(),
-            parse_failures=unique_failures,
-            partial_analysis=bool(unique_failures),
-        )
-
-        _evaluate_fitness(res)
-        return res
     finally:
         if progress:
             progress.stop()

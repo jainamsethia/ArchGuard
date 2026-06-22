@@ -2,8 +2,6 @@
 
 import json
 import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
 
 from archguard.cli.history_analyze_cmd import (
     _get_commit_shas,
@@ -17,6 +15,7 @@ from archguard.cli.history_analyze_cmd import (
 # _get_commit_shas
 # ---------------------------------------------------------------------------
 
+
 def test_get_commit_shas_returns_oldest_first(tmp_path):
     """Verify commit SHAs are returned oldest-first."""
     import subprocess
@@ -25,16 +24,22 @@ def test_get_commit_shas_returns_oldest_first(tmp_path):
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
     subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "Test"], check=True, capture_output=True
+        ["git", "-C", str(repo), "config", "user.name", "Test"],
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "t@t.com"], check=True, capture_output=True
+        ["git", "-C", str(repo), "config", "user.email", "t@t.com"],
+        check=True,
+        capture_output=True,
     )
 
     # Create 3 commits
     for i in range(3):
         (repo / f"file{i}.txt").write_text(f"v{i}")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "-C", str(repo), "commit", "-m", f"commit {i}"],
             check=True,
@@ -65,15 +70,21 @@ def test_get_commit_shas_respects_max_commits(tmp_path):
     repo.mkdir()
     subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
     subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "Test"], check=True, capture_output=True
+        ["git", "-C", str(repo), "config", "user.name", "Test"],
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "t@t.com"], check=True, capture_output=True
+        ["git", "-C", str(repo), "config", "user.email", "t@t.com"],
+        check=True,
+        capture_output=True,
     )
 
     for i in range(5):
         (repo / f"file{i}.txt").write_text(f"v{i}")
-        subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "add", "."], check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "-C", str(repo), "commit", "-m", f"commit {i}"],
             check=True,
@@ -93,7 +104,10 @@ def test_get_commit_shas_empty_repo(tmp_path):
     (isolated / "dummy.txt").write_text("x")
     # Init a repo but with zero commits
     import subprocess
-    subprocess.run(["git", "-C", str(isolated), "init"], check=True, capture_output=True)
+
+    subprocess.run(
+        ["git", "-C", str(isolated), "init"], check=True, capture_output=True
+    )
     shas = _get_commit_shas(isolated, max_commits=5)
     assert shas == []
 
@@ -101,6 +115,7 @@ def test_get_commit_shas_empty_repo(tmp_path):
 # ---------------------------------------------------------------------------
 # _calc_debt_velocity
 # ---------------------------------------------------------------------------
+
 
 def test_debt_velocity_improving():
     """Health going up -> debt going down -> negative velocity."""
@@ -153,6 +168,7 @@ def test_debt_velocity_empty():
 # _sparkline
 # ---------------------------------------------------------------------------
 
+
 def test_sparkline_basic():
     result = _sparkline([0, 50, 100])
     assert len(result) == 3
@@ -172,6 +188,7 @@ def test_sparkline_uniform():
 # ---------------------------------------------------------------------------
 # _build_json_output
 # ---------------------------------------------------------------------------
+
 
 def test_build_json_output_structure():
     """Verify the JSON output contains all required fields."""

@@ -1,6 +1,7 @@
 def test_proof_evolution():
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
     import os
+
     tracker = ArchitectureEvolutionTracker(os.getcwd())
     report = tracker.analyze_history(max_commits=5, max_workers=1)
     print("\n--- EVOLUTION PROOF ---")

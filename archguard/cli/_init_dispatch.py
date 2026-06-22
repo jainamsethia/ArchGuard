@@ -26,6 +26,7 @@ from archguard.cli._init_contract import (
 )
 from archguard.cli._init_wizard import _interactive_review
 
+
 def _run_init_cli(
     ctx: typer.Context,
     repo_root: Path,
@@ -36,7 +37,7 @@ def _run_init_cli(
     no_llm: bool,
     min_history_commits: int,
     llm_init: bool,
-    _console: Console
+    _console: Console,
 ) -> None:
     if output is None:
         output = repo_root / ".archguard.yml"
@@ -60,6 +61,7 @@ def _run_init_cli(
                 raise typer.Exit(1)
         except ImportError as e:
             import logging
+
             logging.getLogger(__name__).warning(
                 f"Non-critical failure importing pydriller: {e}"
             )
@@ -200,7 +202,10 @@ def _run_init_cli(
         if start_phase <= 4:
             vprint("[bold cyan][4/5] Computing semantic embeddings...[/bold cyan]", ctx)
             phase4_data = _phase4_embeddings(
-                communities, repo_root, phase1_data.get("python_files", []), no_llm=no_llm
+                communities,
+                repo_root,
+                phase1_data.get("python_files", []),
+                no_llm=no_llm,
             )
 
             vprint(
@@ -220,7 +225,7 @@ def _run_init_cli(
 
         if start_phase <= 5:
             vprint("[bold cyan][5/5] Writing contract...[/bold cyan]", ctx)
-            
+
             modules_written = _generate_and_write_contract(
                 communities=communities,
                 fan_outs=fan_outs,
@@ -250,9 +255,7 @@ def _run_init_cli(
         )
 
         vprint("", ctx)
-        vprint(
-            "[bold green]✓ ArchGuard initialization complete![/bold green]", ctx
-        )
+        vprint("[bold green]✓ ArchGuard initialization complete![/bold green]", ctx)
 
     except typer.Exit:
         raise

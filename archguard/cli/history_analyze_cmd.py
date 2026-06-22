@@ -47,7 +47,6 @@ def _get_commit_shas(repo: Path, max_commits: int) -> list[str]:
 def _analyze_commit(repo: Path, commit_sha: str) -> dict[str, Any] | None:
     """Run analysis on a single commit inside a worktree, return audit-shaped dict or None."""
     from archguard.evolution.worktree import GitWorktreeManager
-    import datetime
 
     manager = GitWorktreeManager(repo)
     try:
@@ -55,6 +54,7 @@ def _analyze_commit(repo: Path, commit_sha: str) -> dict[str, Any] | None:
             return _run_analysis_in_worktree(wt_path, commit_sha)
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(
             f"Failed to analyze commit {commit_sha[:7]}: {e}"
         )
@@ -74,10 +74,12 @@ def _run_analysis_in_worktree(wt_path: Path, commit_sha: str) -> dict[str, Any] 
         # Build audit-shaped dict for EvolutionTracker consumption
         violations = []
         for v in result.violations:
-            violations.append({
-                "layer": getattr(v, "layer", 0),
-                "message": getattr(v, "message", ""),
-            })
+            violations.append(
+                {
+                    "layer": getattr(v, "layer", 0),
+                    "message": getattr(v, "message", ""),
+                }
+            )
 
         snapshot: dict[str, Any] = {
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -89,6 +91,7 @@ def _run_analysis_in_worktree(wt_path: Path, commit_sha: str) -> dict[str, Any] 
         return snapshot
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(
             f"Analysis failed in worktree for {commit_sha[:7]}: {e}"
         )
@@ -140,10 +143,16 @@ def _print_rich_report(
     table.add_column("Trend", justify="center")
 
     for trend in [report.health_trend, report.violation_trend, report.debt_trend]:
-        prev_str = f"{trend.previous_value:.2f}" if trend.previous_value is not None else "—"
+        prev_str = (
+            f"{trend.previous_value:.2f}" if trend.previous_value is not None else "—"
+        )
         delta_str = f"{trend.delta:+.4f}" if trend.delta is not None else "—"
-        arrow = _TREND_ARROWS.get(trend.classification.value, trend.classification.value)
-        table.add_row(trend.name, f"{trend.current_value:.2f}", prev_str, delta_str, arrow)
+        arrow = _TREND_ARROWS.get(
+            trend.classification.value, trend.classification.value
+        )
+        table.add_row(
+            trend.name, f"{trend.current_value:.2f}", prev_str, delta_str, arrow
+        )
 
     if report.fitness_trend is not None:
         ft = report.fitness_trend
@@ -157,7 +166,9 @@ def _print_rich_report(
     # Debt velocity
     if debt_velocity is not None:
         vel_sign = "+" if debt_velocity >= 0 else ""
-        vel_color = "red" if debt_velocity > 0 else ("green" if debt_velocity < 0 else "dim")
+        vel_color = (
+            "red" if debt_velocity > 0 else ("green" if debt_velocity < 0 else "dim")
+        )
         _console.print(
             f"\n[bold]Debt Velocity:[/bold] [{vel_color}]{vel_sign}{debt_velocity:.4f} per commit[/{vel_color}]"
         )
@@ -168,9 +179,7 @@ def _print_rich_report(
     scores = [float(s.get("score", 0.0)) for s in snapshots]
     if scores:
         min_s, max_s = min(scores), max(scores)
-        _console.print(
-            f"[bold]Score Range:[/bold] {min_s:.1f} — {max_s:.1f}"
-        )
+        _console.print(f"[bold]Score Range:[/bold] {min_s:.1f} — {max_s:.1f}")
         _console.print(f"[bold]Sparkline:[/bold]  {_sparkline(scores)}")
 
     # Commits analyzed
@@ -197,7 +206,10 @@ def _build_json_output(
 
     result: dict[str, Any] = {
         "commits_analyzed": len(snapshots),
-        "score_range": {"min": min(scores) if scores else None, "max": max(scores) if scores else None},
+        "score_range": {
+            "min": min(scores) if scores else None,
+            "max": max(scores) if scores else None,
+        },
         "debt_velocity": debt_velocity,
         "trends": {
             "health": _trend_to_dict(report.health_trend),
@@ -247,6 +259,7 @@ def history_analyze(
     """Analyze historical commits and report architecture evolution trends."""
     try:
         from archguard.utils.validation import validate_repo_path
+
         repo = validate_repo_path(repo)
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
@@ -256,7 +269,9 @@ def history_analyze(
     shas = _get_commit_shas(repo, max_commits)
     if not shas:
         if json_output:
-            typer.echo(json.dumps({"error": "No commits found.", "commits_analyzed": 0}))
+            typer.echo(
+                json.dumps({"error": "No commits found.", "commits_analyzed": 0})
+            )
         else:
             _console.print("[yellow]No commits found in repository.[/yellow]")
         raise typer.Exit(0)
@@ -301,17 +316,22 @@ def history_analyze(
 
     if not snapshots:
         if json_output:
-            typer.echo(json.dumps({
-                "error": "All commit analyses failed.",
-                "commits_analyzed": 0,
-                "failed_count": failed_count,
-            }))
+            typer.echo(
+                json.dumps(
+                    {
+                        "error": "All commit analyses failed.",
+                        "commits_analyzed": 0,
+                        "failed_count": failed_count,
+                    }
+                )
+            )
         else:
             _console.print("[red]All commit analyses failed.[/red]")
         raise typer.Exit(1)
 
     # Step 3: Feed to EvolutionTracker
     from archguard.evolution.tracker import EvolutionTracker
+
     tracker = EvolutionTracker(snapshots)
     report = tracker.generate_report()
 

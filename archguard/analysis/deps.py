@@ -50,120 +50,109 @@ def _is_poetry_project(pyproject_path: Path) -> bool:
         return False
 
 
-def analyze_dependencies(repo_root: Path, timeout: int = 60) -> DependencyHealthResult:
-    """Run pip-audit to calculate Dependency Health Score."""
-    
-    # 1. Search for requirements files
+def _find_req_file(repo_root: Path) -> Path | None:
     req_files = [
         "requirements.txt",
         "requirements/base.txt",
         "requirements/prod.txt",
         "pyproject.toml",
     ]
-    
-    found_file = None
     for req in req_files:
         if (repo_root / req).is_file():
-            found_file = repo_root / req
-            break
+            return repo_root / req
+    return None
 
-    if not found_file:
-        return DependencyHealthResult(
-            skipped=True,
-            skip_reason="No requirements file found (requirements.txt, requirements/base.txt, requirements/prod.txt, pyproject.toml)."
-        )
 
-    # 2. Run pip-audit
+def _run_pip_audit(
+    repo_root: Path, found_file: Path, timeout: int
+) -> subprocess.CompletedProcess[str] | DependencyHealthResult:
     if found_file.name == "pyproject.toml":
-        # pip-audit project-path mode requires PEP 621 [project] section.
-        # Poetry projects use [tool.poetry] instead, so path mode fails with:
-        #   "pyproject file pyproject.toml does not contain `project` section"
-        # Detect the format and choose the right invocation.
-        is_poetry = _is_poetry_project(found_file)
-        if is_poetry:
-            # Environment scan: audits packages installed in the active venv.
+        if _is_poetry_project(found_file):
             cmd = ["pip-audit", "--format=json"]
         else:
-            # PEP 621 project path scan: audits the target project directly.
             cmd = ["pip-audit", "--format=json", str(repo_root)]
     else:
         cmd = ["pip-audit", "--format=json", "-r", str(found_file)]
-    
+
     try:
-        # Note: pip-audit returns non-zero if vulnerabilities are found
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=str(repo_root)
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, cwd=str(repo_root)
         )
     except FileNotFoundError:
         return DependencyHealthResult(
-            skipped=True,
-            skip_reason="pip-audit not found in PATH."
+            skipped=True, skip_reason="pip-audit not found in PATH."
         )
     except subprocess.TimeoutExpired:
         return DependencyHealthResult(
-            skipped=True,
-            skip_reason=f"pip-audit timed out after {timeout} seconds."
+            skipped=True, skip_reason=f"pip-audit timed out after {timeout} seconds."
         )
     except Exception as e:
         return DependencyHealthResult(
-            skipped=True,
-            skip_reason=f"Failed to execute pip-audit: {e}"
+            skipped=True, skip_reason=f"Failed to execute pip-audit: {e}"
         )
 
-    output = process.stdout
-    if not output and process.stderr:
-        # If stdout is empty but stderr is not, it could be a fatal error
-        pass
-        
+
+def _parse_audit_output(
+    output: str,
+) -> DependencyHealthResult | tuple[int, list[Vulnerability]]:
     if not output:
         return DependencyHealthResult(
-            skipped=True,
-            skip_reason="pip-audit produced no output."
+            skipped=True, skip_reason="pip-audit produced no output."
         )
-
-    # 3. Parse JSON
     try:
         data = json.loads(output)
     except json.JSONDecodeError as e:
         return DependencyHealthResult(
-            skipped=True,
-            skip_reason=f"Failed to parse pip-audit JSON output: {e}"
+            skipped=True, skip_reason=f"Failed to parse pip-audit JSON output: {e}"
         )
 
-    # data is typically a list of dicts:
-    # [
-    #   {"name": "requests", "version": "2.25.1", "vulns": [{"id": "CVE-...", "fix_versions": [...], "description": "..."}]}
-    # ]
-    # Wait, pip-audit 2.x JSON format:
-    # {"dependencies": [{"name": "pkg", "version": "1.0", "vulns": [...]}]}
-    
-    # Let's handle both formats just in case
-    deps = []
-    if isinstance(data, dict) and "dependencies" in data:
-        deps = data.get("dependencies", [])
-    elif isinstance(data, list):
-        deps = data
-    
+    deps = (
+        data.get("dependencies", [])
+        if isinstance(data, dict) and "dependencies" in data
+        else data
+        if isinstance(data, list)
+        else []
+    )
+
     vulnerable_packages = []
-    scanned_packages = len(deps)
-    
+
     for dep in deps:
-        vulns = dep.get("vulns", [])
-        for v in vulns:
+        for v in dep.get("vulns", []):
             vulnerable_packages.append(
                 Vulnerability(
                     package=dep.get("name", "unknown"),
                     version=dep.get("version", "unknown"),
                     vulnerability_id=v.get("id", "unknown"),
-                    description=v.get("description", "") or v.get("aliases", [""])[0] or "No description",
+                    description=v.get("description", "")
+                    or v.get("aliases", [""])[0]
+                    or "No description",
                 )
             )
+    return len(deps), vulnerable_packages
 
-    # 4. Calculate score
+
+def analyze_dependencies(repo_root: Path, timeout: int = 60) -> DependencyHealthResult:
+    """Run pip-audit to calculate Dependency Health Score."""
+    found_file = _find_req_file(repo_root)
+    if not found_file:
+        return DependencyHealthResult(
+            skipped=True,
+            skip_reason="No requirements file found (requirements.txt, requirements/base.txt, requirements/prod.txt, pyproject.toml).",
+        )
+
+    res = _run_pip_audit(repo_root, found_file, timeout)
+    if isinstance(res, DependencyHealthResult):
+        return res
+
+    process = res
+    if not process.stdout and process.stderr:
+        pass
+
+    parse_res = _parse_audit_output(process.stdout)
+    if isinstance(parse_res, DependencyHealthResult):
+        return parse_res
+
+    scanned_packages, vulnerable_packages = parse_res
     score = max(0.0, 100.0 - len(vulnerable_packages) * 10.0)
 
     return DependencyHealthResult(

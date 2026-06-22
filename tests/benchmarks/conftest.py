@@ -61,9 +61,14 @@ def fixture_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     # Initialize git repo so git-diff based change detection works
     import subprocess
+
     subprocess.run(["git", "init"], cwd=base, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=base, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=base, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"], cwd=base, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"], cwd=base, capture_output=True
+    )
     subprocess.run(["git", "add", "-A"], cwd=base, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial commit"],

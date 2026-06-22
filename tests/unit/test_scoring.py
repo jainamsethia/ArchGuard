@@ -79,6 +79,14 @@ class TestCalibrateWeights:
         assert abs(sum(result) - 1.0) < 1e-6
         assert all(w >= 0.0 for w in result)
 
+    def test_ml_unavailable_returns_default(self, monkeypatch) -> None:
+        """When numpy/scipy extras aren't installed, calibrate_weights must fall
+        back to DEFAULT_WEIGHTS per its own documented contract, not raise."""
+        monkeypatch.setattr("archguard.analysis.scoring._ML_AVAILABLE", False)
+        history = [LayerScores(0.5, 0.3, 0.2, 0.4)]
+        result = calibrate_weights(history, [0.5])
+        assert result == DEFAULT_WEIGHTS
+
 
 class TestClassifyBand:
     """Tests for classify_band."""
@@ -126,6 +134,7 @@ class TestHealthScoreAndGrade:
 
     def _make_result(self, composite: float):
         from archguard.analysis.scoring import ArchDebtResult, ArchDebtBand, LayerScores
+
         return ArchDebtResult(
             composite_score=composite,
             band=ArchDebtBand.HEALTHY,
@@ -133,7 +142,7 @@ class TestHealthScoreAndGrade:
             weights=(1, 1, 1, 1),
             per_component_breach=False,
             composite_breach=False,
-            should_fail_ci=False
+            should_fail_ci=False,
         )
 
     def test_health_score_calculation(self) -> None:
@@ -144,12 +153,12 @@ class TestHealthScoreAndGrade:
     def test_grades(self) -> None:
         assert self._make_result(0.0).health_score == 100.0
         assert self._make_result(0.0).health_grade == "A"
-        
+
         assert self._make_result(1.0).health_score == 0.0
         assert self._make_result(1.0).health_grade == "F"
-        
+
         assert self._make_result(0.15).health_score == 85.0
         assert self._make_result(0.15).health_grade == "B"
-        
+
         assert self._make_result(0.35).health_score == 65.0
         assert self._make_result(0.35).health_grade == "D"

@@ -97,47 +97,57 @@ def test_post_comment_function_success(
         "org/repo", "test body", pr_number=55
     )
 
+
 @patch("archguard.github.client.httpx.Client.get")
 def test_get_pr_retry_behavior(mock_get, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test get_pr retry behavior to ensure no nested decorators."""
     import httpx
     from archguard.github.client import GitHubClient
-    
+
     # Mock httpx.Client.get to fail twice then succeed
     response_500 = MagicMock()
     response_500.status_code = 500
-    http_error = httpx.HTTPStatusError("500 Error", request=MagicMock(), response=response_500)
+    http_error = httpx.HTTPStatusError(
+        "500 Error", request=MagicMock(), response=response_500
+    )
     http_error.status = 500  # Avoid AttributeError in retry.py
     http_error.response = response_500
     response_500.raise_for_status.side_effect = http_error
-    
+
     response_200 = MagicMock()
     response_200.status_code = 200
     response_200.json.return_value = {"pr": "data"}
-    
+
     mock_get.side_effect = [
         # Constructor
         MagicMock(status_code=200, headers={"X-OAuth-Scopes": "repo"}),
         # Attempt 1
-        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        MagicMock(
+            status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}
+        ),
         response_500,
         # Attempt 2
-        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        MagicMock(
+            status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}
+        ),
         response_500,
         # Attempt 3
-        MagicMock(status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}),
+        MagicMock(
+            status_code=200, json=lambda: {"resources": {"core": {"remaining": 5000}}}
+        ),
         response_200,
     ]
-    
+
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
         client = GitHubClient()
         # To speed up tests, mock time.sleep inside exponential_backoff
         with patch("archguard.utils.retry.time.sleep"):
             res = client.get_pr("org/repo", 1)
-            
+
         assert res == {"pr": "data"}
         # 1 constructor call + 3 rate limit checks + 3 API calls = 7 calls to httpx.Client.get
         assert mock_get.call_count == 7
+
 
 @patch("archguard.github.client.httpx.Client.get")
 def test_get_pr_changed_files_pagination(mock_get: MagicMock) -> None:
@@ -156,65 +166,73 @@ def test_get_pr_changed_files_pagination(mock_get: MagicMock) -> None:
 
     response_p1 = MagicMock(status_code=200)
     response_p1.json.return_value = page1_data
-    
+
     response_p2 = MagicMock(status_code=200)
     response_p2.json.return_value = page2_data
-    
+
     response_p3 = MagicMock(status_code=200)
     response_p3.json.return_value = page3_data
 
     mock_get.side_effect = [
         response_auth,  # __init__ validation
         response_rate,  # _check_rate_limit before loop
-        response_p1,    # page 1
-        response_p2,    # page 2
-        response_p3,    # page 3
+        response_p1,  # page 1
+        response_p2,  # page 2
+        response_p3,  # page 3
     ]
 
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
         client = GitHubClient()
         files = client.get_pr_changed_files("org/repo", 42)
-        
+
         assert len(files) == 450
         assert mock_get.call_count == 5
-        
+
         # Verify page numbers in URLs
         urls = [call.args[0] for call in mock_get.call_args_list[2:]]
         assert "page=1" in urls[0]
         assert "page=2" in urls[1]
         assert "page=3" in urls[2]
 
+
 @patch("archguard.github.client.httpx.Client.get")
 def test_check_rate_limit_raises_immediately(mock_get: MagicMock) -> None:
     from archguard.github.client import GitHubClient, RateLimitExceededException
-    
+
     response_auth = MagicMock(status_code=200, headers={"X-OAuth-Scopes": "repo"})
     response_rate = MagicMock(status_code=200)
-    response_rate.json.return_value = {"resources": {"core": {"remaining": 10, "reset": 9999999999}}}
-    
+    response_rate.json.return_value = {
+        "resources": {"core": {"remaining": 10, "reset": 9999999999}}
+    }
+
     mock_get.side_effect = [response_auth, response_rate]
-    
+
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
         client = GitHubClient()
         with pytest.raises(RateLimitExceededException) as exc:
             client._check_rate_limit()
-            
+
         assert "remaining" in str(exc.value)
+
 
 @patch("archguard.github.client.httpx.Client.post")
 @patch("archguard.github.client.httpx.Client.get")
-def test_post_comment_catches_rate_limit(mock_get: MagicMock, mock_post: MagicMock) -> None:
+def test_post_comment_catches_rate_limit(
+    mock_get: MagicMock, mock_post: MagicMock
+) -> None:
     from archguard.github.client import GitHubClient
-    
+
     response_auth = MagicMock(status_code=200, headers={"X-OAuth-Scopes": "repo"})
     response_rate = MagicMock(status_code=200)
-    response_rate.json.return_value = {"resources": {"core": {"remaining": 10, "reset": 9999999999}}}
-    
+    response_rate.json.return_value = {
+        "resources": {"core": {"remaining": 10, "reset": 9999999999}}
+    }
+
     mock_get.side_effect = [response_auth, response_rate]
-    
+
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test"}):
         client = GitHubClient()
         result = client.post_comment("org/repo", "test body", pr_number=55)
-        
+
         assert result is False
         mock_post.assert_not_called()

@@ -19,6 +19,7 @@ _SKIP_DIRS: frozenset[str] = frozenset(
         "venv",
         ".git",
         "node_modules",
+        "tmp_archguard_step1_verify",
     }
 )
 
@@ -70,7 +71,7 @@ class ImportParser:
         try:
             self._parser.set_language(lang)
         except AttributeError:
-            self._parser = Parser(lang)
+            self._parser = Parser(lang)  # type: ignore[call-arg]
         self._parse_failures: list[ParseFailure] = []
 
     @property
@@ -86,16 +87,16 @@ class ImportParser:
         """Parse Python source string, return all ImportEdge objects."""
         try:
             tree: Any = self._parser.parse(source.encode("utf-8"))
-        except SyntaxError as e:
-            self._parse_failures.append(
-                ParseFailure(
-                    file_path=Path(file_path),
-                    error_type="SyntaxError",
-                    error_message=str(e),
-                    is_critical=False,
+            if tree.root_node.has_error:
+                # Add to failures, but continue processing the tree
+                self._parse_failures.append(
+                    ParseFailure(
+                        file_path=Path(file_path),
+                        error_type="SyntaxError",
+                        error_message="Syntax error detected by tree-sitter",
+                        is_critical=False,
+                    )
                 )
-            )
-            return []
         except UnicodeDecodeError as e:
             self._parse_failures.append(
                 ParseFailure(
@@ -139,28 +140,21 @@ class ImportParser:
         module_paths: dict[str, list[str]],
         allow_partial: bool = True,
     ) -> ParseResult:
-        """Walk repo_root for *.py files, parse each, return ParseResult.
-
-        Skips: __pycache__, .venv, venv, .git, node_modules
-        """
+        """Walk repo_root for *.py files, parse each, return ParseResult."""
         self._parse_failures.clear()
         edges: list[ImportEdge] = []
         for py_file in sorted(repo_root.rglob("*.py")):
             if any(skip in py_file.parts for skip in _SKIP_DIRS):
                 continue
+            if any(p.startswith("tmp_") for p in py_file.parts):
+                continue
+            if not py_file.is_file():
+                continue
+
             try:
                 source = py_file.read_text(encoding="utf-8")
                 rel_path = str(py_file.relative_to(repo_root)).replace("\\", "/")
                 edges.extend(self.parse_file(source, rel_path, module_paths))
-            except SyntaxError as e:
-                self._parse_failures.append(
-                    ParseFailure(
-                        file_path=py_file,
-                        error_type="SyntaxError",
-                        error_message=str(e),
-                        is_critical=False,
-                    )
-                )
             except UnicodeDecodeError as e:
                 self._parse_failures.append(
                     ParseFailure(

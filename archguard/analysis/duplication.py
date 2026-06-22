@@ -6,19 +6,25 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import typing
+
 try:
-    import faiss
     import numpy as np
     import numpy.typing as npt
 
-    _ML_AVAILABLE = True
-except Exception:
-    _ML_AVAILABLE = False
-    import typing
-
-    faiss: typing.Any = None  # type: ignore[no-redef]
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
     np: typing.Any = None  # type: ignore[no-redef]
     npt: typing.Any = None  # type: ignore[no-redef]
+
+try:
+    import faiss
+
+    _ML_AVAILABLE = _NUMPY_AVAILABLE
+except ImportError:
+    _ML_AVAILABLE = False
+    faiss: typing.Any = None  # type: ignore[no-redef]
 
 from archguard.audit.logger import AuditLogger
 from archguard.cache.embeddings import EmbeddingCache
@@ -116,35 +122,13 @@ class DuplicationAnalyzer:
             )
         return np.clip(1.0 - (l2_distances**2) / 2.0, 0.0, 1.0)
 
-    def analyze_module(
-        self,
-        module_name: str,
-        module_files: list[str],
-        k: int = 10,
-    ) -> DuplicationResult:
-        """Run duplication analysis for a single module."""
-        if not _ML_AVAILABLE:
-            raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
-            )
-        # 1. Check cache staleness
-        if self._cache.is_cache_stale(module_name):
-            reason = f"Cache stale: centroid for {module_name} exceeds max age"
-            self._audit.log(
-                EVENT_DUPLICATION_SKIPPED, module=module_name, reason=reason
-            )
-            return DuplicationResult(
-                module_name=module_name,
-                skipped=True,
-                skip_reason=reason,
-            )
-
-        # 2 & 3. Build FAISS index from ALL embeddings via streaming
+    def _build_faiss_index(
+        self, module_file_set: set[str]
+    ) -> tuple[Any, list[str], dict[str, npt.NDArray[np.float32]]]:
         from archguard.config import EMBEDDING_BATCH_SIZE
 
         index = None
         keys: list[str] = []
-        module_file_set = set(module_files)
         module_embeddings: dict[str, npt.NDArray[np.float32]] = {}
 
         for batch in self._cache.iter_embeddings(batch_size=EMBEDDING_BATCH_SIZE):
@@ -153,15 +137,12 @@ class DuplicationAnalyzer:
 
             batch_paths = [p for p, _ in batch]
 
-            # Save module embeddings for later querying
             for p, v in batch:
                 file_part = p.split("::")[0]
                 if file_part in module_file_set:
                     module_embeddings[p] = v
 
             batch_vecs = np.vstack([v for _, v in batch])
-
-            # Unit-normalize
             norms = np.linalg.norm(batch_vecs, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1.0, norms)
             batch_vecs = batch_vecs / norms
@@ -173,22 +154,25 @@ class DuplicationAnalyzer:
             index.add(batch_vecs)
             keys.extend(batch_paths)
 
-        if not keys or index is None:
-            return DuplicationResult(module_name=module_name)
+        return index, keys, module_embeddings
 
-        # 4. Query for each function in module_files
+    def _query_module_matches(
+        self,
+        index: Any,
+        keys: list[str],
+        module_embeddings: dict[str, npt.NDArray[np.float32]],
+        module_file_set: set[str],
+        k: int,
+    ) -> list[DuplicationMatch]:
         matches: list[DuplicationMatch] = []
-
-        # Unit-normalize query vectors
         for func_key, emb in module_embeddings.items():
             query = emb.astype(np.float32).reshape(1, -1)
             qnorm = np.linalg.norm(query)
             if qnorm > 0:
                 query = query / qnorm
 
-            actual_k = min(k + 1, len(keys))  # +1 to exclude self
+            actual_k = min(k + 1, len(keys))
             distances, indices = index.search(query, actual_k)
-
             cosine_sims = self._l2_to_cosine(distances[0])
 
             for j in range(len(indices[0])):
@@ -197,9 +181,8 @@ class DuplicationAnalyzer:
                     continue
                 matched_key = keys[idx]
                 if matched_key == func_key:
-                    continue  # exclude self
+                    continue
 
-                # Exclude same-module matches
                 matched_file = matched_key.split("::")[0]
                 if matched_file in module_file_set:
                     continue
@@ -217,11 +200,36 @@ class DuplicationAnalyzer:
                         duplication_score=score,
                     )
                 )
+        return matches
 
+    def analyze_module(
+        self, module_name: str, module_files: list[str], k: int = 10
+    ) -> DuplicationResult:
+        if not _ML_AVAILABLE:
+            raise RuntimeError(
+                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            )
+
+        if self._cache.is_cache_stale(module_name):
+            reason = f"Cache stale: centroid for {module_name} exceeds max age"
+            self._audit.log(
+                EVENT_DUPLICATION_SKIPPED, module=module_name, reason=reason
+            )
+            return DuplicationResult(
+                module_name=module_name, skipped=True, skip_reason=reason
+            )
+
+        module_file_set = set(module_files)
+        index, keys, module_embeddings = self._build_faiss_index(module_file_set)
+
+        if not keys or index is None:
+            return DuplicationResult(module_name=module_name)
+
+        matches = self._query_module_matches(
+            index, keys, module_embeddings, module_file_set, k
+        )
         agg = float(np.mean([m.duplication_score for m in matches])) if matches else 0.0
 
         return DuplicationResult(
-            module_name=module_name,
-            matches=matches,
-            aggregate_score=agg,
+            module_name=module_name, matches=matches, aggregate_score=agg
         )

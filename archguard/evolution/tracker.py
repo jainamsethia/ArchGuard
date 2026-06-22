@@ -118,13 +118,16 @@ class EvolutionTracker:
         previous_ratio = previous.fitness_passed / previous.fitness_total
         return self._calc_trend("fitness_score", current_ratio, previous_ratio, higher_is_better=True)
 
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from pathlib import Path
-from pydriller import Repository
+import logging  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: E402
+from pathlib import Path  # noqa: E402
+from pydriller import Repository  # noqa: E402
 
-from archguard.evolution.snapshots import CommitHealthSnapshot, EvolutionReport as ArchEvolutionReport
-from archguard.evolution.worktree import git_worktree
+from archguard.evolution.snapshots import (  # noqa: E402
+    CommitHealthSnapshot,
+    EvolutionReport as ArchEvolutionReport,
+)
+from archguard.evolution.worktree import git_worktree  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

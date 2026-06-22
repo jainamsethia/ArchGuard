@@ -18,6 +18,7 @@ from archguard.cli.diff_cmd import diff_app
 from archguard.cli.dashboard_cmd import dashboard_app
 from archguard.cli.fitness_cmd import fitness_app
 from archguard.cli.history_analyze_cmd import history_analyze_app
+from archguard.observability.logger import configure_logging
 
 app: typer.Typer = typer.Typer(
     name="archguard",
@@ -117,6 +118,7 @@ def cli(
         typer.echo(f"archguard, version {v}")
         raise typer.Exit()
 
+    configure_logging(verbose=verbose)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet

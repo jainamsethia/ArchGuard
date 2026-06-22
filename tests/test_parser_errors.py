@@ -1,4 +1,5 @@
 import pytest
+from pathlib import Path
 from archguard.analysis.parser import ImportParser
 from archguard.utils.errors import AnalysisPartialError
 
@@ -21,7 +22,7 @@ def test_syntax_error_file_is_collected_not_raised(tmp_path):
     assert len(result.failures) == 1
 
     failure = result.failures[0]
-    assert failure.file_path == bad_file
+    assert failure.file_path == Path("bad.py")
     assert failure.error_type == "SyntaxError"
     assert not failure.is_critical
 
@@ -59,11 +60,10 @@ def test_critical_failure_raises_with_allow_partial_false(tmp_path, monkeypatch)
     parser = ImportParser()
     module_paths = {"core": ["."]}
 
-    # mock tree-sitter to raise RuntimeError
-    def mock_parse(*args, **kwargs):
+    def mock_parse_file(*args, **kwargs):
         raise RuntimeError("Infrastructure failure")
 
-    monkeypatch.setattr(parser._parser, "parse", mock_parse)
+    monkeypatch.setattr(parser, "parse_file", mock_parse_file)
 
     # assert AnalysisPartialError is raised
     with pytest.raises(

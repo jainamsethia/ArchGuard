@@ -16,6 +16,7 @@ from archguard.utils.output import vprint
 
 _console: Console = Console()
 
+
 def _phase4_embeddings(
     communities: dict[str, list[str]],
     repo_root: Path,
@@ -266,9 +267,7 @@ def _generate_and_write_contract(
     final_contract = louvain_contract
 
     if llm_init:
-        _console.print(
-            "[bold blue]Phase 5: LLM-driven contract generation[/bold blue]"
-        )
+        _console.print("[bold blue]Phase 5: LLM-driven contract generation[/bold blue]")
         try:
             import asyncio
             from archguard.contract.llm_inference import (
@@ -294,9 +293,7 @@ def _generate_and_write_contract(
     fd, tmp_name = tempfile.mkstemp(suffix=".yml", dir=str(dir_path))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as tmp:
-            yaml.dump(
-                final_contract, tmp, default_flow_style=False, sort_keys=False
-            )
+            yaml.dump(final_contract, tmp, default_flow_style=False, sort_keys=False)
         os.replace(tmp_name, str(output))
     except BaseException:
         try:

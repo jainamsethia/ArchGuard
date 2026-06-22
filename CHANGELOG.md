@@ -38,6 +38,9 @@ All notable changes to archguard are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Packaging fix**: `poetry install --with ml/cloud/dashboard` (group syntax) is replaced by `poetry install --extras ml/cloud/dashboard` for local dev. The `ml`, `cloud`, and `dashboard` dependencies have been moved from group dependencies to optional core dependencies.
+
 ### Fixed
 - Unified audit event name to restore trends and history functionality.
   **Migration Note**: Existing `.archguard-cache/audit.jsonl` files containing `analysis_complete` events will not be read by the new constant. Old cache data is lost.

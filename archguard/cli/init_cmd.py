@@ -8,7 +8,6 @@ import typer
 from rich.console import Console
 
 
-
 init_app: typer.Typer = typer.Typer(
     name="init",
     help="Initialize ArchGuard in a repository.",
@@ -125,6 +124,7 @@ def init_command(
         return
 
     from archguard.cli._init_dispatch import _run_init_cli
+
     _run_init_cli(
         ctx=ctx,
         repo_root=repo_root,
@@ -135,5 +135,5 @@ def init_command(
         no_llm=no_llm,
         min_history_commits=min_history_commits,
         llm_init=llm_init,
-        _console=_console
+        _console=_console,
     )

@@ -7,7 +7,6 @@ import pytest
 
 from archguard.llm.remediation import (
     RemediationEngine,
-    RemediationPlan,
     RemediationProvider,
     RemediationTask,
     OpenAIRemediationProvider,
@@ -18,8 +17,13 @@ from archguard.llm.remediation import (
 # Mock provider for deterministic tests
 # ---------------------------------------------------------------------------
 
+
 class MockRemediationProvider(RemediationProvider):
-    def __init__(self, tasks: list[RemediationTask] | None = None, raises: Exception | None = None):
+    def __init__(
+        self,
+        tasks: list[RemediationTask] | None = None,
+        raises: Exception | None = None,
+    ):
         self._tasks = tasks or []
         self._raises = raises
         self.last_context = ""
@@ -31,7 +35,12 @@ class MockRemediationProvider(RemediationProvider):
         return list(self._tasks)
 
 
-def _task(title: str, priority: str = "high", effort: int = 3, criteria: list[str] | None = None) -> RemediationTask:
+def _task(
+    title: str,
+    priority: str = "high",
+    effort: int = 3,
+    criteria: list[str] | None = None,
+) -> RemediationTask:
     return RemediationTask(
         title=title,
         description=f"Description for {title}",
@@ -45,6 +54,7 @@ def _task(title: str, priority: str = "high", effort: int = 3, criteria: list[st
 # RemediationEngine — context builder
 # ---------------------------------------------------------------------------
 
+
 def test_engine_empty_findings_returns_empty_plan():
     provider = MockRemediationProvider()
     engine = RemediationEngine(provider)
@@ -56,13 +66,20 @@ def test_engine_empty_findings_returns_empty_plan():
 def test_engine_violation_findings_builds_context():
     provider = MockRemediationProvider()
     engine = RemediationEngine(provider)
-    engine.plan({
-        "score": 55.0,
-        "band": "WARN",
-        "violations": [
-            {"layer": 1, "module": "auth", "message": "Illegal import", "severity": "critical"},
-        ],
-    })
+    engine.plan(
+        {
+            "score": 55.0,
+            "band": "WARN",
+            "violations": [
+                {
+                    "layer": 1,
+                    "module": "auth",
+                    "message": "Illegal import",
+                    "severity": "critical",
+                },
+            ],
+        }
+    )
     ctx = provider.last_context
     assert "Health Score: 55.00" in ctx
     assert "Illegal import" in ctx
@@ -72,11 +89,16 @@ def test_engine_violation_findings_builds_context():
 def test_engine_fitness_failure_builds_context():
     provider = MockRemediationProvider()
     engine = RemediationEngine(provider)
-    engine.plan({
-        "fitness_failures": [
-            {"name": "No DB calls in domain layer", "evidence": "Found 3 violations"},
-        ],
-    })
+    engine.plan(
+        {
+            "fitness_failures": [
+                {
+                    "name": "No DB calls in domain layer",
+                    "evidence": "Found 3 violations",
+                },
+            ],
+        }
+    )
     ctx = provider.last_context
     assert "No DB calls in domain layer" in ctx
     assert "Found 3 violations" in ctx
@@ -92,6 +114,7 @@ def test_engine_score_only_builds_context():
 # ---------------------------------------------------------------------------
 # RemediationEngine — priority grouping
 # ---------------------------------------------------------------------------
+
 
 def test_engine_groups_tasks_by_priority():
     tasks = [
@@ -135,6 +158,7 @@ def test_engine_all_tasks_property():
 # RemediationEngine — deduplication
 # ---------------------------------------------------------------------------
 
+
 def test_engine_deduplicates_same_title():
     tasks = [
         _task("Fix layer violations", "critical"),
@@ -162,15 +186,19 @@ def test_engine_deduplicates_whitespace_variants():
 # RemediationEngine — provider failure handling
 # ---------------------------------------------------------------------------
 
+
 def test_engine_handles_provider_exception():
     engine = RemediationEngine(MockRemediationProvider(raises=RuntimeError("LLM down")))
-    plan = engine.plan({"score": 50.0, "violations": [{"layer": 1, "module": "x", "message": "err"}]})
+    plan = engine.plan(
+        {"score": 50.0, "violations": [{"layer": 1, "module": "x", "message": "err"}]}
+    )
     assert plan.total == 0
 
 
 # ---------------------------------------------------------------------------
 # OpenAIRemediationProvider — success path
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def oai_provider():
@@ -224,7 +252,9 @@ def test_openai_provider_rate_limit(oai_provider):
     with patch("httpx.Client.post") as mock_post:
         mock_post.return_value = MagicMock(
             raise_for_status=MagicMock(
-                side_effect=httpx.HTTPStatusError("429", request=MagicMock(), response=mock_resp)
+                side_effect=httpx.HTTPStatusError(
+                    "429", request=MagicMock(), response=mock_resp
+                )
             )
         )
         tasks = oai_provider.generate_tasks("context")
@@ -245,9 +275,26 @@ def test_openai_provider_malformed_json(oai_provider):
 def test_openai_provider_invalid_task_fields_skipped(oai_provider):
     """Tasks missing title or description are skipped; valid ones are kept."""
     payload = [
-        {"title": "Valid task", "description": "Do something", "priority": "high", "effort_days": 2, "acceptance_criteria": ["AC"]},
-        {"title": "", "description": "Missing title", "priority": "high", "effort_days": 1, "acceptance_criteria": []},
-        {"description": "Missing title key", "priority": "low", "effort_days": 1, "acceptance_criteria": []},
+        {
+            "title": "Valid task",
+            "description": "Do something",
+            "priority": "high",
+            "effort_days": 2,
+            "acceptance_criteria": ["AC"],
+        },
+        {
+            "title": "",
+            "description": "Missing title",
+            "priority": "high",
+            "effort_days": 1,
+            "acceptance_criteria": [],
+        },
+        {
+            "description": "Missing title key",
+            "priority": "low",
+            "effort_days": 1,
+            "acceptance_criteria": [],
+        },
     ]
     with patch("httpx.Client.post", return_value=_mock_oai_response(payload)):
         tasks = oai_provider.generate_tasks("context")
@@ -258,8 +305,20 @@ def test_openai_provider_invalid_task_fields_skipped(oai_provider):
 def test_openai_provider_clamps_effort_days(oai_provider):
     """effort_days below 1 is clamped to 1; non-integer falls back to 1."""
     payload = [
-        {"title": "T1", "description": "D", "priority": "low", "effort_days": -5, "acceptance_criteria": []},
-        {"title": "T2", "description": "D", "priority": "low", "effort_days": "not-an-int", "acceptance_criteria": []},
+        {
+            "title": "T1",
+            "description": "D",
+            "priority": "low",
+            "effort_days": -5,
+            "acceptance_criteria": [],
+        },
+        {
+            "title": "T2",
+            "description": "D",
+            "priority": "low",
+            "effort_days": "not-an-int",
+            "acceptance_criteria": [],
+        },
     ]
     with patch("httpx.Client.post", return_value=_mock_oai_response(payload)):
         tasks = oai_provider.generate_tasks("context")
@@ -268,7 +327,13 @@ def test_openai_provider_clamps_effort_days(oai_provider):
 
 def test_openai_provider_bad_priority_falls_back_to_medium(oai_provider):
     payload = [
-        {"title": "T", "description": "D", "priority": "galaxy-brain", "effort_days": 3, "acceptance_criteria": []}
+        {
+            "title": "T",
+            "description": "D",
+            "priority": "galaxy-brain",
+            "effort_days": 3,
+            "acceptance_criteria": [],
+        }
     ]
     with patch("httpx.Client.post", return_value=_mock_oai_response(payload)):
         tasks = oai_provider.generate_tasks("context")
@@ -279,23 +344,46 @@ def test_openai_provider_bad_priority_falls_back_to_medium(oai_provider):
 # End-to-end: engine + OpenAI provider integrated
 # ---------------------------------------------------------------------------
 
+
 def test_full_pipeline_violation_to_plan():
     payload = [
-        {"title": "Fix auth violations", "description": "Refactor auth imports", "priority": "critical", "effort_days": 4,
-         "acceptance_criteria": ["Zero layer violations in auth", "CI green"]},
-        {"title": "Add integration tests", "description": "Cover boundary interactions", "priority": "medium", "effort_days": 3,
-         "acceptance_criteria": ["80% coverage on boundary modules"]},
+        {
+            "title": "Fix auth violations",
+            "description": "Refactor auth imports",
+            "priority": "critical",
+            "effort_days": 4,
+            "acceptance_criteria": ["Zero layer violations in auth", "CI green"],
+        },
+        {
+            "title": "Add integration tests",
+            "description": "Cover boundary interactions",
+            "priority": "medium",
+            "effort_days": 3,
+            "acceptance_criteria": ["80% coverage on boundary modules"],
+        },
     ]
 
     provider = OpenAIRemediationProvider(api_key="test-key")
     with patch("httpx.Client.post", return_value=_mock_oai_response(payload)):
-        plan = RemediationEngine(provider).plan({
-            "score": 45.0,
-            "band": "FAIL",
-            "violations": [{"layer": 1, "module": "auth", "message": "Illegal import", "severity": "critical"}],
-        })
+        plan = RemediationEngine(provider).plan(
+            {
+                "score": 45.0,
+                "band": "FAIL",
+                "violations": [
+                    {
+                        "layer": 1,
+                        "module": "auth",
+                        "message": "Illegal import",
+                        "severity": "critical",
+                    }
+                ],
+            }
+        )
 
     assert plan.total == 2
     assert len(plan.critical) == 1
     assert len(plan.medium) == 1
-    assert plan.critical[0].acceptance_criteria == ["Zero layer violations in auth", "CI green"]
+    assert plan.critical[0].acceptance_criteria == [
+        "Zero layer violations in auth",
+        "CI green",
+    ]

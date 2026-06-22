@@ -15,12 +15,15 @@ def test_direct_module_identified():
     analyzer = PRRiskAnalyzer()
     report = analyzer.analyze(
         ["src/mod_a/foo.py", "src/mod_b/bar.py", "tests/foo_test.py"],
-        {"mod_a": ["src/mod_a"], "mod_b": ["src/mod_b"]}
+        {"mod_a": ["src/mod_a"], "mod_b": ["src/mod_b"]},
     )
     assert report.risk_score == 20  # 2 modules * 10
     assert report.overall_risk == "low"
     assert len(report.module_risks) == 2
-    assert report.module_risks[0].module == "mod_a" or report.module_risks[1].module == "mod_a"
+    assert (
+        report.module_risks[0].module == "mod_a"
+        or report.module_risks[1].module == "mod_a"
+    )
     assert report.module_risks[0].risk_level == "high"
 
 
@@ -30,7 +33,7 @@ def test_transitive_modules():
     report = analyzer.analyze(
         ["src/mod_a/foo.py"],
         {"mod_a": ["src/mod_a"], "mod_b": ["src/mod_b"], "mod_c": ["src/mod_c"]},
-        {"mod_b": ["mod_a"], "mod_c": ["mod_b"]}
+        {"mod_b": ["mod_a"], "mod_c": ["mod_b"]},
     )
     assert report.risk_score == 14  # 1 direct (10) + 2 transitive (4)
     assert len(report.module_risks) == 3
@@ -44,11 +47,7 @@ def test_transitive_modules():
 
 def test_graceful_degradation_no_graph():
     analyzer = PRRiskAnalyzer()
-    report = analyzer.analyze(
-        ["src/mod_a/foo.py"],
-        {"mod_a": ["src/mod_a"]},
-        None
-    )
+    report = analyzer.analyze(["src/mod_a/foo.py"], {"mod_a": ["src/mod_a"]}, None)
     assert report.risk_score == 10
     assert len(report.module_risks) == 1
 
@@ -58,8 +57,8 @@ def test_risk_score_formula():
     # 5 direct modules = 50. 5 transitive modules = 10. Total 60.
     changed_files = [f"src/mod_{i}/f.py" for i in range(5)]
     module_paths = {f"mod_{i}": [f"src/mod_{i}"] for i in range(10)}
-    graph = {f"mod_{i}": [f"mod_{i-5}"] for i in range(5, 10)}
-    
+    graph = {f"mod_{i}": [f"mod_{i - 5}"] for i in range(5, 10)}
+
     report = analyzer.analyze(changed_files, module_paths, graph)
     assert report.risk_score == 60
 
@@ -76,10 +75,7 @@ def test_classify_critical():
 
 def test_classify_low():
     analyzer = PRRiskAnalyzer()
-    report = analyzer.analyze(
-        ["src/mod_a/foo.py"],
-        {"mod_a": ["src/mod_a"]}
-    )
+    report = analyzer.analyze(["src/mod_a/foo.py"], {"mod_a": ["src/mod_a"]})
     assert report.risk_score == 10
     assert report.overall_risk == "low"
 

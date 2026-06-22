@@ -4,7 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
-from archguard.dashboard.app import app, SESSION_STORE
+from archguard.dashboard.app import app
+from archguard.dashboard._state import SESSION_STORE
 from archguard.llm.advisor import Recommendation
 
 client = TestClient(app)
@@ -12,6 +13,7 @@ client = TestClient(app)
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(autouse=True)
 def clear_sessions():
@@ -23,7 +25,7 @@ def clear_sessions():
 
 @pytest.fixture()
 def mock_empty_audit():
-    with patch("archguard.dashboard.app.AuditLogger") as cls:
+    with patch("archguard.dashboard.routes.advisor.AuditLogger") as cls:
         inst = MagicMock()
         inst.read_last_n_runs.return_value = []
         cls.return_value = inst
@@ -32,7 +34,7 @@ def mock_empty_audit():
 
 @pytest.fixture()
 def mock_audit_with_runs():
-    with patch("archguard.dashboard.app.AuditLogger") as cls:
+    with patch("archguard.dashboard.routes.advisor.AuditLogger") as cls:
         inst = MagicMock()
         inst.read_last_n_runs.return_value = [
             {"score": 60.0, "band": "WARN", "violations": [], "metrics": {}},
@@ -46,24 +48,31 @@ def _mock_advisor(recs: list[Recommendation]):
     """Patch _build_advisor to return an advisor that emits *recs*."""
     mock_advisor = MagicMock()
     mock_advisor.analyze.return_value = recs
-    return patch("archguard.dashboard.app._build_advisor", return_value=mock_advisor)
+    return patch(
+        "archguard.dashboard.routes.advisor._build_advisor", return_value=mock_advisor
+    )
 
 
 def _mock_provider(recs: list[Recommendation]):
     """Patch OpenAIAdvisorProvider inside advisor_message endpoint."""
     mock_prov = MagicMock()
     mock_prov.generate_recommendations.return_value = recs
-    return patch("archguard.dashboard.app.OpenAIAdvisorProvider", return_value=mock_prov)
+    return patch(
+        "archguard.dashboard.routes.advisor.OpenAIAdvisorProvider",
+        return_value=mock_prov,
+    )
 
 
 # ---------------------------------------------------------------------------
 # POST /api/advisor/session  —  session creation
 # ---------------------------------------------------------------------------
 
+
 def test_create_session_empty_history(mock_empty_audit, monkeypatch):
     """Session creation with no audit data returns empty recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     with _mock_advisor([]):
@@ -82,11 +91,18 @@ def test_create_session_empty_history(mock_empty_audit, monkeypatch):
 def test_create_session_with_recommendations(mock_audit_with_runs, monkeypatch):
     """Session creation returns prioritised recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     recs = [
-        Recommendation("Fix cycles", "Remove circular imports", "critical", "Better build times", 90),
+        Recommendation(
+            "Fix cycles",
+            "Remove circular imports",
+            "critical",
+            "Better build times",
+            90,
+        ),
         Recommendation("Add tests", "Increase coverage", "high", "Fewer bugs", 70),
     ]
 
@@ -104,10 +120,13 @@ def test_create_session_with_recommendations(mock_audit_with_runs, monkeypatch):
 def test_create_session_history_seeded(mock_audit_with_runs, monkeypatch):
     """Newly created session has the initial assistant turn in its history."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
-    recs = [Recommendation("Fix cycles", "Remove circular imports", "high", "Impact", 80)]
+    recs = [
+        Recommendation("Fix cycles", "Remove circular imports", "high", "Impact", 80)
+    ]
 
     with _mock_advisor(recs):
         resp = client.post("/api/advisor/session")
@@ -121,13 +140,17 @@ def test_create_session_history_seeded(mock_audit_with_runs, monkeypatch):
 def test_create_session_provider_failure(mock_empty_audit, monkeypatch):
     """If advisor.analyze raises, session is still created with empty recs."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     failing_advisor = MagicMock()
     failing_advisor.analyze.side_effect = RuntimeError("LLM is down")
 
-    with patch("archguard.dashboard.app._build_advisor", return_value=failing_advisor):
+    with patch(
+        "archguard.dashboard.routes.advisor._build_advisor",
+        return_value=failing_advisor,
+    ):
         resp = client.post("/api/advisor/session")
 
     assert resp.status_code == 200
@@ -139,9 +162,11 @@ def test_create_session_provider_failure(mock_empty_audit, monkeypatch):
 # POST /api/advisor/session/{session_id}/message  —  conversation
 # ---------------------------------------------------------------------------
 
+
 def _seed_session(session_id: str) -> None:
     """Insert a dummy session directly into SESSION_STORE."""
     import time
+
     SESSION_STORE[session_id] = {
         "_ts": time.time(),
         "created_at": "2024-01-01T00:00:00+00:00",
@@ -153,13 +178,16 @@ def _seed_session(session_id: str) -> None:
 def test_message_continues_conversation(monkeypatch):
     """Follow-up message appends user + assistant turns to history."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     sid = "test-session-123"
     _seed_session(sid)
 
-    reply_rec = Recommendation("Refactor layers", "Move code between layers", "medium", "Cleaner deps", 60)
+    reply_rec = Recommendation(
+        "Refactor layers", "Move code between layers", "medium", "Cleaner deps", 60
+    )
 
     with _mock_provider([reply_rec]):
         resp = client.post(
@@ -182,7 +210,8 @@ def test_message_continues_conversation(monkeypatch):
 def test_message_session_not_found(monkeypatch):
     """POST message to unknown session returns 404."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     resp = client.post(
@@ -195,7 +224,8 @@ def test_message_session_not_found(monkeypatch):
 def test_message_provider_failure_returns_graceful_reply(monkeypatch):
     """When provider fails, a graceful error reply is returned (not 500)."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     sid = "session-fail"
@@ -204,20 +234,27 @@ def test_message_provider_failure_returns_graceful_reply(monkeypatch):
     failing_prov = MagicMock()
     failing_prov.generate_recommendations.side_effect = RuntimeError("API down")
 
-    with patch("archguard.dashboard.app.OpenAIAdvisorProvider", return_value=failing_prov):
+    with patch(
+        "archguard.dashboard.routes.advisor.OpenAIAdvisorProvider",
+        return_value=failing_prov,
+    ):
         resp = client.post(
             f"/api/advisor/session/{sid}/message",
             json={"message": "Analyse my code"},
         )
 
     assert resp.status_code == 200
-    assert "error" in resp.json()["content"].lower() or "try again" in resp.json()["content"].lower()
+    assert (
+        "error" in resp.json()["content"].lower()
+        or "try again" in resp.json()["content"].lower()
+    )
 
 
 def test_message_no_provider_recs_returns_graceful_reply(monkeypatch):
     """When provider returns no recs, a graceful reply is returned."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     sid = "session-empty-recs"
@@ -237,13 +274,16 @@ def test_message_no_provider_recs_returns_graceful_reply(monkeypatch):
 # GET /api/advisor/session/{session_id}  —  session retrieval
 # ---------------------------------------------------------------------------
 
+
 def test_get_session_returns_history(monkeypatch):
     """GET on existing session returns full history + recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     import time
+
     sid = "get-session-test"
     SESSION_STORE[sid] = {
         "_ts": time.time(),
@@ -272,7 +312,8 @@ def test_get_session_returns_history(monkeypatch):
 def test_get_session_not_found(monkeypatch):
     """GET on missing session returns 404."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard.app import RATE_LIMITS
+    from archguard.dashboard._state import RATE_LIMITS
+
     RATE_LIMITS.clear()
 
     resp = client.get("/api/advisor/session/does-not-exist")

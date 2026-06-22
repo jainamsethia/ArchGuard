@@ -86,4 +86,3 @@ def test_analyze_warm_cache(
             f"Warm analyze exceeded 5s: {benchmark.stats['median']:.2f}s"
         )
     assert result.returncode in (0, 1, 2)
-

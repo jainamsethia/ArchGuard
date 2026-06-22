@@ -1,8 +1,12 @@
 """Safe async-to-sync execution utilities."""
+
 from __future__ import annotations
 import asyncio
 from typing import Any, Coroutine, TypeVar
+
 T = TypeVar("T")
+
+
 def run_async(coro: Coroutine[Any, Any, T]) -> T:
     """Run a coroutine, handling both the no-loop and already-running-loop cases.
     - If no event loop is running: uses asyncio.run() (clean shutdown).
@@ -17,10 +21,13 @@ def run_async(coro: Coroutine[Any, Any, T]) -> T:
     # A loop is already running (e.g., pytest-asyncio, Jupyter).
     # Run in a separate thread to avoid nesting.
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         future = pool.submit(_run_in_new_loop, coro)
         import typing
+
         return typing.cast(T, future.result())
+
 
 def _run_in_new_loop(coro: Coroutine[Any, Any, Any]) -> Any:
     """Run coroutine in a brand-new event loop on the calling thread."""

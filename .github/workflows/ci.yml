@@ -91,7 +91,7 @@ jobs:
       - name: Install ML dependencies for full analysis
         run: |
           pip install "poetry==2.4.1"
-          poetry install --with ml --with dev
+          poetry install --extras ml --with dev
       - name: Run full 4-layer self-analysis
         run: |
           poetry run archguard analyze --repo . --no-llm

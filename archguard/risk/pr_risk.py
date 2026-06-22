@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 from dataclasses import dataclass, field
 from collections import deque
 
@@ -52,7 +53,9 @@ class PRRiskAnalyzer:
         best_len: int = 0
         for mod_name, paths in module_paths.items():
             for p in paths:
-                if normalize_path(file_path) == normalize_path(p) or path_belongs_to_module(file_path, [p]):
+                if normalize_path(file_path) == normalize_path(
+                    p
+                ) or path_belongs_to_module(file_path, [p]):
                     prefix_len = len(normalize_path(p))
                     if prefix_len > best_len:
                         best_match = mod_name
@@ -66,7 +69,7 @@ class PRRiskAnalyzer:
         dependency_graph: dict[str, list[str]],
     ) -> set[str]:
         """Find modules that transitively depend on the changed modules.
-        
+
         dependency_graph represents module -> [modules it depends on].
         So if A depends on B, the graph has graph[A] = [B].
         If B changes, A is downstream of B.
@@ -105,10 +108,10 @@ class PRRiskAnalyzer:
         self,
         changed_files: list[str],
         module_paths: dict[str, list[str]],
-        dependency_graph: dict[str, list[str]] | None = None,
+        dependency_graph: Any | None = None,
     ) -> PRRiskReport:
         """Analyze PR changes to compute risk."""
-        
+
         # 1. Identify directly affected modules
         direct_modules: set[str] = set()
         for f in changed_files:
@@ -129,12 +132,14 @@ class PRRiskAnalyzer:
                 for node in dependency_graph.nodes:
                     dg[node] = list(dependency_graph.adj[node])
                 dependency_graph = dg
-            transitive_modules = self._get_downstream_modules(direct_modules, dependency_graph)
+            transitive_modules = self._get_downstream_modules(
+                direct_modules, dependency_graph
+            )
 
         # 3. Compute Risk Score
         # E.g., 10 points per direct module, 2 points per transitive module
         risk_score = len(direct_modules) * 10 + len(transitive_modules) * 2
-        
+
         # 4. Classify risk
         overall_risk = self._compute_classification(risk_score)
 
@@ -162,7 +167,7 @@ class PRRiskAnalyzer:
         def _sort_key(m: AtRiskModule) -> tuple[int, str]:
             level_map = {"critical": 0, "high": 1, "medium": 2, "low": 3, "none": 4}
             return (level_map.get(m.risk_level, 99), m.module)
-            
+
         module_risks.sort(key=_sort_key)
 
         # Cap at 15

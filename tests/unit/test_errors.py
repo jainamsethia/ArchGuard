@@ -2,9 +2,11 @@ import pytest
 
 np = pytest.importorskip("numpy", reason="ML extras not installed")
 
+
 @pytest.fixture(autouse=True)
 def patch_ml_available(monkeypatch):
     monkeypatch.setattr("archguard.analysis.semantic._ML_AVAILABLE", True)
+
 
 from archguard.utils.errors import (
     ArchGuardError,

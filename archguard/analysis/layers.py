@@ -18,8 +18,6 @@ from archguard.contract.loader import load_contract
 logger: logging.Logger = logging.getLogger(__name__)
 
 
-
-
 def _get_module_paths(mod: dict[str, Any]) -> list[str]:
     """Normalize 'path' (str or list) and 'paths' (list) into a unified list."""
     from archguard.analysis._orchestrator_utils import (
@@ -77,11 +75,9 @@ class AnalysisOrchestrator:
             quiet,
         )
 
-
     # (Removed wrappers to save lines)
 
     @staticmethod
     def get_commit_sha(repo_root: Path) -> str:
         """Read HEAD commit SHA, return 7-char short form. Does not throw on failure."""
         return _get_commit_sha_fn(repo_root)
-

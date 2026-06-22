@@ -46,7 +46,7 @@ def test_fitness_functions_run_in_pipeline(git_repo):
         ],
     )
     assert result.exit_code in (0, 1), f"Analyze failed: {result.stdout}"
-    
+
     audit_log = git_repo / ".archguard-cache" / "audit.jsonl"
     assert audit_log.exists()
     lines = audit_log.read_text(encoding="utf-8").strip().split("\n")
@@ -62,7 +62,7 @@ def test_api_cannot_import_db_violated(git_repo):
     # From earlier inspection of sample_project, it might or might not already import db.
     # We will explicitly write an import to ensure it fails.
     (git_repo / "api" / "routes.py").write_text("from db import models\n")
-    
+
     files = "api/routes.py"
     result = runner.invoke(
         app,
@@ -76,12 +76,12 @@ def test_api_cannot_import_db_violated(git_repo):
             "--no-llm",
         ],
     )
-    
+
     audit_log = git_repo / ".archguard-cache" / "audit.jsonl"
     lines = audit_log.read_text(encoding="utf-8").strip().split("\n")
     last_run = json.loads(lines[-1])
     fitness = last_run.get("metrics", {}).get("fitness_results", [])
-    
+
     api_rule = next((r for r in fitness if r["name"] == "api_cannot_import_db"), None)
     assert api_rule is not None
     assert api_rule["passed"] is False
@@ -92,7 +92,7 @@ def test_critical_fitness_failure_in_audit_log(git_repo):
     """run analysis, inspect audit log, verify fitness_results and critical failure recorded."""
     (git_repo / "api" / "routes.py").write_text("from db import models\n")
     files = "api/routes.py"
-    
+
     runner.invoke(
         app,
         [
@@ -105,18 +105,18 @@ def test_critical_fitness_failure_in_audit_log(git_repo):
             "--no-llm",
         ],
     )
-    
+
     audit_log = git_repo / ".archguard-cache" / "audit.jsonl"
     assert audit_log.exists()
-    
+
     lines = audit_log.read_text(encoding="utf-8").strip().split("\n")
     assert len(lines) > 0
     last_run = json.loads(lines[-1])
-    
+
     fitness = last_run.get("fitness_results")
     if not fitness and "metrics" in last_run:
         fitness = last_run["metrics"].get("fitness_results", [])
-    
+
     assert fitness is not None, "fitness_results not found in audit log"
     api_rule = next((r for r in fitness if r["name"] == "api_cannot_import_db"), None)
     assert api_rule is not None
@@ -128,7 +128,7 @@ def test_critical_fitness_failure_in_audit_log(git_repo):
 def test_fitness_check_cli_exit_code(git_repo):
     """Run fitness check CLI, verify exit code 1 and critical failure."""
     (git_repo / "api" / "routes.py").write_text("from db import models\n")
-    
+
     result = runner.invoke(
         app,
         [
@@ -139,9 +139,9 @@ def test_fitness_check_cli_exit_code(git_repo):
             "--json",
         ],
     )
-    
+
     assert result.exit_code == 1
-    
+
     output = json.loads(result.stdout)
     api_rule = next((r for r in output if r["name"] == "api_cannot_import_db"), None)
     assert api_rule is not None

@@ -15,6 +15,7 @@ fitness_app: typer.Typer = typer.Typer(
 
 _console = Console()
 
+
 @fitness_app.command("check")
 def fitness_check(
     ctx: typer.Context,
@@ -42,15 +43,14 @@ def fitness_check(
 ) -> None:
     """Run architectural fitness functions."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
-        from archguard.config import EXIT_CONFIG_ERROR
-        
+        from archguard.utils.validation import validate_repo_path
+
         repo = validate_repo_path(repo)
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(2)
 
-    from archguard.analysis.layers import load_contract
+    from archguard.contract.loader import load_contract
     from archguard.config import parse_fitness_functions
 
     # Load contract
@@ -71,6 +71,7 @@ def fitness_check(
 
     # Need AnalysisResult
     from archguard.analysis.layers import AnalysisOrchestrator
+
     try:
         orchestrator = AnalysisOrchestrator(repo)
         # Avoid running full _run_analyze_cli loop, we just use orchestrator.run() directly
@@ -84,7 +85,7 @@ def fitness_check(
     # Note: Phase 3 Step 3 already modifies res.archdebt and res.metrics.
     # To isolate logic or access FitnessFunctionResult directly we can use Evaluator.
     from archguard.fitness.evaluator import FitnessFunctionEvaluator
-    
+
     evaluator = FitnessFunctionEvaluator(repo, contract)
     rules = [c.rule for c in fitness_configs]
     fitness_results = evaluator.evaluate(res, rules)
@@ -92,6 +93,7 @@ def fitness_check(
     # JSON Output
     if json_output:
         from archguard.audit.logger import serialize_fitness_results
+
         serialized = serialize_fitness_results(fitness_results, fitness_configs)
         print(json.dumps(serialized, indent=2))
     else:
@@ -118,7 +120,7 @@ def fitness_check(
                 status_str = "[bold red]✗ FAIL[/bold red]"
             else:
                 status_str = "[yellow]✗ FAIL[/yellow]"
-            
+
             table.add_row(status_str, name, severity, details)
 
         _console.print(table)
@@ -131,7 +133,7 @@ def fitness_check(
     config_map = {getattr(c, "rule", ""): c for c in fitness_configs}
     has_critical = False
     has_warn = False
-    
+
     for fr in fitness_results:
         rule = getattr(fr, "rule", "")
         passed = getattr(fr, "passed", True)
@@ -147,5 +149,5 @@ def fitness_check(
         raise typer.Exit(1)
     if has_warn and fail_on_warn:
         raise typer.Exit(2)
-        
+
     raise typer.Exit(0)

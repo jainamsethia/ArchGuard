@@ -1,6 +1,8 @@
 """Constants, exit codes, and event names for ArchGuard."""
 
 import os
+from dataclasses import dataclass
+from typing import Any
 
 # Exit codes
 EXIT_SUCCESS: int = 0
@@ -50,8 +52,7 @@ VALID_FITNESS_SEVERITIES: frozenset[str] = frozenset({"critical", "warn", "info"
 # Fitness function configuration
 # ---------------------------------------------------------------------------
 
-from dataclasses import dataclass, field
-from typing import Any
+
 
 
 class FitnessFunctionConfigError(ValueError):
@@ -110,5 +111,5 @@ def parse_fitness_functions(
 @dataclass
 class ArchGuardConfig:
     """Root configuration object."""
-    fail_on_critical_risk: bool = False
 
+    fail_on_critical_risk: bool = False

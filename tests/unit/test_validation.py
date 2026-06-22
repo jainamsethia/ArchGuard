@@ -63,3 +63,25 @@ def test_valid_path_as_list() -> None:
         "modules": [{"name": "core", "path": ["src/"]}],
     }
     validate_contract(data)
+
+
+def test_path_traversal_dot_dot_blocked_is_cwd_independent(tmp_path, monkeypatch):
+    """Regression test for the original failure: the same traversal string must
+    be rejected no matter how deep the process cwd is, because /etc/shadow is a
+    file, not a directory, not because of prefix-matching luck."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(PathTraversalError):
+        validate_repo_path("../../../etc/shadow")
+
+
+def test_nonexistent_path_blocked(tmp_path):
+    missing = tmp_path / "does" / "not" / "exist"
+    with pytest.raises(PathTraversalError):
+        validate_repo_path(missing)
+
+
+def test_file_path_blocked(tmp_path):
+    a_file = tmp_path / "not_a_dir.txt"
+    a_file.write_text("x")
+    with pytest.raises(PathTraversalError):
+        validate_repo_path(a_file)

@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 import typing
+
 if typing.TYPE_CHECKING:
     from archguard.analysis.layers import AnalysisResult
 

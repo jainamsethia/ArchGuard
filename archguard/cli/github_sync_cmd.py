@@ -108,7 +108,9 @@ def _execute_suppress(
     try:
         layer = int(cmd.args[1])
     except ValueError:
-        error_msg = f"❌ @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
+        error_msg = (
+            f"❌ @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
+        )
         if repo_slug and pr_number:
             post_comment(repo_slug, error_msg, pr_number=pr_number)
         return
@@ -142,8 +144,9 @@ def _execute_re_analyze(
     Typer commands require a live Typer context; the analysis engine does not.
     """
     import logging
+
     logger = logging.getLogger(__name__)
-    
+
     try:
         from archguard.analysis.layers import AnalysisOrchestrator
         from archguard.cli._analyze_core import _resolve_changed_files
@@ -152,53 +155,65 @@ def _execute_re_analyze(
 
         commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)
         changed_files = _resolve_changed_files(repo_root, None, pr_number, repo_slug)
-        
+
         with AnalysisOrchestrator(repo_root) as orchestrator:
-            result = orchestrator.run(changed_files=changed_files, commit_sha=commit_sha, quiet=True)
-            
+            result = orchestrator.run(
+                changed_files=changed_files, commit_sha=commit_sha, quiet=True
+            )
+
         if result and repo_slug and pr_number:
             client = GitHubClient()
             manager = PRCommentManager(client)
             body = manager.format_report(result)
-            
+
             risk_report = None
             try:
                 from archguard.risk.pr_risk import PRRiskAnalyzer
                 from archguard.fitness.evaluator import FitnessFunctionEvaluator
                 from archguard.analysis._orchestrator_utils import _get_module_paths
-                
+
                 analyzer = PRRiskAnalyzer()
-                module_paths = {m["name"]: _get_module_paths(m) for m in orchestrator.contract.get("modules", [])}
-                changed_files_str = [str(f.relative_to(repo_root)).replace("\\", "/") for f in changed_files]
-                
+                module_paths = {
+                    m["name"]: _get_module_paths(m)
+                    for m in orchestrator.contract.get("modules", [])
+                }
+                changed_files_str = [
+                    str(f.relative_to(repo_root)).replace("\\", "/")
+                    for f in changed_files
+                ]
+
                 evaluator = FitnessFunctionEvaluator(repo_root, orchestrator.contract)
                 dep_set = evaluator._get_module_dependencies()
                 dependency_graph = {k: list(v) for k, v in dep_set.items()}
-                
+
                 risk_report = analyzer.analyze(
                     changed_files=changed_files_str,
                     module_paths=module_paths,
-                    dependency_graph=dependency_graph
+                    dependency_graph=dependency_graph,
                 )
             except ImportError:
                 pass
-            
+
             if risk_report:
                 from archguard.github.comments import build_risk_section
+
                 risk_section = build_risk_section(risk_report)
                 if risk_section:
                     body += "\n\n" + risk_section
-            
+
             client.post_comment(repo_slug, body, pr_number=pr_number)
-            
+
             if risk_report:
                 from archguard.config import ArchGuardConfig
+
                 config = ArchGuardConfig()
-                if config.fail_on_critical_risk and getattr(risk_report, "overall_risk", "").lower() == "critical":
+                if (
+                    config.fail_on_critical_risk
+                    and getattr(risk_report, "overall_risk", "").lower() == "critical"
+                ):
                     raise typer.Exit(code=1)
-            
+
     except typer.Exit:
         raise
     except Exception as exc:
         logger.error("Re-analysis failed: %s", exc)
-

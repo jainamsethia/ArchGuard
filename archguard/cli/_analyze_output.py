@@ -9,11 +9,12 @@ from archguard.cli.analyze_cmd import AnalyzeOptions
 
 _console = Console()
 _BAND_EMOJI = {
-    'Healthy': '✅ Healthy',
-    'Watch': '⚠️ Watch',
-    'Warn': '🔶 Warn',
-    'Critical': '🚨 Critical',
+    "Healthy": "✅ Healthy",
+    "Watch": "⚠️ Watch",
+    "Warn": "🔶 Warn",
+    "Critical": "🚨 Critical",
 }
+
 
 def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     """Print Rich-formatted analysis report."""
@@ -136,6 +137,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     color = "green" if ci_str == "CI PASSED" else "red"
     _console.print(f"[bold {color}]Result: {ci_str}[/bold {color}]")
 
+
 def _build_json_report(
     score: float,
     grade: str,
@@ -164,28 +166,38 @@ def _build_json_report(
         },
     }
 
+
 def _format_rich_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
     if opts.ctx.obj.get("quiet"):
         ci_str = "PASSED" if not result.archdebt.should_fail_ci else "FAILED"
-        _console.print(f"Health Score: {result.archdebt.health_score:.1f} (Grade {result.archdebt.health_grade}) | CI: {ci_str}")
+        _console.print(
+            f"Health Score: {result.archdebt.health_score:.1f} (Grade {result.archdebt.health_grade}) | CI: {ci_str}"
+        )
     else:
         _print_rich_report(result, opts.repo.resolve())
+
 
 def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
     v_list_out = []
     for v in result.violations:
-        v_list_out.append({
-            "type": "layer",
-            "layer": getattr(v, "layer", 0),
-            "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
-            "message": getattr(v, "message", ""),
-            "severity": str(getattr(v, "severity", "low")),
-            "suppressed": getattr(v, "suppressed", False),
-            "explanation": getattr(v, "explanation", ""),
-        })
+        v_list_out.append(
+            {
+                "type": "layer",
+                "layer": getattr(v, "layer", 0),
+                "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
+                "message": getattr(v, "message", ""),
+                "severity": str(getattr(v, "severity", "low")),
+                "suppressed": getattr(v, "suppressed", False),
+                "explanation": getattr(v, "explanation", ""),
+            }
+        )
     if opts.out_file is not None:
         band_val = str(result.archdebt.band.name).upper()
-        out_band = "PASS" if band_val in ("HEALTHY", "WATCH") else ("WARN" if band_val == "WARN" else "FAIL")
+        out_band = (
+            "PASS"
+            if band_val in ("HEALTHY", "WATCH")
+            else ("WARN" if band_val == "WARN" else "FAIL")
+        )
         result_dict = {
             # composite_score: 0.0–1.0, HIGHER = WORSE (debt score)
             # health_score: 0–100, HIGHER = BETTER (use for user display)
@@ -194,10 +206,15 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             "band": out_band,
             "violations": v_list_out,
             "layer_results": {
-                "layer1_violation": float(result.archdebt.layer_scores.layer1_violation) * 100,
-                "layer2_coupling": float(result.archdebt.layer_scores.layer2_coupling) * 100,
+                "layer1_violation": float(result.archdebt.layer_scores.layer1_violation)
+                * 100,
+                "layer2_coupling": float(result.archdebt.layer_scores.layer2_coupling)
+                * 100,
                 "layer3_drift": float(result.archdebt.layer_scores.layer3_drift) * 100,
-                "layer4_duplication": float(result.archdebt.layer_scores.layer4_duplication) * 100,
+                "layer4_duplication": float(
+                    result.archdebt.layer_scores.layer4_duplication
+                )
+                * 100,
             },
             "fail_fast_triggered": getattr(result, "fail_fast_triggered", False),
         }
@@ -216,7 +233,8 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         metrics = {
             "layer_score": float(result.archdebt.layer_scores.layer1_violation) * 100,
             "coupling_score": float(result.archdebt.layer_scores.layer2_coupling) * 100,
-            "duplication_score": float(result.archdebt.layer_scores.layer4_duplication) * 100,
+            "duplication_score": float(result.archdebt.layer_scores.layer4_duplication)
+            * 100,
             "semantic_score": float(result.archdebt.layer_scores.layer3_drift) * 100,
         }
         report = _build_json_report(score, grade, v_list_out, metrics)
@@ -227,27 +245,36 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
                 for layer in getattr(result, "skipped_layers_names", [])
             ]
         import typer
+
         typer.echo(json.dumps(report, indent=2))
+
 
 def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
     try:
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS
+
         repo_root = opts.repo.resolve()
         audit = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
         band_val = str(result.archdebt.band.name).upper()
-        audit_band = "PASS" if band_val in ("HEALTHY", "WATCH") else ("WARN" if band_val == "WARN" else "FAIL")
+        audit_band = (
+            "PASS"
+            if band_val in ("HEALTHY", "WATCH")
+            else ("WARN" if band_val == "WARN" else "FAIL")
+        )
         v_list_out = []
         for v in result.violations:
-            v_list_out.append({
-                "type": "layer",
-                "layer": getattr(v, "layer", 0),
-                "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
-                "message": getattr(v, "message", ""),
-                "severity": str(getattr(v, "severity", "low")),
-                "suppressed": getattr(v, "suppressed", False),
-                "explanation": getattr(v, "explanation", ""),
-            })
+            v_list_out.append(
+                {
+                    "type": "layer",
+                    "layer": getattr(v, "layer", 0),
+                    "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
+                    "message": getattr(v, "message", ""),
+                    "severity": str(getattr(v, "severity", "low")),
+                    "suppressed": getattr(v, "suppressed", False),
+                    "explanation": getattr(v, "explanation", ""),
+                }
+            )
         audit.log(
             AUDIT_EVENT_ANALYSIS,
             # composite_score: 0.0–1.0, HIGHER = WORSE (debt score)
@@ -260,10 +287,13 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         )
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).warning(f"Failed to log analysis_complete: {e}")
+
 
 def _send_slack_alerts(result: AnalysisResult, repo_root: Path) -> None:
     import os
+
     slack_webhook = os.getenv("ARCHGUARD_SLACK_WEBHOOK")
     if slack_webhook:
         try:
@@ -271,7 +301,10 @@ def _send_slack_alerts(result: AnalysisResult, repo_root: Path) -> None:
             from archguard.alerting.trend_detector import detect_trends
             from archguard.alerting.webhooks import send_slack_alert
             from archguard.audit.logger import AuditLogger
-            audit_logger = AuditLogger(log_path=repo_root / ".archguard-cache" / "audit.jsonl")
+
+            audit_logger = AuditLogger(
+                log_path=repo_root / ".archguard-cache" / "audit.jsonl"
+            )
             runs = audit_logger.read_last_n_runs(n=10)
             alerts = detect_trends(runs, window=10)
             if alerts:
@@ -280,6 +313,7 @@ def _send_slack_alerts(result: AnalysisResult, repo_root: Path) -> None:
             _console.print(format_warning(f"Invalid Slack webhook URL: {ve}"))
         except Exception as e:
             _console.print(format_warning(f"Failed to send Slack alert: {e}"))
+
 
 def _show_monorepo_summary(results: list[tuple[str, AnalysisResult]]) -> None:
     from rich.table import Table
@@ -302,4 +336,3 @@ def _show_monorepo_summary(results: list[tuple[str, AnalysisResult]]) -> None:
     if results:
         avg_health = sum(r.archdebt.health_score for _, r in results) / len(results)
         _console.print(f"\nMonorepo Health Score: {avg_health:.1f}")
-

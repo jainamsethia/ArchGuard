@@ -97,7 +97,9 @@ def test_root_archguard_yml_loads_successfully():
 
 def test_fixture_archguard_yml_loads_successfully():
     """The fixture .archguard.yml (no fitness_functions) must still load."""
-    fixture_root = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample_repo"
+    fixture_root = (
+        Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "sample_repo"
+    )
     contract = load_contract(fixture_root)
     assert contract["version"] == "3.0"
     # No fitness_functions section — parse should return empty

@@ -47,15 +47,13 @@ class GitHubClient:
         }
         self._http_client = httpx.Client(
             headers=self._headers,
-            timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=None)
+            timeout=httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=None),
         )
         self._validate_token_scopes(token)
 
     def _validate_token_scopes(self, token: str) -> None:
         try:
-            resp = self._http_client.get(
-                "https://api.github.com/user", timeout=5.0
-            )
+            resp = self._http_client.get("https://api.github.com/user", timeout=5.0)
             if resp.status_code == 200:
                 scopes = resp.headers.get("X-OAuth-Scopes", "")
                 if "repo" not in scopes and "public_repo" not in scopes:
@@ -120,24 +118,24 @@ class GitHubClient:
         except RateLimitExceededException as e:
             logger.warning(f"Rate limit exceeded during get_pr_changed_files: {e}")
             return []
-            
+
         all_filenames: list[str] = []
         page = 1
         max_files = 3000
-        
+
         while len(all_filenames) < max_files:
             url = f"https://api.github.com/repos/{repo_slug}/pulls/{pr_number}/files?page={page}&per_page=100"
             files = self._get_api(url, check_rate=False)
-            
+
             if not files:
                 break
-                
+
             for f in files:
                 if "filename" in f:
                     all_filenames.append(f["filename"])
-                    
+
             page += 1
-            
+
         return all_filenames
 
     def is_collaborator(self, repo_slug: str, username: str) -> bool:
@@ -168,7 +166,9 @@ class GitHubClient:
 
         try:
             self._check_rate_limit()
-            url = f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
+            url = (
+                f"https://api.github.com/repos/{repo_slug}/issues/{pr_number}/comments"
+            )
             resp = self._http_client.post(
                 url,
                 json={"body": body},
@@ -195,7 +195,9 @@ class GitHubClient:
     def update_comment(self, repo_slug: str, comment_id: int, body: str) -> bool:
         try:
             self._check_rate_limit()
-            url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+            url = (
+                f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+            )
             resp = self._http_client.patch(
                 url,
                 json={"body": body},
@@ -212,7 +214,9 @@ class GitHubClient:
     def delete_comment(self, repo_slug: str, comment_id: int) -> bool:
         try:
             self._check_rate_limit()
-            url = f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+            url = (
+                f"https://api.github.com/repos/{repo_slug}/issues/comments/{comment_id}"
+            )
             resp = self._http_client.delete(
                 url,
                 timeout=10.0,

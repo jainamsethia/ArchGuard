@@ -128,7 +128,7 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
 
     async with anthropic.AsyncAnthropic(api_key=api_key) as client:
         response = await client.messages.create(
-            model=os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-3-5-sonnet-20240620"),
+            model=os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514"),
             max_tokens=2048,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -148,6 +148,7 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
     contract = json.loads(response_text.strip())
 
     from archguard.contract.validator import validate_contract
+
     try:
         validate_contract(contract)
     except Exception as e:

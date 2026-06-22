@@ -8,18 +8,24 @@ from pathlib import Path
 from typing import Any
 import threading
 
+import typing
+
 try:
     import numpy as np
     import numpy.typing as npt
-    from sentence_transformers import SentenceTransformer
 
-    _ML_AVAILABLE = True
-except Exception:
-    _ML_AVAILABLE = False
-    import typing
-
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
     np: typing.Any = None  # type: ignore[no-redef]
     npt: typing.Any = None  # type: ignore[no-redef]
+
+try:
+    from sentence_transformers import SentenceTransformer
+
+    _ML_AVAILABLE = _NUMPY_AVAILABLE
+except ImportError:
+    _ML_AVAILABLE = False
     SentenceTransformer: typing.Any = None  # type: ignore[no-redef]
 
 from archguard.cache.embeddings import EmbeddingCache
@@ -72,6 +78,7 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
 
 _GLOBAL_MODEL_CACHE: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
+
 
 def _get_model(model_name: str) -> "SentenceTransformer":
     if model_name not in _GLOBAL_MODEL_CACHE:

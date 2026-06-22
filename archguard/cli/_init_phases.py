@@ -18,6 +18,7 @@ _EXCLUDE_DIRS: frozenset[str] = frozenset(
     }
 )
 
+
 def count_loc(file_path: Path) -> int:
     """Count non-blank lines of code."""
     try:
@@ -28,6 +29,7 @@ def count_loc(file_path: Path) -> int:
         )
     except OSError:
         return 0
+
 
 def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
     """Detect modules from directory structure when commit history is sparse."""
@@ -70,6 +72,7 @@ def _fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
 
     return {k: [str(p).replace("\\", "/") for p in v] for k, v in modules.items()}
 
+
 def _phase1_scan(repo_root: Path) -> dict[str, Any]:
     """Phase 1: Repository Scan."""
     python_files: list[str] = []
@@ -90,6 +93,7 @@ def _phase1_scan(repo_root: Path) -> dict[str, Any]:
         "total_loc": total_loc,
         "python_files": python_files,
     }
+
 
 def _phase2_commits(repo_root: Path) -> dict[str, Any]:
     """Phase 2: Commit History Analysis."""
@@ -129,6 +133,7 @@ def _phase2_commits(repo_root: Path) -> dict[str, Any]:
         "graph_edges": graph.number_of_edges(),
         "graph_data": nx.node_link_data(graph),
     }
+
 
 def _phase3_communities(
     graph_data: dict[str, Any],

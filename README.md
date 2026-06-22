@@ -20,8 +20,9 @@ subgraph Pipeline["🔍 Analysis Pipeline"]
 direction TB
 L1["Layer 1: Import Boundaries\n(tree-sitter AST)"]
 L2["Layer 2: Coupling Delta\n(NetworkX fan-out)"]
-L3["Layer 3: Semantic Drift\n(MiniLM embeddings + FAISS)"]
-L4["Layer 4: LLM Explanation\n(Claude / Ollama)"]
+L3["Layer 3: Semantic Drift\n(MiniLM embeddings)"]
+L4["Layer 4: Duplication\n(FAISS vector search)"]
+EXPLAIN["LLM Explanation\n(Claude)"]
 SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
 end
 subgraph Cache["💾 Cache Layer"]
@@ -46,6 +47,8 @@ Pipeline -.->|Cache writes| Cache
 Contract --> Pipeline
 L3 -->|persistent drift| REINFER
 REINFER --> Contract
+SCORE -->|violations| EXPLAIN
+EXPLAIN --> Output
 ```
 
 ArchGuard runs a 4-layer analysis pipeline on every PR:
@@ -83,7 +86,7 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 - **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
 - **Louvain community detection** on commit co-change graph for automatic contract generation
 - **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
-- **Fallback LLM chain**: Claude (primary) → Ollama (local fallback) with concurrent async calls
+- **Resilient LLM explanations**: Claude Sonnet (primary) with automatic fallback to Claude Haiku on rate-limit or timeout, dispatched with concurrent async calls. A local-model (Ollama) backend exists in `archguard.llm.local` but is not yet wired into the CLI's explanation path — tracked for a future release.
 - **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
 ## Phase 3: Architecture Intelligence
@@ -267,6 +270,30 @@ AG-->>Action: Exit 1 if score > fail_threshold
 archguard analyze --json | jq '.summary'
 ```
 
+## Environment Variables
+
+See `.env.example` for a copy-pasteable template. Full reference:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | _(none)_ | Claude API key for LLM violation explanations. Omit to skip explanations. |
+| `ARCHGUARD_PRIMARY_MODEL` | `claude-sonnet-4-20250514` | Primary Claude model for explanations. |
+| `ARCHGUARD_FALLBACK_MODEL` | `claude-haiku-4-5-20251001` | Fallback Claude model used on rate-limit/timeout. |
+| `OPENAI_API_KEY` | _(none)_ | **Required** for the dashboard's AI Advisor panel — a separate provider from the Anthropic key above. |
+| `OPENAI_MODEL` | `gpt-4-turbo` | Model used for Advisor sessions. |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for OpenAI compatible endpoints. |
+| `OLLAMA_MODEL` | `llama3` | Local-model name (implemented but not yet reachable from the CLI — see FAQ). |
+| `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. |
+| `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
+| `ARCHGUARD_AUDIT_SECRET` | _(auto-generated)_ | HMAC key for the tamper-evident audit log. See "Audit Log Security" below. |
+| `ARCHGUARD_AUDIT_STRICT` | `false` | Require a secure secret to be present; refuse to auto-generate one. |
+| `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | Required for `archguard sync push/pull` (S3 cache backend). |
+| `ARCHGUARD_SKIP_ML` | `false` | Skip Layer 3/4 even if ML extras are installed. |
+| `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `ANTHROPIC_API_KEY` is set. |
+| `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response instead of calling the LLM — used in CI/tests. |
+| `ARCHGUARD_TEST_MODE` | `false` | Set by the test suite and CI; **currently read nowhere in `archguard/` source** — has no effect today. |
+
 ## Testing
 ### Unit Tests
 poetry run pytest tests/unit/ -v
@@ -278,7 +305,7 @@ make smoke-test
 ## FAQ
 
 **How do I use a local LLM instead of Claude?**
-Set `export ARCHGUARD_LLM_PROVIDER=ollama` and ensure you have an ollama instance running locally (defaults to `llama3` on `http://localhost:11434`). The CLI will pick up local models automatically.
+Local-model support (via Ollama) is implemented in `archguard.llm.local.LocalLLMExplainer` but is not currently wired into the `archguard analyze` command path — only the Anthropic Claude backend is reachable today. Setting `ARCHGUARD_LLM_PROVIDER` has no effect. If you want to skip LLM explanations entirely without Ollama, run `archguard analyze --no-llm`.
 
 **How do I suppress a false positive?**
 Run `archguard suppress add <violation-message>` to explicitly whitelist specific violations.

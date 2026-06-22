@@ -30,6 +30,7 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+*.bak
 
 # IDE/editor
 .vscode/
@@ -46,18 +47,33 @@ Thumbs.db
 temp_*.txt
 test_repo/
 
-# Local debugging scripts
+# Local debugging scripts (use scripts/adhoc/ for anything worth keeping)
 patch.py
 patch_*.py
 search_*.py
 fix_*.py
-
-# Development artifacts
-audit-results.json
-
-add_test.py
-add_tests.py
-append_tests.py
+add_test*.py
+append_test*.py
+append_tracker.py
+append_wt.py
 refactor.py
 update_workflows.py
+check_s*.py
+p[0-9]_*.py
+
+# Development artifacts and ad hoc run output (never commit raw run output —
+# use scripts/adhoc/ + README.md for anything meant to be kept and rerun)
+audit-results.json
 pytest_output.txt
+*_cov.txt
+*_output.txt
+coverage_*.txt
+cov_*.txt
+gate*.txt
+out.txt
+out_*.txt
+test_out.txt
+test_report.html
+analysis.json
+fitness.json
+scratch/

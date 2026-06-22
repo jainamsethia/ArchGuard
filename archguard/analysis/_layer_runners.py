@@ -10,6 +10,81 @@ from archguard.utils.paths import normalize_path, path_belongs_to_module
 from archguard.utils.severity import Severity
 
 
+def _analyze_file_imports(
+    fpath: Path,
+    repo_root: Path,
+    parser: Any,
+    module_paths: dict[str, list[str]],
+    disallowed_map: dict[str, set[str]],
+    allowed_map: dict[str, set[str]],
+    commit_sha: str,
+) -> tuple[int, int, list[ViolationDetail]]:
+    total_imports = 0
+    violation_count = 0
+    violations = []
+    try:
+        source = fpath.read_text(errors="replace")
+        rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
+        edges = parser.parse_file(source, rel, module_paths)
+
+        file_module: str | None = None
+        for mod_name, paths in module_paths.items():
+            for p in paths:
+                if path_belongs_to_module(rel, [p]):
+                    file_module = mod_name
+                    break
+            if file_module:
+                break
+
+        if file_module is None:
+            return 0, 0, []
+
+        for edge in edges:
+            if edge.is_stdlib or edge.is_relative:
+                continue
+            total_imports += 1
+            root = edge.imported_module.split(".")[0]
+
+            if file_module in disallowed_map and root in disallowed_map[file_module]:
+                violation_count += 1
+                violations.append(
+                    ViolationDetail(
+                        layer=1,
+                        module=file_module,
+                        message=f"Imports `{edge.imported_module}` (disallowed)",
+                        commit_sha=commit_sha[:7],
+                        file_path=rel,
+                        severity=Severity.CRITICAL,
+                    )
+                )
+                continue
+
+            if file_module in allowed_map and root not in allowed_map[file_module]:
+                is_self = any(
+                    path_belongs_to_module(root, [normalize_path(p).split("/")[0]])
+                    for p in module_paths.get(file_module, [])
+                )
+                if not is_self:
+                    violation_count += 1
+                    violations.append(
+                        ViolationDetail(
+                            layer=1,
+                            module=file_module,
+                            message=f"Imports `{edge.imported_module}` (not in allowed_imports)",
+                            commit_sha=commit_sha[:7],
+                            file_path=rel,
+                            severity=Severity.CRITICAL,
+                        )
+                    )
+
+    except Exception as e:
+        from archguard.utils.errors import AnalysisError
+
+        raise AnalysisError(f"Layer 1 analysis failed on {fpath}", cause=e) from e
+
+    return total_imports, violation_count, violations
+
+
 def _run_layer1(
     repo_root: Path,
     contract: dict[str, Any],
@@ -31,7 +106,6 @@ def _run_layer1(
         m["name"]: _get_module_paths(m) for m in modules_cfg
     }
 
-    # Build disallowed/allowed maps
     disallowed_map: dict[str, set[str]] = {}
     allowed_map: dict[str, set[str]] = {}
     for m in modules_cfg:
@@ -45,80 +119,18 @@ def _run_layer1(
     violation_count = 0
 
     for fpath in py_files:
-        try:
-            source = fpath.read_text(errors="replace")
-            rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
-            edges = parser.parse_file(source, rel, module_paths)
-
-            # Determine which module this file belongs to
-            file_module: str | None = None
-            for mod_name, paths in module_paths.items():
-                for p in paths:
-                    if path_belongs_to_module(rel, [p]):
-                        file_module = mod_name
-                        break
-                if file_module:
-                    break
-
-            if file_module is None:
-                continue
-
-            for edge in edges:
-                if edge.is_stdlib or edge.is_relative:
-                    continue
-                total_imports += 1
-                root = edge.imported_module.split(".")[0]
-
-                # Check disallowed
-                if file_module in disallowed_map:
-                    if root in disallowed_map[file_module]:
-                        violation_count += 1
-                        violations.append(
-                            ViolationDetail(
-                                layer=1,
-                                module=file_module,
-                                message=(
-                                    f"Imports `{edge.imported_module}` (disallowed)"
-                                ),
-                                commit_sha=commit_sha[:7],
-                                file_path=rel,
-                                severity=Severity.CRITICAL,
-                            )
-                        )
-                        continue
-
-                # Check allowed (if specified, only those are permitted)
-                if file_module in allowed_map:
-                    if root not in allowed_map[file_module]:
-                        # Check if it's within the same module
-                        is_self = any(
-                            path_belongs_to_module(
-                                root, [normalize_path(p).split("/")[0]]
-                            )
-                            for p in module_paths.get(file_module, [])
-                        )
-                        if not is_self:
-                            violation_count += 1
-                            violations.append(
-                                ViolationDetail(
-                                    layer=1,
-                                    module=file_module,
-                                    message=(
-                                        f"Imports `{edge.imported_module}` "
-                                        f"(not in allowed_imports)"
-                                    ),
-                                    commit_sha=commit_sha[:7],
-                                    file_path=rel,
-                                    severity=Severity.CRITICAL,
-                                )
-                            )
-
-        except Exception as e:
-            from archguard.utils.errors import AnalysisError
-
-            raise AnalysisError(
-                f"Layer 1 analysis failed on {fpath}", cause=e
-            ) from e
+        t_imports, v_count, v_list = _analyze_file_imports(
+            fpath,
+            repo_root,
+            parser,
+            module_paths,
+            disallowed_map,
+            allowed_map,
+            commit_sha,
+        )
+        total_imports += t_imports
+        violation_count += v_count
+        violations.extend(v_list)
 
     parse_failures.extend(parser.parse_failures)
     return violation_count / max(total_imports, 1), violations
@@ -147,9 +159,7 @@ def _run_layer2(
         m["name"]: m.get("coupling_budget", 3) for m in modules_cfg
     }
 
-    parse_result = parser.parse_repo(
-        repo_root, module_paths, allow_partial=True
-    )
+    parse_result = parser.parse_repo(repo_root, module_paths, allow_partial=True)
     edges = parse_result.edges
     parse_failures.extend(parse_result.failures)
     max_delta = 0.0
@@ -260,9 +270,7 @@ def _run_layer4(
             if result.aggregate_score > 0.0 and not result.skipped:
                 # Collect file information from the matches
                 match_details = []
-                for m in result.matches[
-                    :3
-                ]:  # limit to top 3 to avoid huge messages
+                for m in result.matches[:3]:  # limit to top 3 to avoid huge messages
                     src_file = m.source_function.split("::")[0]
                     tgt_file = m.matched_function.split("::")[0]
                     match_details.append(f"{src_file} <-> {tgt_file}")

@@ -110,7 +110,7 @@ class SuppressionStore:
 
     def _load_cache(self) -> list[Suppression]:
         """Load suppressions from JSONL, using mtime to detect changes.
-        
+
         Callers holding a file lock must call _force_reload() first to ensure
         they do not read stale data that was cached before the lock was acquired.
         """
