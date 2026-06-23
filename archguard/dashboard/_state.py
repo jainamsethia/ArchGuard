@@ -18,6 +18,9 @@ from pathlib import Path
 from archguard.config import AUDIT_LOG_FILENAME
 from archguard.llm.advisor import ArchitectureAdvisor
 from archguard.llm.openai_provider import OpenAIAdvisorProvider
+from contextlib import asynccontextmanager
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 
 def _installed_version() -> str:
@@ -27,7 +30,106 @@ def _installed_version() -> str:
         return "unknown"
 
 
-app = FastAPI(title="ArchGuard Dashboard", version=_installed_version())
+@asynccontextmanager
+async def _lifespan(app_instance: FastAPI) -> Any:
+    """Application lifespan handler.
+    Startup:
+    - Validates that no REQUIRED env vars are missing (none currently required)
+    - Warns about missing RECOMMENDED vars (ANTHROPIC_API_KEY, GITHUB_TOKEN)
+    - Cleans up stale temp workspaces from previous crashed runs
+    Shutdown:
+    - No cleanup needed (connections are stateless)
+    """
+    _startup_logger = logging.getLogger("archguard.startup")
+    _startup_logger.info("ArchGuard Dashboard starting up…")
+
+    # Warn (do not crash) if recommended vars are missing
+    recommended = {
+        "ANTHROPIC_API_KEY": "L4 LLM explanations will be skipped",
+        "GITHUB_TOKEN": "GitHub API limited to 60 req/hr (unauthenticated)",
+    }
+    for var, consequence in recommended.items():
+        if not os.environ.get(var):
+            _startup_logger.warning("Optional env var %s not set — %s", var, consequence)
+
+    # Clean up stale workspaces from previous crashed runs
+    try:
+        from archguard.dashboard.workspace import cleanup_stale_workspaces
+        removed = await cleanup_stale_workspaces(max_age_seconds=3600)
+        if removed:
+            _startup_logger.info("Removed %d stale workspace(s) on startup", removed)
+    except Exception as exc:
+        _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
+
+    _startup_logger.info("Dashboard ready.")
+    yield  # ← application runs here
+    _startup_logger.info("ArchGuard Dashboard shutting down.")
+
+app = FastAPI(
+    title="ArchGuard Dashboard",
+    version=_installed_version(),
+    lifespan=_lifespan,
+)
+
+# ── CORS ──────────────────────────────────────────────────────────────────
+# Allow the configured origins to call the API from a browser.
+# In production, set ALLOWED_ORIGINS to your frontend domain:
+#   ALLOWED_ORIGINS=https://your-app.vercel.app
+_allowed_origins: list[str] = [
+    o.strip()
+    for o in os.environ.get(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:8000,http://127.0.0.1:8000",
+    ).split(",")
+    if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["Content-Type"],
+)
+# ── /CORS ─────────────────────────────────────────────────────────────────
+
+# ── Request logging middleware ────────────────────────────────────────────
+
+_request_logger = logging.getLogger("archguard.http")
+
+@app.middleware("http")
+async def _log_requests(request: Request, call_next: Any) -> Any:
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = round((time.monotonic() - start) * 1000)
+    _request_logger.info(
+        "%s %s → %d (%dms)",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
+
+# ── Global exception handler ──────────────────────────────────────────────
+
+_exc_logger = logging.getLogger("archguard.exceptions")
+
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    _exc_logger.exception(
+        "Unhandled exception on %s %s", request.method, request.url.path
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "type": type(exc).__name__,
+        },
+    )
+
+# Track startup time for /health uptime
+_APP_START_TIME = time.time()
 
 STATIC_DIR = Path(__file__).parent / "static"
 

@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
-    <title>ArchGuard Dashboard</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8000; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+    <title>ArchGuard - Job Submission</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-color: #0f172a;
@@ -12,8 +13,8 @@
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --accent-color: #3b82f6;
+            --accent-hover: #2563eb;
             --danger-color: #ef4444;
-            --warn-color: #f59e0b;
             --success-color: #10b981;
             --border-color: rgba(255, 255, 255, 0.1);
         }
@@ -21,1066 +22,412 @@
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            padding: 2rem;
+            padding: 0;
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             background-image:
-                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+                radial-gradient(circle at top left, rgba(59, 130, 246, 0.15), transparent 40%),
+                radial-gradient(circle at bottom right, rgba(139, 92, 246, 0.15), transparent 40%);
             background-attachment: fixed;
         }
 
-        .dashboard-container {
-            max-width: 1200px;
-            margin: 0 auto;
+        .container {
+            width: 100%;
+            max-width: 600px;
+            padding: 2rem;
+            box-sizing: border-box;
+            transition: max-width 0.5s ease;
         }
 
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-color);
+        .container.expanded {
+            max-width: 900px;
+        }
+
+        .glass-card {
+            background: var(--surface-color);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 3rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
         }
 
         .header h1 {
-            margin: 0;
-            font-size: 2rem;
+            margin: 0 0 0.5rem 0;
+            font-size: 2.5rem;
             font-weight: 700;
             background: linear-gradient(to right, #60a5fa, #a78bfa);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .glass-card {
-            background: var(--surface-color);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .glass-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-        }
-
-        .metric-title {
-            font-size: 0.875rem;
+        .header p {
             color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+            margin-bottom: 2.5rem;
         }
 
-        .metric-value {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin: 0;
-        }
-
-        .charts-container {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        @media (max-width: 900px) {
-            .charts-container {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .chart-wrapper {
+        .input-group {
             position: relative;
-            height: 300px;
-            width: 100%;
-        }
-
-        .table-container {
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-        }
-
-        th, td {
-            padding: 1rem;
+            margin-bottom: 1.5rem;
             text-align: left;
-            border-bottom: 1px solid var(--border-color);
         }
 
-        th {
+        .input-group input {
+            width: 100%;
+            padding: 1.2rem 1.5rem;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+            background: rgba(15, 23, 42, 0.5);
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            box-sizing: border-box;
+            outline: none;
+            transition: all 0.3s ease;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .input-group input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+            background: rgba(15, 23, 42, 0.8);
+        }
+
+        .input-group input::placeholder {
             color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .btn-submit {
+            width: 100%;
+            padding: 1.2rem;
+            font-size: 1.1rem;
             font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
+            color: white;
+            background: var(--accent-color);
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5);
+            font-family: 'Inter', sans-serif;
         }
 
-        tbody tr {
-            transition: background-color 0.2s ease;
+        .btn-submit:hover {
+            background: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.6);
         }
 
-        tbody tr:hover {
-            background-color: rgba(255, 255, 255, 0.05);
+        .btn-submit:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+            color: #94a3b8;
         }
 
-        .badge {
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
+        .repo-preview {
+            display: none;
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            text-align: left;
+            animation: fadeIn 0.4s ease-out;
         }
 
-        .badge-critical { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
-        .badge-high { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
-        .badge-medium { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
-        .badge-low { background-color: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
-
-        .loader {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--text-secondary);
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .refresh-status {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
+        .repo-preview.show {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: space-between;
         }
 
-        /* Fitness Functions Panel */
-        .fitness-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1rem;
-        }
-        
-        .fitness-card {
-            background: rgba(30, 41, 59, 0.4);
-            border-radius: 8px;
-            padding: 1rem;
-            border-left: 4px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        .fitness-card.pass { border-left-color: var(--success-color); }
-        .fitness-card.warn { border-left-color: var(--warn-color); }
-        .fitness-card.fail { border-left-color: var(--danger-color); }
-        
-        .fitness-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-        }
-        
-        .fitness-card-title {
+        .repo-name {
             font-weight: 600;
-            font-size: 1rem;
-            color: var(--text-primary);
+            font-size: 1.1rem;
+            color: #e2e8f0;
         }
-        
-        .fitness-card-rule {
-            font-size: 0.75rem;
+
+        .repo-meta {
             color: var(--text-secondary);
-            font-family: monospace;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 50%;
-        }
-        
-        .fitness-card-evidence {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            word-break: break-word;
-        }
-        /* Tabs CSS */
-        .tablist {
+            font-size: 0.9rem;
             display: flex;
             gap: 1rem;
-            margin-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border-color);
-            overflow-x: auto;
-            white-space: nowrap;
-            padding-bottom: 0.5rem;
-            scrollbar-width: thin;
+            margin-top: 0.25rem;
         }
-        
-        .tab {
-            background: transparent;
-            color: var(--text-secondary);
-            border: none;
-            padding: 0.5rem 1rem;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            transition: color 0.2s, border-bottom 0.2s;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -0.5rem; /* align with border */
-        }
-        
-        .tab[aria-selected="true"] {
-            color: var(--accent-color);
-            border-bottom: 2px solid var(--accent-color);
-        }
-        
-        .tab:hover:not([aria-selected="true"]) {
-            color: var(--text-primary);
-        }
-        
-        .tab-panel-main {
+
+        /* Terminal Window */
+        .terminal-container {
             display: none;
+            margin-top: 2rem;
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid #333;
+            text-align: left;
+            overflow: hidden;
+            animation: slideDown 0.5s ease-out forwards;
         }
-        
-        .tab-panel-main.active {
+
+        .terminal-container.show {
             display: block;
         }
-        
-        .chips-container {
+
+        .terminal-header {
+            background: #1e1e1e;
+            padding: 0.5rem 1rem;
             display: flex;
             gap: 0.5rem;
-            margin-top: 0.5rem;
+            align-items: center;
+            border-bottom: 1px solid #333;
         }
-        
-        .chip {
-            padding: 0.25rem 0.75rem;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        .chip-pass { background-color: rgba(16, 185, 129, 0.2); color: #34d399; }
-    </style>
 
-    <!-- Local Chart.js -->
-    <script src="/vendor/chart.umd.min.js"></script>
+        .term-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .term-btn.red { background: #ff5f56; }
+        .term-btn.yellow { background: #ffbd2e; }
+        .term-btn.green { background: #27c93f; }
+
+        .terminal-body {
+            padding: 1.5rem;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            color: #a8cc8c;
+            line-height: 1.6;
+        }
+
+        .terminal-line {
+            margin-bottom: 0.25rem;
+            word-break: break-all;
+        }
+
+        .terminal-line.error { color: #e88388; }
+        .terminal-line.system { color: #71baf2; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; max-height: 0; }
+            to { opacity: 1; max-height: 500px; }
+        }
+
+        .error-message {
+            color: var(--danger-color);
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+            display: none;
+            text-align: left;
+        }
+        .error-message.show { display: block; }
+        
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+    </style>
 </head>
 <body>
-    <div class="dashboard-container">
-        <div class="header">
-            <div>
-                <h1>ArchGuard Dashboard</h1>
-                <div class="chips-container">
-                    <span class="chip chip-pass">Fitness</span>
-                    <span class="chip chip-pass">AI Advisor</span>
-                    <span class="chip chip-pass">Evolution</span>
-                </div>
-            </div>
-            <div class="refresh-status">
-                <span id="last-updated">Last updated: Just now</span>
-                <div class="loader" id="refresh-loader" style="display: none;"></div>
-            </div>
-        </div>
 
-        <div class="metrics-grid">
-            <div class="glass-card">
-                <div class="metric-title">Current ArchDebt Score</div>
-                <div class="metric-value" id="current-score">--</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-title">Health Band</div>
-                <div class="metric-value" id="current-band" style="font-size: 2rem;">--</div>
-            </div>
-            <div class="glass-card">
-                <div class="metric-title">Active Violations</div>
-                <div class="metric-value" id="active-violations">--</div>
-            </div>
-        </div>
-
-        <div class="tablist" role="tablist">
-            <button class="tab" role="tab" aria-selected="true" aria-controls="overview" onclick="switchTab('overview')">Overview</button>
-            <button class="tab" role="tab" aria-selected="false" aria-controls="violations" onclick="switchTab('violations')">Violations</button>
-        </div>
-
-        <div id="overview" class="tab-panel-main active" role="tabpanel">
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Overall Trend</h2>
-                <div class="chart-wrapper">
-                    <canvas id="trendChart"></canvas>
-                </div>
-            </div>
-            
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Architecture Fitness</h2>
-                <div id="fitness-container">
-                    <div style="color: var(--text-secondary); padding: 1rem; text-align: center;">Loading...</div>
-                </div>
+    <div class="container" id="main-container">
+        <div class="glass-card">
+            <div class="header">
+                <h1>ArchGuard</h1>
+                <p>Advanced Architectural AI Intelligence</p>
             </div>
 
-            <!-- Moved Phase 3 Content into Overview -->
-            <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Evolution Trends</h2>
-            <div class="metrics-grid" id="evolution-trends-grid">
-                <div class="glass-card">
-                    <div class="metric-title">Health Trend</div>
-                    <div class="metric-value" id="trend-health-val" style="font-size: 1.75rem;">--</div>
-                    <div id="trend-health-status" style="font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">--</div>
+            <form id="submit-form" onsubmit="event.preventDefault(); handleSubmit();">
+                <div class="input-group">
+                    <input type="url" id="github-url" placeholder="https://github.com/owner/repo" required autocomplete="off">
+                    <div id="error-msg" class="error-message"></div>
                 </div>
-                <div class="glass-card">
-                    <div class="metric-title">Debt Trend</div>
-                    <div class="metric-value" id="trend-debt-val" style="font-size: 1.75rem;">--</div>
-                    <div id="trend-debt-status" style="font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">--</div>
-                </div>
-                <div class="glass-card">
-                    <div class="metric-title">Violations Trend</div>
-                    <div class="metric-value" id="trend-violation-val" style="font-size: 1.75rem;">--</div>
-                    <div id="trend-violation-status" style="font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">--</div>
-                </div>
-                <div class="glass-card">
-                    <div class="metric-title">Fitness Trend</div>
-                    <div class="metric-value" id="trend-fitness-val" style="font-size: 1.75rem;">--</div>
-                    <div id="trend-fitness-status" style="font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600;">--</div>
-                </div>
-            </div>
-            
-            <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Historical Evolution Analysis</h2>
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+
+                <div id="repo-preview" class="repo-preview">
                     <div>
-                        <div class="metric-title">Debt Velocity</div>
-                        <div class="metric-value" id="debt_velocity" style="font-size: 2rem;">--</div>
-                        <div id="trend_direction" style="font-size: 0.875rem; margin-top: 0.5rem; font-weight: 600; color: var(--text-secondary);">--</div>
+                        <div class="repo-name" id="preview-name">owner/repo</div>
+                        <div class="repo-meta">
+                            <span id="preview-lang">Python</span>
+                            <span>★ <span id="preview-stars">0</span></span>
+                        </div>
                     </div>
-                    <div style="text-align: right;">
-                        <div class="metric-title" style="margin-bottom: 0.5rem;">Commits Analyzed: <span id="evo-commits-count">0</span></div>
-                        <button id="start-evolution-btn" onclick="startEvolutionAnalysis()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold;">Analyze Git History</button>
-                    </div>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--success-color)"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                 </div>
-                <div class="chart-wrapper">
-                    <canvas id="evolutionChart"></canvas>
-                </div>
-            </div>
 
-            <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Dependency Health</h2>
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <div>
-                        <div class="metric-title">Dependency Score</div>
-                        <div class="metric-value" id="deps-score" style="font-size: 2rem;">--</div>
-                    </div>
-                    <button id="scan-deps-btn" onclick="scanDependencies()" style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold;">Scan Dependencies</button>
-                </div>
-                <div id="deps-status" style="color: var(--text-secondary); margin-bottom: 1rem;">Click "Scan Dependencies" to run pip-audit.</div>
-                <div class="table-container" id="deps-table-container" style="display: none;">
-                    <table id="depsTable">
-                        <thead>
-                            <tr>
-                                <th>Package</th>
-                                <th>Version</th>
-                                <th>CVE/GHSA</th>
-                                <th>Description</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- rows inserted here -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+                <button type="submit" id="btn-submit" class="btn-submit">Analyze Repository</button>
+            </form>
 
-            <!-- Advisor Panel (Step 14) -->
-            <div id="advisor-panel" class="glass-card" style="margin-bottom: 2rem;">
-                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">AI Advisor</h2>
-                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                    <input type="text" id="advisor-question-input" placeholder="Ask an architecture question..."
-                        style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-primary); font-size: 0.95rem; outline: none;"
-                        onkeydown="if(event.key==='Enter') sendAdvisorQuestion()">
-                    <button onclick="sendAdvisorQuestion()"
-                        style="background: var(--accent-color); color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 8px; cursor: pointer; font-weight: 600; white-space: nowrap;">Ask</button>
+            <div id="terminal" class="terminal-container">
+                <div class="terminal-header">
+                    <div class="term-btn red"></div>
+                    <div class="term-btn yellow"></div>
+                    <div class="term-btn green"></div>
                 </div>
-                <div id="advisor-response" style="color: var(--text-secondary); padding: 0.5rem; min-height: 2rem; white-space: pre-wrap; font-size: 0.9rem; line-height: 1.6;">
-                    Ask a question about your architecture to get AI-driven advice.
-                </div>
-            </div>
-
-            <!-- Remediation Panel (Step 17) -->
-            <div id="remediation-panel" class="glass-card" style="margin-bottom: 2rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h2 style="margin-top: 0; margin-bottom: 0; font-size: 1.25rem;">Remediation Plan</h2>
-                    <button id="remediation-btn" onclick="generateRemediationPlan()"
-                        style="background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600;">Generate Plan</button>
-                </div>
-                <div id="remediation-results" style="color: var(--text-secondary); padding: 0.5rem;">
-                    Click "Generate Plan" to create an AI-driven remediation plan from your latest violations.
-                </div>
-            </div>
-        </div>
-
-        <div id="violations" class="tab-panel-main" role="tabpanel">
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Recent Violations</h2>
-                <div class="table-container">
-                    <table id="violationsTable">
-                        <thead>
-                            <tr>
-                                <th>Layer</th>
-                                <th>Severity</th>
-                                <th>Module</th>
-                                <th>Message</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Loading...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <div class="glass-card" style="margin-bottom: 2rem;">
-                <h2 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.25rem;">Modules</h2>
-                <div class="chart-wrapper">
-                    <canvas id="moduleChart"></canvas>
+                <div class="terminal-body" id="term-output">
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        let trendChartInstance = null;
-        let moduleChartInstance = null;
-        let evolutionChartInstance = null;
+        const urlInput = document.getElementById('github-url');
+        const submitBtn = document.getElementById('btn-submit');
+        const errorMsg = document.getElementById('error-msg');
+        const repoPreview = document.getElementById('repo-preview');
+        const terminal = document.getElementById('terminal');
+        const termOutput = document.getElementById('term-output');
+        const container = document.getElementById('main-container');
 
-        // Configuration for dark mode charts
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
-        Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+        let isValidating = false;
+        let isJobRunning = false;
 
-        async function fetchData() {
-            document.getElementById('refresh-loader').style.display = 'inline-block';
-            try {
-                const [runsRes, latestRes, modulesRes, evolutionRes, gitEvoRes] = await Promise.all([
-                    fetch('/api/runs?limit=30'),
-                    fetch('/api/runs/latest'),
-                    fetch('/api/modules'),
-                    fetch('/api/evolution/trends'),
-                    fetch('/api/evolution/latest')
-                ]);
-
-                const runsData = await runsRes.json();
-                const latestData = await latestRes.json();
-                const modulesData = await modulesRes.json();
-                const evolutionData = await evolutionRes.json();
-                const gitEvoData = await gitEvoRes.json();
-
-                updateMetrics(latestData);
-                updateFitnessPanel(latestData);
-                updateViolationsTable(latestData);
-                updateTrendChart(runsData.runs);
-                updateModuleChart(modulesData.modules);
-                updateEvolutionTrends(evolutionData);
-                if (gitEvoData && gitEvoData.snapshots && gitEvoData.snapshots.length > 0) {
-                    _applyGitEvolutionData(gitEvoData);
-                }
-
-                document.getElementById('last-updated').textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-            } catch (error) {
-                console.error("Error fetching dashboard data:", error);
-                document.getElementById('last-updated').textContent = 'Error updating';
-            } finally {
-                document.getElementById('refresh-loader').style.display = 'none';
-            }
-        }
-
-        function updateMetrics(latestRun) {
-            if (!latestRun || !latestRun.score) return;
-
-            document.getElementById('current-score').textContent = latestRun.score.toFixed(1);
-
-            const bandEl = document.getElementById('current-band');
-            bandEl.textContent = latestRun.band || 'UNKNOWN';
-
-            // Color coding based on band
-            if (latestRun.band === 'PASS' || latestRun.band === 'HEALTHY') bandEl.style.color = 'var(--success-color)';
-            else if (latestRun.band === 'WARN' || latestRun.band === 'WATCH') bandEl.style.color = 'var(--warn-color)';
-            else if (latestRun.band === 'FAIL' || latestRun.band === 'CRITICAL') bandEl.style.color = 'var(--danger-color)';
-
-            const violations = latestRun.violations || [];
-            document.getElementById('active-violations').textContent = violations.length;
-        }
-
-        function getSeverityClass(severity) {
-            const s = (severity || 'low').toLowerCase();
-            if (s === 'critical') return 'badge-critical';
-            if (s === 'high') return 'badge-high';
-            if (s === 'medium') return 'badge-medium';
-            return 'badge-low';
-        }
-
-        function sanitize(str) {
-            if (str === null || str === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(str);
-            return div.innerHTML;
-        }
-
-        function updateFitnessPanel(latestRun) {
-            const container = document.getElementById('fitness-container');
-            const metrics = latestRun.metrics || {};
-            const fitnessResults = metrics.fitness_results || [];
-
-            if (fitnessResults.length === 0) {
-                container.innerHTML = '<div style="color: var(--text-secondary); padding: 1rem; text-align: center;">No fitness functions defined or executed.</div>';
-                return;
-            }
-
-            const html = fitnessResults.map(r => {
-                const passed = r.passed !== false;
-                const severity = r.severity || 'warn';
-                let statusClass = 'pass';
-                let icon = '✅';
-                
-                if (!passed) {
-                    if (severity === 'critical') {
-                        statusClass = 'fail';
-                        icon = '❌';
-                    } else {
-                        statusClass = 'warn';
-                        icon = '⚠️';
-                    }
-                }
-                
-                const rule = sanitize(r.rule || '');
-                const name = sanitize(r.name || r.rule || 'Unknown');
-                const evidence = sanitize(r.evidence || '');
-                
-                let evidenceHtml = '';
-                if (!passed && evidence) {
-                    evidenceHtml = `<div class="fitness-card-evidence">${evidence}</div>`;
-                }
-                
-                return `
-                    <div class="fitness-card ${statusClass}">
-                        <div class="fitness-card-header">
-                            <span class="fitness-card-title">${icon} ${name}</span>
-                            <span class="fitness-card-rule" title="${rule}">${rule}</span>
-                        </div>
-                        ${evidenceHtml}
-                    </div>
-                `;
-            }).join('');
-
-            container.innerHTML = `<div class="fitness-grid">${html}</div>`;
-        }
-
-        function updateViolationsTable(latestRun) {
-            const tbody = document.querySelector('#violationsTable tbody');
-            const violations = latestRun.violations || [];
-
-            if (violations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No active violations. Great job! 🎉</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = violations.slice(0, 20).map(v => `
-                <tr>
-                    <td>L${sanitize(v.layer || '?')}</td>
-                    <td><span class="badge ${getSeverityClass(v.severity)}">${sanitize(v.severity || 'low')}</span></td>
-                    <td style="color: #cbd5e1;">${sanitize(v.file || v.module || 'Global')}</td>
-                    <td>${sanitize(v.message || 'Unknown violation')}</td>
-                </tr>
-            `).join('');
-        }
-
-        function updateTrendChart(runs) {
-            if (!runs || runs.length === 0) return;
-
-            // Sort runs chronologically
-            const sortedRuns = [...runs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-            const labels = sortedRuns.map(r => {
-                const d = new Date(r.timestamp);
-                return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
-            });
-            const data = sortedRuns.map(r => r.score || 0);
-
-            if (trendChartInstance) {
-                trendChartInstance.data.labels = labels;
-                trendChartInstance.data.datasets[0].data = data;
-                trendChartInstance.update();
-                return;
-            }
-
-            const ctx = document.getElementById('trendChart').getContext('2d');
-
-            // Create gradient
-            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.5)');
-            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-
-            trendChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'ArchDebt Score',
-                        data: data,
-                        borderColor: '#3b82f6',
-                        backgroundColor: gradient,
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointBackgroundColor: '#0f172a',
-                        pointBorderColor: '#3b82f6',
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            mode: 'index',
-                            intersect: false,
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            titleColor: '#f8fafc',
-                            bodyColor: '#cbd5e1',
-                            borderColor: 'rgba(255,255,255,0.1)',
-                            borderWidth: 1
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
-                        },
-                        x: {
-                            grid: { display: false },
-                            ticks: { maxTicksLimit: 8 }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updateModuleChart(modulesData) {
-            if (!modulesData) return;
-
-            const labels = Object.keys(modulesData);
-            const data = Object.values(modulesData);
-
-            // Sort by score descending
-            const combined = labels.map((l, i) => ({label: l, data: data[i]}));
-            combined.sort((a, b) => b.data - a.data);
-
-            const sortedLabels = combined.slice(0, 10).map(x => x.label);
-            const sortedData = combined.slice(0, 10).map(x => x.data);
-
-            if (moduleChartInstance) {
-                moduleChartInstance.data.labels = sortedLabels;
-                moduleChartInstance.data.datasets[0].data = sortedData;
-                moduleChartInstance.update();
-                return;
-            }
-
-            const ctx = document.getElementById('moduleChart').getContext('2d');
-            moduleChartInstance = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: sortedLabels,
-                    datasets: [{
-                        label: 'Module Score',
-                        data: sortedData,
-                        backgroundColor: 'rgba(139, 92, 246, 0.6)',
-                        borderColor: 'rgba(139, 92, 246, 1)',
-                        borderWidth: 1,
-                        borderRadius: 4
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
-                        },
-                        y: {
-                            grid: { display: false }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updateEvolutionTrends(evoData) {
-            function updateCard(type, trend) {
-                const valEl = document.getElementById(`trend-${type}-val`);
-                const statusEl = document.getElementById(`trend-${type}-status`);
-                
-                if (!trend || trend.current_value === null || trend.current_value === undefined) {
-                    valEl.textContent = 'N/A';
-                    statusEl.textContent = 'Insufficient data';
-                    statusEl.style.color = 'var(--text-secondary)';
-                    return;
-                }
-                
-                // Format value depending on type
-                if (type === 'violation') {
-                    valEl.textContent = Math.round(trend.current_value);
-                } else if (type === 'fitness') {
-                    valEl.textContent = `${(trend.current_value * 100).toFixed(1)}%`;
-                } else {
-                    valEl.textContent = trend.current_value.toFixed(2);
-                }
-
-                const cls = trend.classification; // 'improving', 'stable', 'declining'
-                let icon = '';
-                let color = 'var(--text-secondary)';
-                
-                if (cls === 'improving') {
-                    icon = '↑ Improving';
-                    color = 'var(--success-color)';
-                } else if (cls === 'declining') {
-                    icon = '↓ Declining';
-                    color = 'var(--danger-color)';
-                } else {
-                    icon = '→ Stable';
-                }
-                
-                statusEl.textContent = icon;
-                statusEl.style.color = color;
-            }
+        // Auto-validate URL when user finishes typing
+        let debounceTimer;
+        urlInput.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            repoPreview.classList.remove('show');
+            errorMsg.classList.remove('show');
             
-            updateCard('health', evoData.health_trend);
-            updateCard('debt', evoData.debt_trend);
-            updateCard('violation', evoData.violation_trend);
-            updateCard('fitness', evoData.fitness_trend);
-        }
-
-        async function scanDependencies() {
-            const btn = document.getElementById('scan-deps-btn');
-            const statusEl = document.getElementById('deps-status');
-            const scoreEl = document.getElementById('deps-score');
-            const tableContainer = document.getElementById('deps-table-container');
-            const tbody = document.querySelector('#depsTable tbody');
-            
-            btn.disabled = true;
-            btn.textContent = "Scanning...";
-            statusEl.textContent = "Running pip-audit... (this may take a while)";
-            
-            try {
-                const res = await fetch('/api/v1/deps');
-                const data = await res.json();
-                
-                if (data.skipped) {
-                    statusEl.textContent = `Skipped: ${data.skip_reason}`;
-                    scoreEl.textContent = '--';
-                    tableContainer.style.display = 'none';
-                } else {
-                    statusEl.textContent = `Scanned ${data.scanned_packages} packages. Found ${data.vulnerable_packages.length} vulnerabilities.`;
-                    scoreEl.textContent = data.score.toFixed(1);
-                    
-                    if (data.vulnerable_packages.length > 0) {
-                        tbody.innerHTML = data.vulnerable_packages.map(v => `
-                            <tr>
-                                <td style="font-weight: 600;">${sanitize(v.package)}</td>
-                                <td>${sanitize(v.version)}</td>
-                                <td><span class="badge badge-critical">${sanitize(v.id)}</span></td>
-                                <td style="font-size: 0.875rem; color: var(--text-secondary);">${sanitize(v.description)}</td>
-                            </tr>
-                        `).join('');
-                        tableContainer.style.display = 'block';
-                    } else {
-                        tableContainer.style.display = 'none';
-                        statusEl.textContent += " All dependencies are healthy! 🎉";
-                    }
-                }
-            } catch (err) {
-                console.error("Dependency scan failed:", err);
-                statusEl.textContent = "Error scanning dependencies.";
-            } finally {
-                btn.disabled = false;
-                btn.textContent = "Scan Dependencies";
-            }
-        }
-
-        function switchTab(name) {
-            document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
-            document.querySelectorAll('.tab-panel-main').forEach(p => p.classList.remove('active'));
-            
-            const targetTab = document.querySelector(`.tab[aria-controls="${name}"]`);
-            if (targetTab) {
-                targetTab.setAttribute('aria-selected', 'true');
-            }
-            const targetPanel = document.getElementById(name);
-            if (targetPanel) {
-                targetPanel.classList.add('active');
-            }
-            
-            history.pushState({}, '', `#${name}`);
-            
-            if (name === 'dependencies' && window._visNet) {
-                window._visNet.redraw();
-            }
-        }
-
-        window.addEventListener('load', () => {
-            const hash = window.location.hash.substring(1);
-            if (['overview', 'violations'].includes(hash)) {
-                switchTab(hash);
-            }
-        });
-        
-        window.addEventListener('hashchange', () => {
-            const hash = window.location.hash.substring(1);
-            if (['overview', 'violations'].includes(hash)) {
-                switchTab(hash);
-            } else if (!hash) {
-                switchTab('overview');
+            const url = urlInput.value.trim();
+            if (url && url.includes('github.com')) {
+                debounceTimer = setTimeout(() => validateUrl(url), 800);
             }
         });
 
-        // Initial 
-        async function startEvolutionAnalysis() {
-            const btn = document.getElementById('start-evolution-btn');
+        async function validateUrl(url) {
+            if (isJobRunning) return;
             
-            btn.disabled = true;
-            btn.textContent = "Analyzing...";
-            
-            try {
-                const res = await fetch('/api/evolution/analyze', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ max_commits: 10 })
-                });
-                const data = await res.json();
-                
-                if (data.error) {
-                    document.getElementById('trend_direction').textContent = data.error;
-                } else {
-                    _applyGitEvolutionData(data);
-                }
-            } catch (err) {
-                console.error("Evolution analysis failed:", err);
-                document.getElementById('trend_direction').textContent = "Request failed.";
-            } finally {
-                btn.disabled = false;
-                btn.textContent = "Analyze Git History";
-            }
-        }
-        
-        function _applyGitEvolutionData(data) {
-            const velEl = document.getElementById('debt_velocity');
-            const trendEl = document.getElementById('trend_direction');
-            const countEl = document.getElementById('evo-commits-count');
-            
-            if (data.debt_velocity !== undefined && data.debt_velocity !== null) {
-                velEl.textContent = (data.debt_velocity > 0 ? '+' : '') + data.debt_velocity.toFixed(4);
-                velEl.style.color = data.debt_velocity > 0 ? 'var(--danger-color)' : (data.debt_velocity < 0 ? 'var(--success-color)' : 'var(--text-primary)');
-            }
-            if (data.trend_direction) {
-                trendEl.textContent = data.trend_direction.toUpperCase();
-            }
-            if (data.commits_analyzed) {
-                countEl.textContent = data.commits_analyzed;
-            }
-            if (data.snapshots && data.snapshots.length > 0) {
-                updateEvolutionChart(data.snapshots);
-            }
-        }
-        
-        function updateEvolutionChart(snapshots) {
-            const labels = snapshots.map(s => {
-                const d = new Date(s.committed_at);
-                return `${d.getMonth()+1}/${d.getDate()} ${s.sha.substring(0, 7)}`;
-            });
-            const data = snapshots.map(s => s.health_score);
-            
-            if (evolutionChartInstance) {
-                evolutionChartInstance.data.labels = labels;
-                evolutionChartInstance.data.datasets[0].data = data;
-                evolutionChartInstance.update();
-                return;
-            }
-            
-            const ctx = document.getElementById('evolutionChart').getContext('2d');
-            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
-            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.5)');
-            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
-            
-            evolutionChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Commit Health Score',
-                        data: data,
-                        borderColor: '#10b981',
-                        backgroundColor: gradient,
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.1,
-                        pointBackgroundColor: '#0f172a',
-                        pointBorderColor: '#10b981',
-                        pointBorderWidth: 2,
-                        pointRadius: 4,
-                        pointHoverRadius: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: false, min: 0, max: 100, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
-                        x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }
-                    }
-                }
-            });
-        }
-
-        // Fetch initial data
-        fetchData();
-        setInterval(fetchData, 30000); // 30 seconds
-
-        // ─── Advisor Panel (Step 11/12 – Anthropic Streaming) ───
-        async function sendAdvisorQuestion() {
-            const input = document.getElementById('advisor-question-input');
-            const responseEl = document.getElementById('advisor-response');
-            const question = input.value.trim();
-            if (!question) return;
-
-            responseEl.textContent = '▌';  // blinking cursor placeholder
-            input.value = '';
-            input.disabled = true;
-
-            let contextStr = "No context data available.";
-            if (window.latestRun) {
-                const run = window.latestRun;
-                const violationsCount = run.violations ? run.violations.length : 0;
-                contextStr = `Current Health Score: ${run.score || 0}\nGrade: ${run.band || 'UNKNOWN'}\nActive Violations: ${violationsCount}`;
-            }
+            isValidating = true;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Validating...';
+            errorMsg.classList.remove('show');
 
             try {
-                const res = await fetch('/api/v1/advisor/ask', {
+                const res = await fetch('/api/jobs/validate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question, context: contextStr })
+                    body: JSON.stringify({ github_url: url })
                 });
 
                 if (!res.ok) {
-                    responseEl.textContent = `Error ${res.status}: ${res.statusText}`;
-                    return;
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Validation failed');
                 }
 
-                // Consume the SSE stream chunk-by-chunk
-                const reader = res.body.getReader();
-                const decoder = new TextDecoder();
-                let accumulated = '';
-
-                responseEl.textContent = '';
-
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-
-                    const raw = decoder.decode(value, { stream: true });
-                    // Each SSE event is "data: <text>\n\n"
-                    const lines = raw.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const chunk = line.slice(6);  // strip "data: "
-                            accumulated += chunk;
-                            responseEl.textContent = accumulated + '▌';
-                        }
-                    }
-                }
-
-                // Remove trailing cursor
-                responseEl.textContent = accumulated || 'No response received.';
-
+                const data = await res.json();
+                document.getElementById('preview-name').textContent = data.full_name;
+                document.getElementById('preview-lang').textContent = data.language || 'Unknown';
+                document.getElementById('preview-stars').textContent = data.stars;
+                
+                repoPreview.classList.add('show');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Start Analysis';
             } catch (err) {
-                console.error('Advisor streaming error:', err);
-                responseEl.textContent = 'Error communicating with AI Advisor.';
+                errorMsg.textContent = err.message;
+                errorMsg.classList.add('show');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Analyze Repository';
             } finally {
-                input.disabled = false;
-                input.focus();
+                isValidating = false;
             }
         }
 
-        // ─── Remediation Panel (Step 17) ───
+        function appendLog(msg, type = '') {
+            const line = document.createElement('div');
+            line.className = `terminal-line ${type}`;
+            const timestamp = new Date().toISOString().split('T')[1].substring(0, 8);
+            line.textContent = `[${timestamp}] ${msg}`;
+            termOutput.appendChild(line);
+            termOutput.scrollTop = termOutput.scrollHeight;
+        }
 
-        async function generateRemediationPlan() {
-            const btn = document.getElementById('remediation-btn');
-            const resultsEl = document.getElementById('remediation-results');
+        async function handleSubmit() {
+            const url = urlInput.value.trim();
+            if (!url || isJobRunning || isValidating) return;
 
-            btn.disabled = true;
-            btn.textContent = 'Generating...';
-            resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation plan...</div>';
+            isJobRunning = true;
+            urlInput.disabled = true;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = 'Analyzing<span class="loading-dots"></span>';
+            
+            // Show terminal
+            container.classList.add('expanded');
+            terminal.classList.add('show');
+            termOutput.innerHTML = '';
+            appendLog('Initializing ArchGuard pipeline...', 'system');
+            appendLog(`Target repository: ${url}`, 'system');
 
             try {
-                const res = await fetch('/api/remediation/plan');
-                const data = await res.json();
-                const tasks = data.tasks || [];
+                // Submit job
+                const res = await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ github_url: url })
+                });
 
-                if (tasks.length === 0) {
-                    resultsEl.innerHTML = '<div style="color: var(--success-color);">No remediation tasks needed. Architecture is healthy! 🎉</div>';
-                } else {
-                    resultsEl.innerHTML = tasks.map((t, i) => {
-                        const badgeClass = 'badge-' + (t.priority || 'medium');
-                        const criteria = (t.acceptance_criteria || []).map(c => `<li>${sanitize(c)}</li>`).join('');
-                        return `
-                            <div style="background: rgba(30,41,59,0.4); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; border-left: 4px solid ${t.priority === 'critical' ? 'var(--danger-color)' : t.priority === 'high' ? 'var(--warn-color)' : 'var(--accent-color)'};">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                                    <span style="font-weight: 600; color: var(--text-primary);">${sanitize(t.title)}</span>
-                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                        <span class="badge ${badgeClass}">${sanitize(t.priority)}</span>
-                                        <span style="font-size: 0.75rem; color: var(--text-secondary);">${t.effort_days || '?'}d</span>
-                                    </div>
-                                </div>
-                                <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">${sanitize(t.description)}</div>
-                                ${criteria ? `<ul style="margin: 0.25rem 0 0 1rem; padding: 0; font-size: 0.8rem; color: var(--text-secondary);">${criteria}</ul>` : ''}
-                            </div>
-                        `;
-                    }).join('');
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Failed to submit job');
                 }
+
+                const data = await res.json();
+                const jobId = data.job_id;
+                appendLog(`Job queued. ID: ${jobId}`, 'system');
+                appendLog('Establishing secure stream connection...', 'system');
+
+                // Connect to SSE stream
+                const evtSource = new EventSource(`/api/jobs/${jobId}/stream`);
+                
+                evtSource.onmessage = function(event) {
+                    const payload = JSON.parse(event.data);
+                    
+                    if (payload.type === 'progress') {
+                        appendLog(payload.message);
+                    } 
+                    else if (payload.type === 'error') {
+                        appendLog(`ERROR: ${payload.error}`, 'error');
+                        submitBtn.textContent = 'Analysis Failed';
+                        evtSource.close();
+                    }
+                    else if (payload.type === 'done') {
+                        appendLog('Pipeline finished. Generating dashboard...', 'system');
+                        evtSource.close();
+                        setTimeout(() => {
+                            window.location.href = 'dashboard.html';
+                        }, 1500);
+                    }
+                };
+
+                evtSource.onerror = function(err) {
+                    appendLog('Stream connection lost. Reconnecting...', 'error');
+                };
+
             } catch (err) {
-                console.error('Remediation error:', err);
-                resultsEl.innerHTML = '<div style="color: var(--danger-color);">Error generating remediation plan.</div>';
-            } finally {
-                btn.disabled = false;
-                btn.textContent = 'Generate Plan';
+                appendLog(`Failed to start analysis: ${err.message}`, 'error');
+                submitBtn.textContent = 'Submission Error';
+                urlInput.disabled = false;
+                isJobRunning = false;
             }
         }
     </script>

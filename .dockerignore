@@ -1,11 +1,46 @@
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
+
+# Git history (not needed in image — source is copied directly)
 .git/
+
+# Tests and docs (not needed at runtime)
 tests/
 docs/
+
+# Markdown files
 *.md
+
+# ArchGuard runtime cache (rebuilt in container)
 .archguard-cache/
-patch.py
-patch_paths.py
+.archguard-checkpoints/
+
+# Environment files — NEVER include secrets in image
+.env
+.env.local
+.env.*.local
+
+# Development artifacts
+.venv/
+.venv-test/
+*.egg-info/
+dist/
+build/
+.benchmarks/
+
+# IDE
+.vscode/
+.idea/
+
+# CI artifacts
+coverage.xml
+.coverage
+audit-results.json
+
+# Dev scripts
+patch*.py
 search_*.py
+fix_*.py
+scripts/adhoc/

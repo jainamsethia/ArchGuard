@@ -6,6 +6,29 @@
 
 **[📺 Live Demo](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
 
+## Deploy
+
+### One-click deploy to Railway
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/archguard)
+
+**Required environment variables to set in Railway dashboard:**
+- `ANTHROPIC_API_KEY` — for L4 LLM explanations (optional but recommended)
+- `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
+- `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
+- `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
+
+### Deploy to Render
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-org/archguard)
+
+Set the same environment variables in the Render dashboard under **Environment**.
+
+### Run locally with Docker Compose
+```bash
+cp .env.example .env
+# Edit .env to add your API keys
+docker compose up
+# Open http://localhost:8000
+```
 ## Architecture
 
 ![Architecture](docs/architecture.png)

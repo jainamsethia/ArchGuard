@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: archguard:local
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # These can be overridden per-environment without touching .env
+      - ENVIRONMENT=development
+      - ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1
+    volumes:
+      # Persistent storage for audit log and cache between runs
+      - archguard-cache:/home/archguard/.archguard-cache
+      # Writable temp space for git clone workspaces
+      - /tmp:/tmp
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+      restart: unless-stopped
+
+volumes:
+  archguard-cache:
+    driver: local

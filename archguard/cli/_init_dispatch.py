@@ -255,7 +255,7 @@ def _run_init_cli(
         )
 
         vprint("", ctx)
-        vprint("[bold green]✓ ArchGuard initialization complete![/bold green]", ctx)
+        vprint("[bold green]ArchGuard initialization complete![/bold green]", ctx)
 
     except typer.Exit:
         raise

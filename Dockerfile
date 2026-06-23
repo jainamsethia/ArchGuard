@@ -43,4 +43,8 @@ ENV PYTHONUNBUFFERED=1
 # THIS IS THE LINE THAT WAS COMMENTED OUT - now uncommented
 USER archguard
 
-ENTRYPOINT ["python", "-m", "archguard"]
+# The default command starts the web dashboard.
+# To run the CLI instead: docker run archguard archguard analyze --help
+# To start the dashboard explicitly: docker run -p 8000:8000 archguard
+ENTRYPOINT []
+CMD ["uvicorn", "archguard.dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]

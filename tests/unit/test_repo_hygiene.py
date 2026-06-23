@@ -18,6 +18,9 @@ _ALLOWED_ROOT_FILES = {
     "poetry.toml",
     "coverage.xml",
     ".env.example",
+    "docker-compose.yml",
+    "railway.toml",
+    "render.yaml",
 }
 
 

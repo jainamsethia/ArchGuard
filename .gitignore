@@ -36,6 +36,11 @@ dist/
 .vscode/
 .idea/
 
+# Environment files — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+
 # OS files
 .DS_Store
 Thumbs.db

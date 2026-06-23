@@ -100,32 +100,31 @@ def _phase2_commits(repo_root: Path) -> dict[str, Any]:
     from pydriller import Repository  # lazy import
     import networkx as nx  # lazy import
 
+    graph = nx.Graph()
+
     try:
         repo = Repository(str(repo_root))
         commits = list(repo.traverse_commits())
+        
+        if len(commits) > 1000:
+            commits = commits[-500:]
+
+        for commit in commits:
+            py_files = [
+                m.filename
+                for m in commit.modified_files
+                if m.filename and m.filename.endswith(".py")
+            ]
+            for i, f1 in enumerate(py_files):
+                for f2 in py_files[i + 1 :]:
+                    if graph.has_edge(f1, f2):
+                        graph[f1][f2]["weight"] += 1
+                    else:
+                        graph.add_edge(f1, f2, weight=1)
     except Exception as e:
         import logging
-
         logging.getLogger(__name__).warning(f"Git history extraction failed: {e}")
         commits = []
-
-    if len(commits) > 1000:
-        commits = commits[-500:]
-
-    graph = nx.Graph()
-
-    for commit in commits:
-        py_files = [
-            m.filename
-            for m in commit.modified_files
-            if m.filename and m.filename.endswith(".py")
-        ]
-        for i, f1 in enumerate(py_files):
-            for f2 in py_files[i + 1 :]:
-                if graph.has_edge(f1, f2):
-                    graph[f1][f2]["weight"] += 1
-                else:
-                    graph.add_edge(f1, f2, weight=1)
 
     return {
         "commit_count": len(commits),
@@ -151,7 +150,7 @@ def _phase3_communities(
 
     if commit_count < min_history:
         _console.print(
-            f"\n[yellow]⚠ Insufficient commit history ({commit_count} < {min_history}). "
+            f"\n[yellow]! Insufficient commit history ({commit_count} < {min_history}). "
             "Falling back to directory-structure-based module detection.[/yellow]"
         )
         communities = _fallback_directory_modules(repo_root)
@@ -161,7 +160,7 @@ def _phase3_communities(
         # Fallback: if no communities detected, create a single module
         if not communities or len(communities) < 2:
             _console.print(
-                "\n[yellow]⚠ Insufficient community diversity detected in co-change graph. "
+                "\n[yellow]! Insufficient community diversity detected in co-change graph. "
                 "Falling back to directory-structure-based module detection.[/yellow]"
             )
             communities = _fallback_directory_modules(repo_root)
