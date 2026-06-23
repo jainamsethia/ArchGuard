@@ -24,13 +24,17 @@ CLONE_TIMEOUT_SECONDS: int = int(os.environ.get("ARCHGUARD_CLONE_TIMEOUT", "120"
 
 
 @asynccontextmanager
-async def temp_workspace(clone_url: str, branch: str = "HEAD") -> AsyncIterator[Path]:
+async def temp_workspace(
+    clone_url: str, branch: str = "HEAD", job_id: str | None = None, keep_alive: bool = False
+) -> AsyncIterator[Path]:
     """Clone a repo shallowly; yield the repo root Path; clean up on exit.
 
     Args:
         clone_url:  HTTPS clone URL, e.g.
                     'https://github.com/pallets/flask.git'
         branch:     branch/tag to clone (default: 'HEAD' = default branch)
+        job_id:     optional job identifier for predictable dir name
+        keep_alive: if True, do not delete the workspace in finally block
 
     Raises:
         TimeoutError:   clone exceeded ARCHGUARD_CLONE_TIMEOUT seconds
@@ -41,15 +45,23 @@ async def temp_workspace(clone_url: str, branch: str = "HEAD") -> AsyncIterator[
         async with temp_workspace(clone_url) as repo_path:
             # repo_path is a Path pointing to the cloned repository root
     """
-    workspace_dir = Path(tempfile.mkdtemp(prefix="archguard-"))
+    if job_id:
+        workspace_dir = Path(tempfile.gettempdir()) / f"archguard-{job_id}"
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        workspace_dir = Path(tempfile.mkdtemp(prefix="archguard-"))
+    
     repo_path = workspace_dir / "repo"
     try:
         logger.info("Cloning %s (branch=%s) into %s", clone_url, branch, repo_path)
         await _clone_repo(clone_url, repo_path, branch)
         yield repo_path
     finally:
-        shutil.rmtree(workspace_dir, ignore_errors=True)
-        logger.info("Cleaned up workspace %s", workspace_dir)
+        if not keep_alive:
+            shutil.rmtree(workspace_dir, ignore_errors=True)
+            logger.info("Cleaned up workspace %s", workspace_dir)
+        else:
+            logger.info("Workspace %s kept alive for analysis context", workspace_dir)
 
 
 async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:

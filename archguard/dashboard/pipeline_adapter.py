@@ -221,6 +221,45 @@ def _run_analysis_sync(
             fail_fast=False,
             quiet=True,
         )
+
+    # ── Log the result for the dashboard context ──
+    try:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import AUDIT_EVENT_ANALYSIS
+        
+        audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
+        band_val = str(result.archdebt.band.name).upper()
+        audit_band = (
+            "PASS"
+            if band_val in ("HEALTHY", "WATCH")
+            else ("WARN" if band_val == "WARN" else "FAIL")
+        )
+        
+        v_list_out = []
+        for v in result.violations:
+            v_list_out.append(
+                {
+                    "type": "layer",
+                    "layer": getattr(v, "layer", 0),
+                    "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
+                    "message": getattr(v, "message", ""),
+                    "severity": str(getattr(v, "severity", "low")),
+                    "suppressed": getattr(v, "suppressed", False),
+                    "explanation": getattr(v, "explanation", ""),
+                }
+            )
+            
+        audit.log(
+            AUDIT_EVENT_ANALYSIS,
+            score=result.archdebt.health_score,
+            band=audit_band,
+            pr_number=None,
+            violations=v_list_out,
+            metrics=result.metrics,
+        )
+    except Exception as exc:
+        logger.warning("Failed to write audit log in pipeline adapter: %s", exc)
+
     return result
 
 def _extract_layer_results(result: Any) -> list[LayerResult]:

@@ -34,11 +34,12 @@ async def remediation_plan(body: RemediationRequest) -> Any:
 )
 async def remediation_plan_from_audit(
     limit: int = Query(default=1, ge=1, le=10),
+    job_id: str | None = None
 ) -> Any:
     """Generate a remediation plan from the latest audit run violations."""
     from archguard.llm.remediation import generate_remediation_plan
 
-    audit = AuditLogger(get_audit_path())
+    audit = AuditLogger(get_audit_path(job_id))
     latest = audit.read_last_run() or {}
     violations = latest.get("violations", [])
 

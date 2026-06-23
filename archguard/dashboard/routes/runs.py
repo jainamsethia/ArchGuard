@@ -9,9 +9,9 @@ from archguard.audit.logger import AuditLogger
 
 @app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
 def get_runs(
-    limit: int = Query(default=50, ge=1, le=500), module: str | None = None
+    limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: str | None = None
 ) -> Any:
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
     if module:
         runs = [r for r in runs if module in r.get("modules_analyzed", [])]
@@ -19,15 +19,15 @@ def get_runs(
 
 
 @app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_latest_run() -> Any:
-    logger = AuditLogger(get_audit_path())
+def get_latest_run(job_id: str | None = None) -> Any:
+    logger = AuditLogger(get_audit_path(job_id))
     return logger.read_last_run() or {}
 
 
 @app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_modules() -> Any:
+def get_modules(job_id: str | None = None) -> Any:
     """Return all known modules and their latest scores."""
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=100)
     modules = {}
     for run in runs:
@@ -44,8 +44,9 @@ def get_module_trends(
         ..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_\-\.]+$"
     ),
     limit: int = Query(default=30, ge=1, le=500),
+    job_id: str | None = None
 ) -> Any:
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
     trend = [
         {"timestamp": r["timestamp"], "score": r.get("module_scores", {}).get(module)}
@@ -56,12 +57,13 @@ def get_module_trends(
 
 
 @app.get("/api/v1/deps", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_deps() -> Any:
+def get_deps(job_id: str | None = None) -> Any:
     """Run dependency analysis and return the result."""
     from archguard.analysis.deps import analyze_dependencies
+    from archguard.dashboard._state import get_target_path
 
     try:
-        result = analyze_dependencies(Path.cwd())
+        result = analyze_dependencies(get_target_path(job_id))
 
         return {
             "score": result.score,

@@ -81,12 +81,13 @@ class EvolutionAnalyzeRequest(BaseModel):
 @app.post(
     "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
-def start_evolution(body: EvolutionAnalyzeRequest) -> Any:
+def start_evolution(body: EvolutionAnalyzeRequest, job_id: str | None = None) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
+    from archguard.dashboard._state import get_target_path
 
     try:
-        tracker = ArchitectureEvolutionTracker(Path.cwd())
+        tracker = ArchitectureEvolutionTracker(get_target_path(job_id))
         report = tracker.analyze_history(max_commits=body.max_commits)
 
         result = {
@@ -119,7 +120,7 @@ def start_evolution(body: EvolutionAnalyzeRequest) -> Any:
 @app.get(
     "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
-def get_latest_evolution() -> Any:
+def get_latest_evolution(job_id: str | None = None) -> Any:
     """Get the latest completed architecture evolution report."""
     with _EVO_LOCK:
         if "latest" in _EVO_CACHE:

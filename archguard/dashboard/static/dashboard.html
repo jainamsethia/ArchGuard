@@ -296,9 +296,9 @@
             <div>
                 <h1>ArchGuard Dashboard</h1>
                 <div class="chips-container">
-                    <span class="chip chip-pass">Fitness</span>
-                    <span class="chip chip-pass">AI Advisor</span>
-                    <span class="chip chip-pass">Evolution</span>
+                    <span class="chip chip-pass" style="cursor: pointer;" onclick="document.getElementById('fitness-container').scrollIntoView({behavior: 'smooth'})">Fitness</span>
+                    <span class="chip chip-pass" style="cursor: pointer;" onclick="document.getElementById('advisor-panel').scrollIntoView({behavior: 'smooth'})">AI Advisor</span>
+                    <span class="chip chip-pass" style="cursor: pointer;" onclick="document.getElementById('evolution-trends-grid').scrollIntoView({behavior: 'smooth'})">Evolution</span>
                 </div>
             </div>
             <div class="refresh-status">
@@ -479,15 +479,20 @@
         Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
         Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('job_id');
+        const jobQuery = jobId ? `?job_id=${jobId}` : '';
+        const jobQueryAmp = jobId ? `&job_id=${jobId}` : '';
+
         async function fetchData() {
             document.getElementById('refresh-loader').style.display = 'inline-block';
             try {
                 const [runsRes, latestRes, modulesRes, evolutionRes, gitEvoRes] = await Promise.all([
-                    fetch('/api/runs?limit=30'),
-                    fetch('/api/runs/latest'),
-                    fetch('/api/modules'),
-                    fetch('/api/evolution/trends'),
-                    fetch('/api/evolution/latest')
+                    fetch(`/api/runs?limit=30${jobQueryAmp}`),
+                    fetch(`/api/runs/latest${jobQuery}`),
+                    fetch(`/api/modules${jobQuery}`),
+                    fetch(`/api/evolution/trends${jobQuery}`),
+                    fetch(`/api/evolution/latest${jobQuery}`)
                 ]);
 
                 const runsData = await runsRes.json();
@@ -800,7 +805,7 @@
             statusEl.textContent = "Running pip-audit... (this may take a while)";
             
             try {
-                const res = await fetch('/api/v1/deps');
+                const res = await fetch(`/api/v1/deps${jobQuery}`);
                 const data = await res.json();
                 
                 if (data.skipped) {
@@ -848,7 +853,7 @@
                 targetPanel.classList.add('active');
             }
             
-            history.pushState({}, '', `#${name}`);
+            history.pushState({}, '', window.location.search + `#${name}`);
             
             if (name === 'dependencies' && window._visNet) {
                 window._visNet.redraw();
@@ -879,7 +884,7 @@
             btn.textContent = "Analyzing...";
             
             try {
-                const res = await fetch('/api/evolution/analyze', {
+                const res = await fetch(`/api/evolution/analyze${jobQuery}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ max_commits: 10 })
@@ -993,7 +998,7 @@
             }
 
             try {
-                const res = await fetch('/api/v1/advisor/ask', {
+                const res = await fetch(`/api/v1/advisor/ask${jobQuery}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ question, context: contextStr })
@@ -1050,7 +1055,7 @@
             resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation plan...</div>';
 
             try {
-                const res = await fetch('/api/remediation/plan');
+                const res = await fetch(`/api/remediation/plan${jobQuery}`);
                 const data = await res.json();
                 const tasks = data.tasks || [];
 

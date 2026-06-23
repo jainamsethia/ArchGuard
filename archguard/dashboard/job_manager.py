@@ -91,7 +91,7 @@ class JobManager:
                 if not clone_url.endswith(".git"):
                     clone_url += ".git"
 
-                async with temp_workspace(clone_url) as repo_path:
+                async with temp_workspace(clone_url, job_id=job.id, keep_alive=True) as repo_path:
                     # ── Analysis phase ─────────────────────────────────
                     job.status = JobStatus.ANALYSING
                     await send_progress("Repository cloned. Starting analysis…")
@@ -107,7 +107,7 @@ class JobManager:
                     # ── Merge temporary run into global dashboard ──────
                     from archguard.dashboard._state import get_audit_path
                     import json
-                    source_runs = repo_path / ".archguard" / "runs.json"
+                    source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
                     if source_runs.exists():
                         global_runs = get_audit_path()
                         global_runs.parent.mkdir(parents=True, exist_ok=True)

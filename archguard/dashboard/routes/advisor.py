@@ -82,11 +82,11 @@ class AdvisorAskRequest(BaseModel):
     "/api/advisor/session",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
 )
-def create_advisor_session(limit: int = Query(default=20, ge=1, le=500)) -> Any:
+def create_advisor_session(limit: int = Query(default=20, ge=1, le=500), job_id: str | None = None) -> Any:
     """Create a new advisor session by running analysis on recent audit data."""
     _purge_expired_sessions()
 
-    audit = AuditLogger(get_audit_path())
+    audit = AuditLogger(get_audit_path(job_id))
     runs = audit.read_last_n_runs(n=limit)
 
     advisor = _build_advisor()

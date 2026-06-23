@@ -230,8 +230,17 @@ def check_token(
                 )
 
 
-def get_audit_path() -> Path:
-    return Path.cwd() / AUDIT_LOG_FILENAME
+def get_target_path(job_id: str | None = None) -> Path:
+    if job_id:
+        import tempfile
+        path = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
+        if path.exists():
+            return path
+    return Path.cwd()
+
+
+def get_audit_path(job_id: str | None = None) -> Path:
+    return get_target_path(job_id) / AUDIT_LOG_FILENAME
 
 
 # ─────────────────────────────────────────────────────────────────────────────

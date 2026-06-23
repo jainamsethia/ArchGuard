@@ -414,7 +414,7 @@
                         appendLog('Pipeline finished. Generating dashboard...', 'system');
                         evtSource.close();
                         setTimeout(() => {
-                            window.location.href = 'dashboard.html';
+                            window.location.href = `dashboard.html?job_id=${jobId}`;
                         }, 1500);
                     }
                 };
