@@ -2,15 +2,15 @@ from pathlib import Path
 
 
 def test_evolution_dashboard_ui_elements():
-    """Verify that index.html contains the necessary HTML elements for the Evolution Dashboard."""
+    """Verify that dashboard.html contains the necessary HTML elements for the Evolution Dashboard."""
     index_path = (
         Path(__file__).parent.parent.parent
         / "archguard"
         / "dashboard"
         / "static"
-        / "index.html"
+        / "dashboard.html"
     )
-    assert index_path.exists(), "index.html not found"
+    assert index_path.exists(), "dashboard.html not found"
 
     content = index_path.read_text(encoding="utf-8")
 
@@ -32,13 +32,13 @@ def test_evolution_dashboard_ui_elements():
 
 
 def test_evolution_dashboard_js_functions():
-    """Verify that index.html contains the necessary JS to fetch and render Evolution data."""
+    """Verify that dashboard.html contains the necessary JS to fetch and render Evolution data."""
     index_path = (
         Path(__file__).parent.parent.parent
         / "archguard"
         / "dashboard"
         / "static"
-        / "index.html"
+        / "dashboard.html"
     )
     content = index_path.read_text(encoding="utf-8")
 

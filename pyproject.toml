@@ -74,6 +74,10 @@ module = [
     "sentence_transformers.*",
     "community.*",
     "pydriller.*",
+    "jsonschema.*",
+    "networkx.*",
+    "boto3.*",
+    "scipy.*",
 ]
 ignore_missing_imports = true
 

@@ -2,14 +2,16 @@ import pytest
 import httpx
 import asyncio
 import time
+from fastapi.testclient import TestClient
+from archguard.dashboard.app import app
 
 @pytest.mark.integration
 def test_validate_real_flask_repo():
     """Live call to GitHub API — requires network access."""
-    resp = httpx.post(
-        "http://localhost:8000/api/jobs/validate",
+    client = TestClient(app)
+    resp = client.post(
+        "/api/jobs/validate",
         json={"github_url": "https://github.com/pallets/flask"},
-        timeout=15.0,
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -20,7 +22,8 @@ def test_validate_real_flask_repo():
 @pytest.mark.asyncio
 async def test_submit_job_and_poll_to_complete():
     """Submit a job and poll until COMPLETE or FAILED (max 5 minutes)."""
-    async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         submit = await client.post(
             "/api/jobs",
             json={"github_url": "https://github.com/psf/requests"},
@@ -38,3 +41,4 @@ async def test_submit_job_and_poll_to_complete():
             await asyncio.sleep(5)
             
         assert status in ("complete", "failed"), f"Job did not finish: {status}"
+
