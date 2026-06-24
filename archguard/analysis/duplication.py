@@ -149,6 +149,11 @@ class DuplicationAnalyzer:
 
             if index is None:
                 dim = batch_vecs.shape[1]
+                if faiss is None:
+                    raise RuntimeError(
+                        "faiss-cpu is required for duplication analysis. "
+                        "Install with: pip install archguard[ml]"
+                    )
                 index = faiss.IndexFlatL2(dim)
 
             index.add(batch_vecs)

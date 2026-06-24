@@ -1,68 +1,28 @@
 # Changelog
 
-All notable changes to archguard are documented here.
-
-## [0.3.0] - 2026-06-10
-
-### Added
-- Architecture Fitness Functions
-- AI Architecture Advisor
-- Architecture Evolution Tracking
-- AI Remediation Plans
-- PR Risk Analysis
-- Dependency Health Score
-- fitness CLI support
-- history CLI enhancements
-
-## [0.2.0] - 2026-06-03
+## [0.4.0] — Unreleased
 ### Fixed
-- C-7: Unified audit event name — restores trends, history, incremental mode
-- C-1: compute_archdebt no longer requires ML deps
-- C-8: Profile threshold logic corrected
-- C-9: _phase4_embeddings NameError fixed
-- C-5: .archguard.yml schema fixed
-- C-6: Class-body imports moved to module level
-- C-4: Hardcoded model string replaced with constant
-- C-2: Docker container now runs as non-root
+- CRITICAL: `cachetools` moved to main dependencies (was in optional extras, causing ModuleNotFoundError)
+- CRITICAL: Dashboard now shows analysis results after GitHub URL submission (audit log was not written from web path)
+- HIGH: Evolution UI tests now inspect `dashboard.html` instead of `index.html` (post-Phase 3 redesign)
+- HIGH: GitHub rate limit (HTTP 429) no longer incorrectly returned as HTTP 404
+- HIGH: SSE done event now passes `?job_id=` to dashboard redirect
+- MEDIUM: SSE onerror handler no longer reconnects indefinitely on job failure
+- MEDIUM: Dashboard no longer blanks entirely when a single API endpoint fails
+- MEDIUM: `faiss.IndexFlatL2` now guarded against `faiss is None` (no AttributeError when faiss-cpu not installed)
+- LOW: Duplicate `chart.js` asset removed (208 KB savings)
+- LOW: CLI `--port` default aligned to 8000 (was 8080, now matches docker compose)
+- LOW: Google Fonts CDN replaced with bundled Inter font (offline support)
+- LOW: `asyncio.Semaphore` now created lazily in running event loop
+- LOW: 4 stale `# type: ignore` comments removed (mypy CI now passes)
 
-### Added
-- Database migration system
-- Path traversal validation
-- End-to-end CI self-test
-- Inline GitHub code annotations (Checks API)
-
-### Performance
-- SentenceTransformer model cached per instance (5–10× Layer 3 speedup)
-- Streaming embedding batches (prevents OOM on large repos)
-- Layer 1+2 run concurrently
-
-## [Unreleased]
-
-### Changed
-- **Packaging fix**: `poetry install --with ml/cloud/dashboard` (group syntax) is replaced by `poetry install --extras ml/cloud/dashboard` for local dev. The `ml`, `cloud`, and `dashboard` dependencies have been moved from group dependencies to optional core dependencies.
-
-### Fixed
-- Unified audit event name to restore trends and history functionality.
-  **Migration Note**: Existing `.archguard-cache/audit.jsonl` files containing `analysis_complete` events will not be read by the new constant. Old cache data is lost.
-
-## [0.1.0] - 2026-05-27
-
-### Added
-- Core CLI skeleton: archguard init, analyze, suppress, contract, status
-- Layer 1: Import boundary violation detection (tree-sitter-python)
-- Layer 2: Coupling delta analysis with configurable budget
-- Layer 3: Semantic drift detection via MiniLM-L6-v2 + FAISS
-- Layer 3: Duplication detection via cosine similarity indexing
-- Layer 4: LLM explanation via Anthropic Claude (primary) + ollama (fallback)
-- archguard init: 5-phase onboarding with PyDriller + Louvain community detection
-- archguard analyze: full pipeline with GitHub PR comment posting
-- archguard suppress: violation suppression store with audit trail
-- archguard contract: re-inference proposal system
-- archguard status: contract health display
-- JSON Schema v3.0 contract validation
-- SQLite WAL embedding cache with staleness detection
-- Secret redaction pre-filter for LLM inputs
-- Audit logger (JSONL, 10MB rotation)
-- GitHub Action wrapper (action.yml + entrypoint.sh)
-- pytest-benchmark suite with latency threshold enforcement
-- Docker multi-stage image (non-root, python:3.11-slim)
+### Improved
+- Empty state added to `dashboard.html` for first-time users (with CTA)
+- Inline health score card rendered in `index.html` before dashboard redirect
+- `vis-network.min.js` (644 KB) now lazy-loaded on Dependency Graph tab open
+- SSE poll interval reduced from 500ms to 200ms for snappier progress updates
+- 18 bare `except Exception` clauses reduced to ≤5 with specific exception types
+- `_state.py` refactored into focused modules (_auth, _rate_limit, _sessions)
+- Test coverage increased from 71.69% to ≥73%
+- CORS `allow_headers=["*"]` tightened to explicit allowlist
+- Smoke test script added (`scripts/smoke_test.sh`)

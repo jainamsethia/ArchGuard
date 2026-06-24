@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
@@ -35,6 +35,7 @@ class AnalysisJob:
     error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
+    _cached_result_dict: dict | None = field(default=None, repr=False)  # type: ignore[type-arg]
 
 class JobManager:
     """Thread-safe in-memory job store with asyncio background execution.
@@ -45,7 +46,13 @@ class JobManager:
     """
     def __init__(self) -> None:
         self._jobs: dict[str, AnalysisJob] = {}
-        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
+        self._semaphore: asyncio.Semaphore | None = None
+
+    @property
+    def semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
+        return self._semaphore
 
     def create_job(self, github_url: str) -> AnalysisJob:
         """Create and store a new QUEUED job. Evicts oldest jobs beyond MAX_STORED_JOBS."""
@@ -80,7 +87,7 @@ class JobManager:
             job.progress_messages.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
             logger.debug("[job %s] %s", job.id, msg)
 
-        async with self._semaphore:
+        async with self.semaphore:
             try:
                 # ── Clone phase ────────────────────────────────────────
                 job.status = JobStatus.CLONING
@@ -105,7 +112,7 @@ class JobManager:
                     )
 
                     # ── Merge temporary run into global dashboard ──────
-                    from archguard.dashboard._state import get_audit_path
+                    from archguard.dashboard.app import get_audit_path
                     import json
                     source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
                     if source_runs.exists():
@@ -126,6 +133,7 @@ class JobManager:
                     job.result = result
                     job.status = JobStatus.COMPLETE
                     job.completed_at = datetime.now(timezone.utc)
+                    job._cached_result_dict = asdict(job.result)
                     await send_progress(
                         f"Done. Health: {result.health_score:.1f}/100 "
                         f"({result.health_grade}) · "

@@ -82,14 +82,24 @@ class AuditLogger:
 
             with self._log_path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, default=str) + "\n")
-        except Exception as e:  # noqa: BLE001 — intentionally broad
-            from archguard.utils.errors import ConfigError
+        except Exception as exc:
+            # In non-strict mode, log the error but continue
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Audit log operation failed (non-fatal): %s", exc
+            )
+            if os.getenv("ARCHGUARD_AUDIT_STRICT"):
+                raise
 
-            if isinstance(e, ConfigError):
-                raise e
-            import logging
-
-            logging.getLogger(__name__).warning(f"Non-critical failure in log: {e}")
+    def log_run(self, repo_url: str, job_id: str, **kwargs: Any) -> None:
+        """Helper to log an analysis run for the dashboard."""
+        from archguard.config import AUDIT_EVENT_ANALYSIS
+        self.log(
+            event=AUDIT_EVENT_ANALYSIS,
+            repo_url=repo_url,
+            job_id=job_id,
+            **kwargs
+        )
 
     def _maybe_rotate(self, log_path: Path) -> None:
         """Rotate log file by truncating to the last MAX_ENTRIES lines."""

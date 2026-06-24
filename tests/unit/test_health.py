@@ -22,7 +22,7 @@ def test_health_has_required_fields(client):
 def test_global_exception_handler():
     """Unhandled exception → 500 JSON instead of HTML traceback."""
     from fastapi import Request
-    from archguard.dashboard._state import _global_exception_handler
+    from archguard.dashboard.app import _global_exception_handler
     import asyncio
     
     scope = {

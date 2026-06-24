@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
 
 from archguard.dashboard.app import app
-from archguard.dashboard._state import SESSION_STORE
+from archguard.dashboard._sessions import SESSION_STORE
 from archguard.llm.advisor import Recommendation
 
 client = TestClient(app)
@@ -71,7 +71,7 @@ def _mock_provider(recs: list[Recommendation]):
 def test_create_session_empty_history(mock_empty_audit, monkeypatch):
     """Session creation with no audit data returns empty recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -91,7 +91,7 @@ def test_create_session_empty_history(mock_empty_audit, monkeypatch):
 def test_create_session_with_recommendations(mock_audit_with_runs, monkeypatch):
     """Session creation returns prioritised recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -120,7 +120,7 @@ def test_create_session_with_recommendations(mock_audit_with_runs, monkeypatch):
 def test_create_session_history_seeded(mock_audit_with_runs, monkeypatch):
     """Newly created session has the initial assistant turn in its history."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -140,7 +140,7 @@ def test_create_session_history_seeded(mock_audit_with_runs, monkeypatch):
 def test_create_session_provider_failure(mock_empty_audit, monkeypatch):
     """If advisor.analyze raises, session is still created with empty recs."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -178,7 +178,7 @@ def _seed_session(session_id: str) -> None:
 def test_message_continues_conversation(monkeypatch):
     """Follow-up message appends user + assistant turns to history."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -210,7 +210,7 @@ def test_message_continues_conversation(monkeypatch):
 def test_message_session_not_found(monkeypatch):
     """POST message to unknown session returns 404."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -224,7 +224,7 @@ def test_message_session_not_found(monkeypatch):
 def test_message_provider_failure_returns_graceful_reply(monkeypatch):
     """When provider fails, a graceful error reply is returned (not 500)."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -253,7 +253,7 @@ def test_message_provider_failure_returns_graceful_reply(monkeypatch):
 def test_message_no_provider_recs_returns_graceful_reply(monkeypatch):
     """When provider returns no recs, a graceful reply is returned."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -278,7 +278,7 @@ def test_message_no_provider_recs_returns_graceful_reply(monkeypatch):
 def test_get_session_returns_history(monkeypatch):
     """GET on existing session returns full history + recommendations."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -312,7 +312,7 @@ def test_get_session_returns_history(monkeypatch):
 def test_get_session_not_found(monkeypatch):
     """GET on missing session returns 404."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 

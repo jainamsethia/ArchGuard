@@ -4,7 +4,9 @@ import logging
 from typing import Any
 from pydantic import BaseModel
 from fastapi import Depends, Query
-from archguard.dashboard._state import app, check_token, _llm_rate_limit, get_audit_path
+from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import _llm_rate_limit
 from archguard.audit.logger import AuditLogger
 
 

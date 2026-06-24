@@ -11,17 +11,10 @@ from pydantic import BaseModel
 from fastapi import Path as FastAPIPath, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from archguard.dashboard._state import (
-    app,
-    check_token,
-    _llm_rate_limit,
-    rate_limiter,
-    SESSION_STORE,
-    _SESSION_LOCK,
-    _purge_expired_sessions,
-    _build_advisor,
-    get_audit_path,
-)
+from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import _llm_rate_limit, rate_limiter
+from archguard.dashboard._sessions import SESSION_STORE, _SESSION_LOCK, _purge_expired_sessions, _build_advisor
 from archguard.audit.logger import AuditLogger
 from archguard.llm.openai_provider import OpenAIAdvisorProvider
 from archguard.llm.advisor import ArchitectureAdvisor

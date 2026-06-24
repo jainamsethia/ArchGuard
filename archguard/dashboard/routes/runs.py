@@ -1,9 +1,10 @@
 """Run-history, module-list, trend, and dependency-graph read endpoints."""
 
 from typing import Any
-from pathlib import Path
 from fastapi import Path as FastAPIPath, Depends, Query
-from archguard.dashboard._state import app, check_token, rate_limiter, get_audit_path
+from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
 
 
@@ -60,7 +61,7 @@ def get_module_trends(
 def get_deps(job_id: str | None = None) -> Any:
     """Run dependency analysis and return the result."""
     from archguard.analysis.deps import analyze_dependencies
-    from archguard.dashboard._state import get_target_path
+    from archguard.dashboard.app import get_target_path
 
     try:
         result = analyze_dependencies(get_target_path(job_id))

@@ -198,6 +198,15 @@ Score history: ▃▄▄▅▆▇█
 
 *Tip: Use `archguard history --format json` to export this data to a headless dashboard!*
 
+## Dashboard Workflow
+
+ArchGuard provides a local web dashboard to analyze repositories dynamically. The user flow is as follows:
+1. Navigate to `index.html` and submit a GitHub URL for analysis.
+2. An SSE (Server-Sent Events) stream provides real-time progress updates.
+3. Upon completion, you are redirected to `dashboard.html?job_id=...` where the new run is highlighted.
+
+**First-time Users:** If you navigate directly to `dashboard.html` without any prior runs, you will be greeted with an empty state and a Call-To-Action (CTA) guiding you back to `index.html` to start your first analysis.
+
 ## Interactive HTML Reports
 
 You can generate a self-contained, interactive HTML dashboard to visualize your project's architectural integrity:
@@ -308,6 +317,7 @@ See `.env.example` for a copy-pasteable template. Full reference:
 | `OLLAMA_MODEL` | `llama3` | Local-model name (implemented but not yet reachable from the CLI — see FAQ). |
 | `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. |
 | `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
+| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | IP ranges of trusted proxies. Required if running the dashboard behind a load balancer to ensure auth restrictions work. |
 | `ARCHGUARD_AUDIT_SECRET` | _(auto-generated)_ | HMAC key for the tamper-evident audit log. See "Audit Log Security" below. |
 | `ARCHGUARD_AUDIT_STRICT` | `false` | Require a secure secret to be present; refuse to auto-generate one. |
 | `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |

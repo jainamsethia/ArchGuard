@@ -65,6 +65,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies
         run: pip install "poetry==2.4.1" && poetry install --with dev
+      - name: Verify test collection
+        run: poetry run pytest tests/unit/ --co -q 2>&1 | tail -5
       - name: Run unit and integration tests
         run: |
           poetry run pytest tests/unit/ tests/integration/ \
@@ -79,6 +81,11 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
+      - name: Smoke test
+        run: |
+          poetry run uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 &
+          sleep 3
+          ./scripts/smoke_test.sh
 
   self-analysis:
     name: Self Analysis

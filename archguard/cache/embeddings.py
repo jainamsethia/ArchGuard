@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import hashlib
 import logging
 from datetime import datetime, timezone
+import sqlite3
 from typing import Iterator
 
 try:
@@ -64,10 +66,8 @@ class EmbeddingCache:
             if stored_hash != content_hash:
                 return None  # stale
             return np.frombuffer(stored_blob, dtype=np.float32).copy()
-        except Exception:  # noqa: BLE001
-            logger.warning(
-                "Failed to read embedding for %s::%s", file_path, function_name
-            )
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError) as exc:
+            logger.debug("Cache read miss (possible corruption): %s", exc)
             return None
 
     def store_embedding(
@@ -93,7 +93,7 @@ class EmbeddingCache:
                 (file_path, function_name, blob, content_hash, model_name, now),
             )
             self._db._conn.commit()
-        except Exception:  # noqa: BLE001
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError):
             logger.warning(
                 "Failed to store embedding for %s::%s", file_path, function_name
             )
@@ -121,8 +121,8 @@ class EmbeddingCache:
                 return None
             blob, content_hash = row
             return np.frombuffer(blob, dtype=np.float32).copy(), content_hash
-        except Exception:  # noqa: BLE001
-            logger.warning("Failed to read centroid for %s", module_name)
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError) as exc:
+            logger.debug("Cache read miss (possible corruption): %s", exc)
             return None
 
     def store_centroid(
@@ -146,7 +146,7 @@ class EmbeddingCache:
                 (module_name, blob, content_hash, now),
             )
             self._db._conn.commit()
-        except Exception:  # noqa: BLE001
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError):
             logger.warning("Failed to store centroid for %s", module_name)
 
     # ----------------------------------------------------------
@@ -196,8 +196,8 @@ class EmbeddingCache:
                     key = f"{fp_fn}::{chash}"
                     if key in result:
                         result[key] = np.frombuffer(blob, dtype=np.float32).copy()
-        except Exception:
-            logger.warning("Failed to get_batch")
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Failed to get_batch", exc_info=exc)
 
         return result
 
@@ -244,8 +244,8 @@ class EmbeddingCache:
                     rows,
                 )
                 self._db._conn.commit()
-        except Exception:
-            logger.warning("Failed to set_batch")
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Failed to set_batch", exc_info=exc)
 
     def iter_embeddings(
         self, batch_size: int = 500
@@ -318,6 +318,6 @@ class EmbeddingCache:
             updated_at = datetime.fromisoformat(updated_str)
             age = datetime.now(timezone.utc) - updated_at
             return age.total_seconds() > max_age_hours * 3600
-        except Exception:  # noqa: BLE001
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError):
             logger.warning("Failed to check staleness for %s", module_name)
             return False

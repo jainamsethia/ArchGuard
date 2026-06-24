@@ -11,7 +11,9 @@ import httpx
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from archguard.dashboard._state import app, check_token, rate_limiter
+from archguard.dashboard.app import app
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import rate_limiter
 from dataclasses import asdict
 from fastapi import BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
@@ -104,6 +106,10 @@ def _make_public_github_headers() -> dict[str, str]:
     return headers
 
 
+class GitHubRateLimitError(Exception):
+    pass
+
+
 def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
     """Fetch repository metadata from the GitHub API.
 
@@ -129,7 +135,7 @@ def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
 
     if resp.status_code == 403:
         remaining = resp.headers.get("X-RateLimit-Remaining", "unknown")
-        raise ValueError(
+        raise GitHubRateLimitError(
             f"GitHub API rate limit exceeded (remaining: {remaining}). "
             "Set the GITHUB_TOKEN environment variable to increase limits to 5000 req/hr."
         )
@@ -168,6 +174,8 @@ async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
 
     try:
         data = fetch_repo_metadata_public(owner, repo_name)
+    except GitHubRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
@@ -257,7 +265,7 @@ async def get_job_status(job_id: str) -> dict[str, Any]:
         response["completed_at"] = job.completed_at.isoformat()
         
     if job.status == JobStatus.COMPLETE and job.result is not None:
-        response["result"] = asdict(job.result)
+        response["result"] = job._cached_result_dict if job._cached_result_dict else asdict(job.result)
         
     if job.status == JobStatus.FAILED:
         response["error"] = job.error
@@ -353,7 +361,7 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
                 if current_job.result is not None:
                     result_payload = json.dumps({
                         "type": "result",
-                        "result": asdict(current_job.result),
+                        "result": current_job._cached_result_dict if current_job._cached_result_dict else asdict(current_job.result),
                     })
                     yield f"data: {result_payload}\n\n"
                 yield 'data: {"type": "done"}\n\n'
@@ -368,7 +376,7 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
                 yield 'data: {"type": "done"}\n\n'
                 break
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
 
     return StreamingResponse(
         event_generator(),
@@ -396,7 +404,7 @@ async def health_check() -> dict[str, Any]:
     import archguard
     import time
     import os
-    from archguard.dashboard._state import _APP_START_TIME
+    from archguard.dashboard.app import _APP_START_TIME
 
     return {
         "status": "ok",

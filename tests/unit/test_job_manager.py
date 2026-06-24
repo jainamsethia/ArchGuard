@@ -42,11 +42,18 @@ async def test_run_job_success_lifecycle(manager):
     job = manager.create_job("https://github.com/owner/repo")
     assert job.status == JobStatus.QUEUED
     
-    mock_result = MagicMock(spec=AnalysisJobResult)
-    mock_result.health_score = 85.0
-    mock_result.health_grade = "B"
-    mock_result.total_violations = 2
-    mock_result.duration_seconds = 10.0
+    mock_result = AnalysisJobResult(
+        job_id="dummy",
+        repo_url="dummy",
+        health_score=85.0,
+        health_grade="B",
+        composite_score=0.15,
+        total_violations=2,
+        duration_seconds=10.0,
+        skipped=False,
+        error=None,
+        layer_results=[]
+    )
     
     from contextlib import asynccontextmanager
     
@@ -94,8 +101,11 @@ async def test_semaphore_limits_concurrency(manager):
 
     jobs = [manager.create_job(f"https://github.com/x/r{i}") for i in range(5)]
     
+    from archguard.dashboard.pipeline_adapter import AnalysisJobResult
+    mock_res = AnalysisJobResult(job_id="x", repo_url="y", health_score=80.0, health_grade="B", composite_score=0.1, total_violations=0, duration_seconds=0.1, skipped=False, error=None, layer_results=[])
+    
     with patch("archguard.dashboard.workspace.temp_workspace", side_effect=slow_job), \
-         patch("archguard.dashboard.pipeline_adapter.run_analysis_on_repo", return_value=MagicMock(health_score=80.0, health_grade="B", total_violations=0, duration_seconds=0.1)):
+         patch("archguard.dashboard.pipeline_adapter.run_analysis_on_repo", return_value=mock_res):
         
         tasks = [asyncio.create_task(manager.run_job(j)) for j in jobs]
         await asyncio.gather(*tasks)

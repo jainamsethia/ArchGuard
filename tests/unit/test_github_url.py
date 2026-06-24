@@ -19,7 +19,7 @@ from archguard.dashboard.routes.jobs import parse_github_url
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Provide a TestClient with rate-limits cleared and no auth token."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
     return TestClient(app)

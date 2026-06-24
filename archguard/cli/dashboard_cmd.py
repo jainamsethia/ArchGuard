@@ -9,7 +9,7 @@ dashboard_app = typer.Typer(
 
 @dashboard_app.callback(invoke_without_command=True)
 def dashboard_cmd(
-    port: int = typer.Option(8080, "--port", "-p", help="Port to run the dashboard on"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to run the dashboard on [default: 8000]"),
     host: str = typer.Option(
         "127.0.0.1", "--host", help="Host to bind the dashboard to"
     ),

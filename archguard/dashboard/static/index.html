@@ -3,10 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8000; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://localhost:8000; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self';">
     <title>ArchGuard - Job Submission</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <style>
+        @font-face {
+            font-family: 'Inter';
+            src: url('/static/fonts/inter-variable.woff2') format('woff2');
+            font-weight: 100 900;
+            font-display: swap;
+        }
         :root {
             --bg-color: #0f172a;
             --surface-color: rgba(30, 41, 59, 0.7);
@@ -228,6 +233,66 @@
             to { opacity: 1; max-height: 500px; }
         }
 
+        .result-card {
+            display: none;
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+            animation: slideDown 0.5s ease-out forwards;
+        }
+
+        .result-card.show {
+            display: block;
+        }
+
+        .result-card-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+        }
+
+        .result-card-stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .result-stat {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .result-stat-val {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-color);
+        }
+
+        .result-stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .result-grade {
+            display: inline-block;
+            margin-top: 1rem;
+            padding: 0.25rem 1rem;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
         .error-message {
             color: var(--danger-color);
             font-size: 0.9rem;
@@ -278,6 +343,21 @@
                 <button type="submit" id="btn-submit" class="btn-submit">Analyze Repository</button>
             </form>
 
+            <div id="result-card" class="result-card">
+                <div class="result-card-title">Analysis Complete</div>
+                <div class="result-card-stats">
+                    <div class="result-stat">
+                        <span class="result-stat-val" id="res-score">--</span>
+                        <span class="result-stat-label">Health Score</span>
+                    </div>
+                    <div class="result-stat">
+                        <span class="result-stat-val" id="res-violations">--</span>
+                        <span class="result-stat-label">Violations</span>
+                    </div>
+                </div>
+                <div class="result-grade" id="res-grade">Grade: --</div>
+            </div>
+
             <div id="terminal" class="terminal-container">
                 <div class="terminal-header">
                     <div class="term-btn red"></div>
@@ -298,9 +378,17 @@
         const terminal = document.getElementById('terminal');
         const termOutput = document.getElementById('term-output');
         const container = document.getElementById('main-container');
+        const resultCard = document.getElementById('result-card');
 
         let isValidating = false;
         let isJobRunning = false;
+
+        function resetSubmitButton() {
+            submitBtn.textContent = 'Analyze Repository';
+            submitBtn.disabled = false;
+            urlInput.disabled = false;
+            isJobRunning = false;
+        }
 
         // Auto-validate URL when user finishes typing
         let debounceTimer;
@@ -329,6 +417,14 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ github_url: url })
                 });
+
+                if (res.status === 429) {
+                    errorMsg.textContent = 'GitHub API rate limit exceeded. Please wait 60 seconds.';
+                    errorMsg.classList.add('show');
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Analyze Repository';
+                    return;
+                }
 
                 if (!res.ok) {
                     const data = await res.json();
@@ -410,17 +506,62 @@
                         submitBtn.textContent = 'Analysis Failed';
                         evtSource.close();
                     }
+                    else if (payload.type === 'result' && payload.result) {
+                        const r = payload.result;
+                        document.getElementById('res-score').textContent = r.archdebt?.health_score != null ? parseFloat(r.archdebt.health_score).toFixed(1) : '--';
+                        document.getElementById('res-violations').textContent = r.total_violations || '0';
+                        const grade = r.archdebt?.health_grade || '--';
+                        const gradeEl = document.getElementById('res-grade');
+                        gradeEl.textContent = `Grade: ${grade}`;
+                        
+                        // Set colors based on grade (A/B: success, C/D: warning, F: danger)
+                        if (['A', 'B'].includes(grade)) {
+                            gradeEl.style.color = 'var(--success-color)';
+                            gradeEl.style.background = 'rgba(16, 185, 129, 0.2)';
+                            gradeEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                        } else if (['C', 'D'].includes(grade)) {
+                            gradeEl.style.color = '#f59e0b';
+                            gradeEl.style.background = 'rgba(245, 158, 11, 0.2)';
+                            gradeEl.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                        } else {
+                            gradeEl.style.color = 'var(--danger-color)';
+                            gradeEl.style.background = 'rgba(239, 68, 68, 0.2)';
+                            gradeEl.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        }
+                        
+                        resultCard.classList.add('show');
+                    }
                     else if (payload.type === 'done') {
                         appendLog('Pipeline finished. Generating dashboard...', 'system');
                         evtSource.close();
                         setTimeout(() => {
-                            window.location.href = `dashboard.html?job_id=${jobId}`;
+                            window.location.href = `dashboard.html?job_id=${encodeURIComponent(jobId)}`;
                         }, 1500);
                     }
                 };
 
-                evtSource.onerror = function(err) {
-                    appendLog('Stream connection lost. Reconnecting...', 'error');
+                let reconnectAttempts = 0;
+                const MAX_RECONNECT = 5;
+                evtSource.onerror = async function(err) {
+                    reconnectAttempts++;
+                    if (reconnectAttempts >= MAX_RECONNECT) {
+                        evtSource.close();
+                        appendLog('Connection failed. Checking job status...', 'error');
+                        try {
+                            const res = await fetch(`/api/jobs/${jobId}`);
+                            if (!res.ok) throw new Error();
+                            const job = await res.json();
+                            if (job.status === 'FAILED') {
+                                appendLog(`Analysis failed: ${job.error || 'Unknown error.'}`, 'error');
+                                resetSubmitButton();
+                            }
+                        } catch (e) {
+                            appendLog('Could not retrieve job status. Please try again.', 'error');
+                        }
+                        resetSubmitButton();
+                        return;
+                    }
+                    appendLog(`Stream lost. Retrying (${reconnectAttempts}/${MAX_RECONNECT})...`, 'warn');
                 };
 
             } catch (err) {

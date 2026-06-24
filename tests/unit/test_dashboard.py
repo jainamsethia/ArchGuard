@@ -27,7 +27,7 @@ def mock_audit_logger():
 def test_api_runs_no_token_configured(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 200 when no token is configured."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -72,7 +72,7 @@ ClientTuple = namedtuple("ClientTuple", ["host", "port"])
 def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
     """Test that remote IP without token returns 401."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
@@ -109,7 +109,7 @@ def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
 def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 422 if limit > 500."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
@@ -121,11 +121,11 @@ def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
 def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 429 after 50 requests in a minute."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
 
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
     from cachetools import TTLCache
 
     # Confirm it's a TTLCache instance
@@ -155,7 +155,7 @@ def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
 def test_api_trends_invalid_module_returns_422(mock_audit_logger, monkeypatch):
     """Test that /api/trends/<invalid-chars> returns 422."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._state import RATE_LIMITS
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     RATE_LIMITS.clear()
     response = client.get("/api/trends/invalid_@_module!")

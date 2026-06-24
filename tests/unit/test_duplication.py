@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 np = pytest.importorskip("numpy", reason="ML extras not installed")
+faiss = pytest.importorskip("faiss", reason="faiss-cpu not installed")
 
 
 @pytest.fixture(autouse=True)

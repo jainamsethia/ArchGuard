@@ -1,3 +1,6 @@
+import pytest
+
+@pytest.mark.integration
 def test_proof_evolution():
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
     import os

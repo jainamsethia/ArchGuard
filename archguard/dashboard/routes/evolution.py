@@ -3,10 +3,11 @@
 import logging
 import threading
 from typing import Any
-from pathlib import Path
 from pydantic import BaseModel
 from fastapi import Depends, Query
-from archguard.dashboard._state import app, check_token, rate_limiter, get_audit_path
+from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
 
 
@@ -84,7 +85,7 @@ class EvolutionAnalyzeRequest(BaseModel):
 def start_evolution(body: EvolutionAnalyzeRequest, job_id: str | None = None) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
-    from archguard.dashboard._state import get_target_path
+    from archguard.dashboard.app import get_target_path
 
     try:
         tracker = ArchitectureEvolutionTracker(get_target_path(job_id))

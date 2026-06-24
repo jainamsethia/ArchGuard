@@ -251,8 +251,8 @@ def suppress_orphans(
 
         contract = load_contract(repo_root)
         active_modules = [m["name"] for m in contract.get("modules", [])]
-    except Exception:  # noqa: BLE001
-        _console.print(format_error("Could not load contract."))
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        _console.print(format_error(f"Could not load contract: {exc}"))
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
     orphans = store.detect_orphans(active_modules)

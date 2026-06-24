@@ -143,6 +143,27 @@ async def run_analysis_on_repo(
     layer_results = _extract_layer_results(result)
     total_violations = len(result.violations)
 
+    try:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import AUDIT_LOG_FILENAME
+        
+        audit_dir = Path.cwd() / ".archguard-cache"
+        audit_dir.mkdir(parents=True, exist_ok=True)
+        audit_path = audit_dir / AUDIT_LOG_FILENAME
+        
+        audit = AuditLogger(log_path=audit_path)
+        audit.log_run(
+            repo_url=repo_url,
+            job_id=job_id,
+            health_score=result.archdebt.health_score,
+            health_grade=result.archdebt.health_grade,
+            composite_score=result.archdebt.composite_score,
+            total_violations=total_violations,
+            duration_seconds=elapsed,
+        )
+    except Exception as e:
+        logger.warning("Failed to write audit log: %s", e)
+
     await _emit(
         f"Analysis complete in {elapsed}s. "
         f"Health: {result.archdebt.health_score:.1f}/100 ({result.archdebt.health_grade}). "

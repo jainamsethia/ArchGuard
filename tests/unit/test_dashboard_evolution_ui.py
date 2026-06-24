@@ -38,12 +38,12 @@ def test_evolution_dashboard_js_functions():
         / "archguard"
         / "dashboard"
         / "static"
-        / "dashboard.html"
+        / "dashboard.js"
     )
     content = index_path.read_text(encoding="utf-8")
 
     # Verify fetch call
-    assert "fetch('/api/evolution/trends')" in content
+    assert "safeFetch(`/api/evolution/trends" in content
 
     # Verify update function exists
     assert "function updateEvolutionTrends(evoData)" in content

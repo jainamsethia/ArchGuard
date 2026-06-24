@@ -57,7 +57,7 @@ def _get_trend_data() -> typing.Any:
                         event = json.loads(line)
                         if event.get("event") == "analysis_run":
                             runs.append(event)
-                    except Exception as e:
+                    except json.JSONDecodeError as e:
                         import logging
 
                         logging.getLogger(__name__).warning(
@@ -81,9 +81,10 @@ def _get_trend_data() -> typing.Any:
         except Exception as e:
             import logging
 
-            logging.getLogger(__name__).warning(
-                f"Non-critical failure generating trend data: {e}"
+            logging.getLogger(__name__).error(
+                f"Failed generating trend data: {e}"
             )
+            raise typer.Exit(1)
     return {"labels": labels, "scores": scores}
 
 
