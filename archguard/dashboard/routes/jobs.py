@@ -6,6 +6,7 @@ import logging
 import os
 import re
 from typing import Any
+import importlib.metadata
 
 import httpx
 from fastapi import Depends, HTTPException
@@ -62,9 +63,11 @@ def parse_github_url(url: str) -> tuple[str, str]:
     Accepts:
         https://github.com/owner/repo
         https://github.com/owner/repo.git
-        https://github.com/owner/repo/tree/main
-        https://github.com/owner/repo/blob/main/file.py
         git@github.com:owner/repo.git
+
+    Does NOT accept path suffixes like /tree/main or /../../etc/passwd.
+    Those were previously accepted by a greedy (?:/.*)? suffix and are now
+    rejected to eliminate URL path traversal.
 
     Returns:
         (owner, repo_name) — both without .git suffix
@@ -73,8 +76,8 @@ def parse_github_url(url: str) -> tuple[str, str]:
         ValueError: if the URL does not match any known format
     """
     patterns = [
-        r"https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git|/.*)?$",
-        r"git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
+        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
+        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
     ]
     url = url.strip().rstrip("/")
     for pattern in patterns:
@@ -86,6 +89,14 @@ def parse_github_url(url: str) -> tuple[str, str]:
         f"Cannot parse GitHub URL: {url!r}. "
         "Expected format: https://github.com/owner/repo"
     )
+
+
+def build_safe_clone_url(owner: str, repo_name: str) -> str:
+    """Reconstruct a safe clone URL from validated owner/repo parts.
+
+    Always builds from parts — never passes raw user input to git.
+    """
+    return f"https://github.com/{owner}/{repo_name}.git"
 
 
 # --------------------------------------------------------------------------
@@ -219,11 +230,33 @@ async def submit_analysis_job(
 
     # Validate URL format before queuing
     try:
-        parse_github_url(request.github_url)
+        owner, repo_name = parse_github_url(request.github_url)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    job = job_manager.create_job(github_url=request.github_url)
+    # Validate that the repository actually exists before queuing a clone job.
+    # This prevents wasting the semaphore slot on a 120s git clone timeout.
+    # fetch_repo_metadata_public is a synchronous, blocking httpx.Client call
+    # (confirmed: it uses `with httpx.Client(timeout=10.0) as client:`, not
+    # httpx.AsyncClient) — it must be wrapped in run_in_executor to avoid
+    # blocking the FastAPI event loop for up to 10 seconds.
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            None, fetch_repo_metadata_public, owner, repo_name
+        )
+    except GitHubRateLimitError:
+        # Rate limit hit — allow the job through rather than blocking the user.
+        # The clone will reveal the real state; this is acceptable degraded behaviour.
+        pass
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
+
+    # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
+    safe_url = build_safe_clone_url(owner, repo_name)
+    job = job_manager.create_job(github_url=safe_url)
     background_tasks.add_task(job_manager.run_job, job)
 
     return {
@@ -401,14 +434,13 @@ async def health_check() -> dict[str, Any]:
     Used by Docker Compose healthcheck, Railway, and Render.
     Always returns HTTP 200 if the application is running.
     """
-    import archguard
     import time
     import os
     from archguard.dashboard.app import _APP_START_TIME
 
     return {
         "status": "ok",
-        "version": getattr(archguard, "__version__", "unknown"),
+        "version": importlib.metadata.version("archguard"),
         "environment": os.environ.get("ENVIRONMENT", "development"),
         "uptime_seconds": round(time.time() - _APP_START_TIME),
     }

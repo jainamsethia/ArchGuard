@@ -63,7 +63,7 @@ def test_evolution_endpoint():
 def test_advisor_ask_stream_endpoint_exists():
     """POST /api/v1/advisor/ask must exist and return 200 (even without API key)."""
     # With no ANTHROPIC_API_KEY set, ask_stream() yields a single error chunk.
-    from archguard.dashboard._state import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
     saved = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -80,7 +80,7 @@ def test_advisor_ask_stream_endpoint_exists():
 
 def test_advisor_ask_stream_content_type():
     """POST /api/v1/advisor/ask must return text/event-stream content type."""
-    from archguard.dashboard._state import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
     saved = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -98,7 +98,7 @@ def test_advisor_ask_stream_content_type():
 
 def test_advisor_ask_stream_no_key_yields_error_chunk():
     """Without ANTHROPIC_API_KEY, the stream yields a single SSE error chunk."""
-    from archguard.dashboard._state import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
     saved = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -120,7 +120,7 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
 
 def test_advisor_ask_stream_empty_question_rejected():
     """POST /api/v1/advisor/ask with empty question must return 422."""
-    from archguard.dashboard._state import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
     response = client.post(
@@ -132,7 +132,7 @@ def test_advisor_ask_stream_empty_question_rejected():
 
 def test_advisor_ask_stream_missing_question_rejected():
     """POST /api/v1/advisor/ask with no question field must return 422."""
-    from archguard.dashboard._state import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
     response = client.post(

@@ -2,6 +2,7 @@ import os
 import ast
 from pathlib import Path
 import typing
+import logging
 
 CONTRACT_GENERATION_PROMPT = """
 You are an expert software architect analyzing a Python codebase.
@@ -88,7 +89,9 @@ def _extract_module_docstrings(repo_path: Path) -> str:
             if docstring:
                 rel_path = init_file.relative_to(repo_path).parent
                 docstrings.append(f"{rel_path}: {docstring.strip().splitlines()[0]}")
-        except Exception:
+        except (SyntaxError, ValueError, OSError) as exc:
+            logger = logging.getLogger(__name__)
+            logger.exception("Contract LLM inference failed for %s: %s", init_file, exc)
             continue
     return "\n".join(docstrings)
 

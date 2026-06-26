@@ -15,13 +15,18 @@ def test_submit_job_invalid_url(client):
 
 def test_submit_job_returns_202(client):
     """Valid URL → 202 with job_id."""
-    # Patch run_job to be a no-op (don't actually clone anything)
-    with patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None):
+    # Patch run_job to be a no-op (don't actually clone anything) and patch
+    # fetch_repo_metadata_public so this test never makes a real network call.
+    with patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None), \
+         patch(
+             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
+             return_value={"name": "flask", "full_name": "pallets/flask"},
+         ):
         resp = client.post(
             "/api/jobs",
             json={"github_url": "https://github.com/pallets/flask"},
         )
-        
+
     assert resp.status_code == 202
     body = resp.json()
     assert "job_id" in body
@@ -58,3 +63,55 @@ def test_list_jobs_empty(client):
     resp = client.get("/api/jobs")
     assert resp.status_code == 200
     assert resp.json()["jobs"] == []
+
+
+def test_submit_job_nonexistent_repo_returns_404(client):
+    """
+    Regression test for MED-006.
+    Verifies: a syntactically valid GitHub URL pointing at a repository
+    that does not exist is rejected with 404 BEFORE a job is created —
+    confirming the semaphore slot is never consumed for an invalid repo.
+    """
+    # Arrange
+    from archguard.dashboard.job_manager import job_manager
+
+    jobs_before = len(job_manager.list_jobs())
+
+    # Act
+    with patch(
+        "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
+        side_effect=ValueError("Repository owner/nonexistent-repo not found"),
+    ):
+        resp = client.post(
+            "/api/jobs",
+            json={"github_url": "https://github.com/owner/nonexistent-repo"},
+        )
+
+    # Assert
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+    # No job was created for the invalid repo — state was not corrupted
+    assert len(job_manager.list_jobs()) == jobs_before
+
+
+def test_submit_job_github_rate_limited_still_queues(client):
+    """
+    Verifies MED-006 fix degrades gracefully when GitHub's API rate limit
+    is hit during pre-validation: per the documented design decision, the
+    job is still queued (rather than blocking the user) and the actual
+    clone attempt will reveal the real repository state.
+    """
+    from archguard.dashboard.routes.jobs import GitHubRateLimitError
+
+    with patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None), \
+         patch(
+             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
+             side_effect=GitHubRateLimitError("GitHub API rate limit exceeded"),
+         ):
+        resp = client.post(
+            "/api/jobs",
+            json={"github_url": "https://github.com/pallets/flask"},
+        )
+
+    assert resp.status_code == 202
+    assert "job_id" in resp.json()

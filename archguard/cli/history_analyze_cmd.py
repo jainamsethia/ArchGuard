@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import subprocess
+import logging
+
+logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -307,7 +310,8 @@ def history_analyze(
                         snapshots.append(result)
                     else:
                         failed_count += 1
-                except Exception:
+                except Exception as exc:  # noqa: BLE001 — intentional broad catch for worker pool
+                    logger.exception("Commit analysis failed: %s", exc)
                     failed_count += 1
 
         # Re-sort by commit order (parallel execution may scramble order)

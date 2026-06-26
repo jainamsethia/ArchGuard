@@ -2,7 +2,7 @@
 
 import logging
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import Depends, Query
 from archguard.dashboard.app import app, get_audit_path
 from archguard.dashboard._auth import check_token
@@ -11,7 +11,11 @@ from archguard.audit.logger import AuditLogger
 
 
 class RemediationRequest(BaseModel):
-    violations: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = Field(
+        default=[],
+        max_length=50,
+        description="Violations to remediate (max 50 items)",
+    )
 
 
 @app.post(

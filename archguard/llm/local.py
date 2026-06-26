@@ -1,4 +1,12 @@
-"""Ollama HTTP client for local LLM explanations."""
+"""Ollama HTTP client for local LLM explanations.
+
+.. note::
+    This module is implemented but not yet wired into the CLI's ``--explain``
+    path. It is tracked for a future release. Do not import from this module
+    in production code until it is connected.
+
+    See: https://github.com/your-org/archguard/issues/XXX
+"""
 
 from __future__ import annotations
 

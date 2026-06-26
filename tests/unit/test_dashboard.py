@@ -118,6 +118,32 @@ def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
     assert "less than or equal to 500" in response.json()["detail"][0]["msg"]
 
 
+def test_response_includes_csp_header_without_hardcoded_localhost(monkeypatch) -> None:
+    """
+    Regression test for MED-001.
+    Verifies: any response from the app includes a Content-Security-Policy
+    header, and that header's connect-src does NOT contain the old
+    hardcoded http://localhost:8000 origin that broke production deployments.
+    """
+    from fastapi.testclient import TestClient
+    from archguard.dashboard.app import app
+
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
+    client = TestClient(app)
+
+    # Act
+    resp = client.get("/health")
+
+    # Assert
+    assert "Content-Security-Policy" in resp.headers
+    csp = resp.headers["Content-Security-Policy"]
+    assert "http://localhost:8000" not in csp
+    assert "connect-src 'self'" in csp
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers["X-Frame-Options"] == "DENY"
+
+
 def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 429 after 50 requests in a minute."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
@@ -161,3 +187,68 @@ def test_api_trends_invalid_module_returns_422(mock_audit_logger, monkeypatch):
     response = client.get("/api/trends/invalid_@_module!")
     assert response.status_code == 422
     assert "pattern" in response.json()["detail"][0]["type"]
+
+def test_csp_header_contains_nonce_and_no_unsafe_inline():
+    """
+    Regression test for ENH-003.
+    Verifies: every response includes a CSP header with a nonce in script-src
+    and does NOT contain 'unsafe-inline' in script-src.
+    """
+    response = client.get("/health")
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "script-src" in csp
+    assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0], (
+        "script-src must not contain 'unsafe-inline' after ENH-003"
+    )
+    import re
+    nonce_match = re.search(r"'nonce-([a-f0-9]{32})'", csp)
+    assert nonce_match is not None, f"No nonce found in CSP header: {csp!r}"
+
+def test_csp_nonce_is_unique_per_request():
+    """
+    Verifies: each request generates a distinct nonce (no nonce reuse).
+    """
+    r1 = client.get("/health")
+    r2 = client.get("/health")
+
+    import re
+    csp1 = r1.headers.get("Content-Security-Policy", "")
+    csp2 = r2.headers.get("Content-Security-Policy", "")
+
+    nonce1 = re.search(r"'nonce-([a-f0-9]{32})'", csp1)
+    nonce2 = re.search(r"'nonce-([a-f0-9]{32})'", csp2)
+
+    assert nonce1 is not None and nonce2 is not None
+    assert nonce1.group(1) != nonce2.group(1), (
+        "CSP nonce must be unique per request"
+    )
+
+def test_index_html_script_tag_carries_nonce():
+    """
+    Regression test for ENH-003.
+    """
+    response = client.get("/")
+    assert response.status_code == 200
+
+    import re
+    csp = response.headers.get("Content-Security-Policy", "")
+    nonce_match = re.search(r"'nonce-([a-f0-9]{32})'", csp)
+    assert nonce_match is not None, f"No nonce in CSP header: {csp!r}"
+    expected_nonce = nonce_match.group(1)
+
+    html = response.text
+    assert f'nonce="{expected_nonce}"' in html, (
+        f"index.html script tag does not carry the request-scoped nonce."
+    )
+
+def test_script_without_nonce_is_rejected_by_csp():
+    """
+    Verifies: the CSP header does not contain 'unsafe-inline' in script-src,
+    """
+    response = client.get("/health")
+    csp = response.headers.get("Content-Security-Policy", "")
+
+    script_src_section = csp.split("script-src")[1].split(";")[0] if "script-src" in csp else ""
+    assert "'unsafe-inline'" not in script_src_section, (
+        "ENH-003 regression: script-src still contains 'unsafe-inline'."
+    )

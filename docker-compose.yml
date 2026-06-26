@@ -11,21 +11,25 @@ services:
     env_file:
       - .env
     environment:
-      # These can be overridden per-environment without touching .env
+      # Set ARCHGUARD_DASHBOARD_TOKEN in your .env file before exposing this
+      # service remotely.  ARCHGUARD_DASHBOARD_ALLOW_REMOTE is intentionally
+      # NOT set here — enabling unauthenticated remote access requires an
+      # explicit decision in .env, not a default.
       - ENVIRONMENT=development
-      - ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1
     volumes:
       # Persistent storage for audit log and cache between runs
       - archguard-cache:/home/archguard/.archguard-cache
-      # Writable temp space for git clone workspaces
-      - /tmp:/tmp
+    tmpfs:
+      # Isolated in-memory temp space for git clone workspaces.
+      # Size limit prevents disk exhaustion from large repos.
+      - /tmp:size=2g,mode=1777
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-      restart: unless-stopped
 
 volumes:
   archguard-cache:

@@ -6,6 +6,7 @@ import os
 import logging
 import time
 import importlib.metadata
+import secrets
 from pathlib import Path
 from typing import Any
 from contextlib import asynccontextmanager
@@ -46,6 +47,13 @@ async def _lifespan(app_instance: FastAPI) -> Any:
             _startup_logger.info("Removed %d stale workspace(s) on startup", removed)
     except Exception as exc:
         _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
+
+    # Multi-instance guard — document the in-memory state constraint at startup
+    _startup_logger.warning(
+        "ArchGuard dashboard uses in-memory job/session/rate-limit state. "
+        "Multi-instance deployments (load balancers, autoscaling) will lose "
+        "state across instances. Enable Redis (MOD-001) for multi-instance support."
+    )
 
     _startup_logger.info("Dashboard ready.")
     yield
@@ -90,6 +98,26 @@ async def _log_requests(request: Request, call_next: Any) -> Any:
     )
     return response
 
+@app.middleware("http")
+async def _security_headers(request: Request, call_next: Any) -> Any:
+    """Attach security headers to every response, including a per-request CSP nonce."""
+    nonce = secrets.token_hex(16)
+    request.state.csp_nonce = nonce
+
+    response = await call_next(request)
+
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "connect-src 'self'; "
+        f"script-src 'self' 'nonce-{nonce}'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self';"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 _exc_logger = logging.getLogger("archguard.exceptions")
 
 @app.exception_handler(Exception)
@@ -120,7 +148,23 @@ def get_audit_path(job_id: str | None = None) -> Path:
     return get_target_path(job_id) / AUDIT_LOG_FILENAME
 
 # Import routes AFTER app is defined to avoid circular dependencies
+# API Versioning Policy (established 2026-06-25):
+# All new routes MUST use the /api/v1/ prefix.
+# Existing /api/ routes are maintained for backward compatibility.
+# A future migration to /api/v1/ for all routes will include redirect aliases.
 from archguard.dashboard.routes import advisor, evolution, jobs, remediation, runs  # noqa: E402, F401
+
+from fastapi.templating import Jinja2Templates
+
+_templates = Jinja2Templates(directory=str(STATIC_DIR))
+
+@app.get("/")
+async def serve_index(request: Request):
+    return _templates.TemplateResponse(
+        request,
+        "index.html",
+        {"csp_nonce": getattr(request.state, "csp_nonce", "")}
+    )
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 

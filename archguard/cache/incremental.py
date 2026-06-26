@@ -4,6 +4,7 @@ Incremental analysis: track file content hashes to skip unchanged files.
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
@@ -57,7 +58,9 @@ def save_cache(root: Path, records: dict[str, FileRecord]) -> None:
         with os.fdopen(fd, "w") as f:
             json.dump(cache_data, f, indent=2)
         os.replace(tmp_path, cache_file)
-    except Exception:
+    except OSError as exc:
+        logger = logging.getLogger(__name__)
+        logger.warning("Failed to write cache file atomically: %s", exc)
         try:
             os.unlink(tmp_path)
         except OSError:

@@ -142,8 +142,8 @@ archguard init                  # Auto-detect architecture and create .archguard
 archguard analyze               # Run full 4-layer drift analysis
 archguard fitness check         # Evaluate configured fitness functions
 archguard fitness check --json  # Return fitness results as JSON
-archguard history               # Show ArchDebt trend across runs
 archguard history --format json # Output history trend as JSON
+archguard report --slim         # Output minimalist CDN-ready HTML report
 ```
 
 ## Installation

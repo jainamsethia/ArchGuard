@@ -7,13 +7,17 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
-      - key: ARCHGUARD_DASHBOARD_ALLOW_REMOTE
-        value: "1"
+      # ARCHGUARD_DASHBOARD_ALLOW_REMOTE is intentionally omitted.
+      # Set ARCHGUARD_DASHBOARD_TOKEN in the Render dashboard secrets instead.
+      # See .env.example for instructions.
       # Secrets — set these in the Render dashboard, not here
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: GITHUB_TOKEN
         sync: false
+      # REQUIRED: Set this in the Render dashboard → Environment → Secret Files
+      # before making your service public. Generate with:
+      # python -c "import secrets; print(secrets.token_hex(32))"
       - key: ARCHGUARD_DASHBOARD_TOKEN
         sync: false
       - key: ALLOWED_ORIGINS

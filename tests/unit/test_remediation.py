@@ -387,3 +387,18 @@ def test_full_pipeline_violation_to_plan():
         "Zero layer violations in auth",
         "CI green",
     ]
+
+def test_remediation_too_many_violations_returns_422() -> None:
+    """
+    Regression test for MED-004.
+    Verifies: a remediation request with 51 violations is rejected.
+    """
+    from fastapi.testclient import TestClient
+    from archguard.dashboard.app import app
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/remediation/plan",
+        json={"violations": [{"id": str(i)} for i in range(51)]},
+    )
+    assert resp.status_code == 422

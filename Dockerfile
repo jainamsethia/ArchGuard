@@ -46,5 +46,8 @@ USER archguard
 # The default command starts the web dashboard.
 # To run the CLI instead: docker run archguard archguard analyze --help
 # To start the dashboard explicitly: docker run -p 8000:8000 archguard
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
 ENTRYPOINT []
 CMD ["uvicorn", "archguard.dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]

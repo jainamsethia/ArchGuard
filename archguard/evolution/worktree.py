@@ -107,6 +107,7 @@ class GitWorktreeManager:
 
 import tempfile  # noqa: E402
 from contextlib import contextmanager  # noqa: E402
+import subprocess
 
 
 @contextmanager
@@ -131,8 +132,8 @@ def git_worktree(repo_root: Path | str, sha: str) -> Iterator[Path]:
                 check=False,
                 capture_output=True,
             )
-        except Exception:
-            pass
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.warning("Failed to remove git worktree %s: %s", wt_path, exc)
         if tmp_dir.exists():
 
             def onerror(func: Any, path: str, exc_info: Any) -> None:

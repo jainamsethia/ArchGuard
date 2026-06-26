@@ -35,11 +35,6 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     [
         ("https://github.com/pallets/flask", ("pallets", "flask")),
         ("https://github.com/pallets/flask.git", ("pallets", "flask")),
-        ("https://github.com/pallets/flask/tree/main", ("pallets", "flask")),
-        (
-            "https://github.com/pallets/flask/blob/main/README.md",
-            ("pallets", "flask"),
-        ),
         ("git@github.com:pallets/flask.git", ("pallets", "flask")),
         ("https://github.com/pallets/flask/", ("pallets", "flask")),
     ],
@@ -60,6 +55,65 @@ def test_parse_github_url_valid(url: str, expected: tuple[str, str]) -> None:
 def test_parse_github_url_invalid(url: str) -> None:
     with pytest.raises(ValueError, match="Cannot parse GitHub URL"):
         parse_github_url(url)
+
+
+def test_parse_github_url_rejects_path_traversal() -> None:
+    """
+    Regression test for CRIT-001.
+    Verifies: a URL with a path-traversal suffix after the repo name is
+    rejected with ValueError, not silently accepted.
+    """
+    # Arrange
+    malicious_url = "https://github.com/owner/repo/../../../etc/passwd"
+
+    # Act + Assert
+    with pytest.raises(ValueError, match="Cannot parse GitHub URL"):
+        parse_github_url(malicious_url)
+
+
+def test_parse_github_url_rejects_tree_suffix() -> None:
+    """
+    Regression test for CRIT-001.
+    Verifies: /tree/<branch> suffixes, previously accepted, are now
+    rejected — this is an intentional behavior change, not a bug.
+    """
+    with pytest.raises(ValueError, match="Cannot parse GitHub URL"):
+        parse_github_url("https://github.com/pallets/flask/tree/main")
+
+
+def test_build_safe_clone_url_ignores_original_url_content() -> None:
+    """
+    Regression test for CRIT-001.
+    Verifies: build_safe_clone_url always reconstructs from owner/repo_name
+    parts alone, returning exactly "https://github.com/{owner}/{repo}.git"
+    regardless of what any original URL string contained.
+    """
+    # Arrange
+    owner, repo_name = "owner", "repo"
+    from archguard.dashboard.routes.jobs import build_safe_clone_url
+
+    # Act
+    result = build_safe_clone_url(owner, repo_name)
+
+    # Assert
+    assert result == "https://github.com/owner/repo.git"
+
+
+def test_parse_github_url_rejects_non_github_host() -> None:
+    """
+    Verifies CRIT-001 fix degrades gracefully when a non-GitHub host is
+    supplied, including hosts crafted to look similar to github.com.
+    """
+    # Arrange
+    spoofed_hosts = [
+        "https://github.com.evil.com/owner/repo",
+        "https://notgithub.com/owner/repo",
+    ]
+
+    # Act + Assert
+    for url in spoofed_hosts:
+        with pytest.raises(ValueError, match="Cannot parse GitHub URL"):
+            parse_github_url(url)
 
 
 # --------------------------------------------------------------------------

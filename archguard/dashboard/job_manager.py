@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+from archguard.dashboard.routes.jobs import parse_github_url, build_safe_clone_url
+
 logger = logging.getLogger(__name__)
 
 MAX_STORED_JOBS = 50
@@ -46,12 +48,22 @@ class JobManager:
     """
     def __init__(self) -> None:
         self._jobs: dict[str, AnalysisJob] = {}
+        # Initialise semaphore to None; created on first async access via _ensure_semaphore().
+        # Semaphore cannot be created in __init__ because JobManager may be instantiated
+        # before an event loop is running (module import time).
         self._semaphore: asyncio.Semaphore | None = None
+        self._semaphore_lock: asyncio.Lock | None = None
 
-    @property
-    def semaphore(self) -> asyncio.Semaphore:
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
+    async def _ensure_semaphore(self) -> asyncio.Semaphore:
+        """Return the semaphore, creating it atomically on first call."""
+        if self._semaphore is not None:
+            return self._semaphore
+        # Create an asyncio.Lock if needed (also lazy for same reason)
+        if self._semaphore_lock is None:
+            self._semaphore_lock = asyncio.Lock()
+        async with self._semaphore_lock:
+            if self._semaphore is None:
+                self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
         return self._semaphore
 
     def create_job(self, github_url: str) -> AnalysisJob:
@@ -87,16 +99,16 @@ class JobManager:
             job.progress_messages.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
             logger.debug("[job %s] %s", job.id, msg)
 
-        async with self.semaphore:
+        semaphore = await self._ensure_semaphore()
+        async with semaphore:
             try:
                 # ── Clone phase ────────────────────────────────────────
                 job.status = JobStatus.CLONING
                 await send_progress(f"Cloning {job.github_url}…")
 
-                # Build clone URL: ensure .git suffix
-                clone_url = job.github_url.rstrip("/")
-                if not clone_url.endswith(".git"):
-                    clone_url += ".git"
+                # Reconstruct safe URL from validated parts — never clone raw user input
+                _owner, _repo_name = parse_github_url(job.github_url)
+                clone_url = build_safe_clone_url(_owner, _repo_name)
 
                 async with temp_workspace(clone_url, job_id=job.id, keep_alive=True) as repo_path:
                     # ── Analysis phase ─────────────────────────────────

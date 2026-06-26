@@ -326,3 +326,38 @@ def test_get_session_respects_token_auth(monkeypatch):
 
     resp = client.get("/api/advisor/session/some-session")
     assert resp.status_code == 401
+
+def test_advisor_ask_question_too_long_returns_422() -> None:
+    """
+    Regression test for MED-004.
+    Verifies: POST /api/v1/advisor/ask with a question field of 2001
+    characters returns HTTP 422.
+    """
+    from fastapi.testclient import TestClient
+    from archguard.dashboard.app import app
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    _LLM_LIMITS.clear()
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/v1/advisor/ask",
+        json={"question": "x" * 2001},
+    )
+    assert resp.status_code == 422
+
+def test_advisor_message_too_long_returns_422() -> None:
+    """
+    Regression test for MED-004.
+    Verifies: a follow-up message over 2000 characters is rejected.
+    """
+    from fastapi.testclient import TestClient
+    from archguard.dashboard.app import app
+    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    _LLM_LIMITS.clear()
+    client = TestClient(app)
+
+    resp = client.post(
+        "/api/advisor/session/some-session-id/message",
+        json={"message": "x" * 2001},
+    )
+    assert resp.status_code == 422

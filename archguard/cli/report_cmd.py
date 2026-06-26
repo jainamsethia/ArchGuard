@@ -8,6 +8,7 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from importlib import resources
+import logging
 
 import typer
 from rich.console import Console
@@ -32,12 +33,13 @@ def _read_template() -> str:
         # Fallback for Python versions or paths
         ref = resources.files("archguard.templates").joinpath("report_template.html")
         return ref.read_text("utf-8")
-    except Exception:
-        # Development fallback
+    except (FileNotFoundError, ModuleNotFoundError, TypeError) as exc:
+        logger = logging.getLogger(__name__)
+        logger.debug("importlib.resources fallback for report template: %s", exc)
         fallback = Path(__file__).parent.parent / "templates" / "report_template.html"
         if fallback.exists():
             return fallback.read_text("utf-8")
-        raise RuntimeError("Could not locate report_template.html")
+        raise RuntimeError("Could not locate report_template.html") from exc
 
 
 def _get_trend_data() -> typing.Any:
@@ -158,8 +160,15 @@ def report_cmd(
     open_browser: bool = typer.Option(
         False, "--open", help="Open the report in the default browser."
     ),
+    slim: bool = typer.Option(
+        False,
+        "--slim",
+        help="[Planned] Use CDN for vis-network (smaller output, requires internet). Not yet implemented.",
+    ),
 ) -> None:
     """Generate a standalone HTML report with dependency graphs and trends."""
+    if slim:
+        _console.print("[yellow]--slim is not yet implemented. Generating full offline report.[/yellow]")
     try:
         from archguard.utils.validation import (
             validate_repo_path,
