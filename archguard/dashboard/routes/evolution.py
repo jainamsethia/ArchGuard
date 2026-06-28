@@ -3,9 +3,9 @@
 import logging
 import threading
 from typing import Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import Depends, Query
-from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard.app import app, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
@@ -76,13 +76,13 @@ _EVO_CACHE: dict[str, Any] = {}
 
 
 class EvolutionAnalyzeRequest(BaseModel):
-    max_commits: int = 5
+    max_commits: int = Field(default=5, ge=1, le=100)
 
 
 @app.post(
     "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
-def start_evolution(body: EvolutionAnalyzeRequest, job_id: str | None = None) -> Any:
+def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
     from archguard.dashboard.app import get_target_path
@@ -121,7 +121,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: str | None = None) ->
 @app.get(
     "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
-def get_latest_evolution(job_id: str | None = None) -> Any:
+def get_latest_evolution(job_id: JobIdQuery = None) -> Any:
     """Get the latest completed architecture evolution report."""
     with _EVO_LOCK:
         if "latest" in _EVO_CACHE:

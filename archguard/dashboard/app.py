@@ -8,10 +8,11 @@ import time
 import importlib.metadata
 import secrets
 from pathlib import Path
-from typing import Any
+from typing import Any, Annotated
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query, HTTPException
+import re as _re
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -78,6 +79,13 @@ async def _limit_body_size(request: Request, call_next: Any) -> Any:
             content={"error": "Request body too large (max 1 MB)"},
         )
     return await call_next(request)
+
+# Reusable validated job_id type for all route query parameters.
+# UUIDs are 36 chars; allow up to 64 for flexibility. Only hex + hyphens.
+JobIdQuery = Annotated[
+    str | None,
+    Query(pattern=r"^[a-f0-9\-]{36,64}$", max_length=64)
+]
 
 _allowed_origins: list[str] = [
     o.strip()
@@ -153,7 +161,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 def get_target_path(job_id: str | None = None) -> Path:
     if job_id:
         import tempfile
-        path = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
+        # Double-check even after query validation — defense in depth
+        if not _re.fullmatch(r"[a-f0-9\-]{36,64}", job_id):
+            raise HTTPException(status_code=400, detail="Invalid job_id format")
+        tmp = Path(tempfile.gettempdir())
+        path = (tmp / f"archguard-{job_id}" / "repo").resolve()
+        # Ensure the resolved path is strictly inside /tmp/archguard-<uuid>/
+        expected_prefix = (tmp / f"archguard-{job_id}").resolve()
+        if not str(path).startswith(str(expected_prefix)):
+            raise HTTPException(status_code=400, detail="Invalid job_id")
         if path.exists():
             return path
     return Path.cwd()

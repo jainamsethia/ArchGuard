@@ -2,7 +2,7 @@
 
 from typing import Any
 from fastapi import Path as FastAPIPath, Depends, Query
-from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard.app import app, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
@@ -10,7 +10,7 @@ from archguard.audit.logger import AuditLogger
 
 @app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
 def get_runs(
-    limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: str | None = None
+    limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: JobIdQuery = None
 ) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
@@ -20,13 +20,13 @@ def get_runs(
 
 
 @app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_latest_run(job_id: str | None = None) -> Any:
+def get_latest_run(job_id: JobIdQuery = None) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     return logger.read_last_run() or {}
 
 
 @app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_modules(job_id: str | None = None) -> Any:
+def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=100)
@@ -45,7 +45,7 @@ def get_module_trends(
         ..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_\-\.]+$"
     ),
     limit: int = Query(default=30, ge=1, le=500),
-    job_id: str | None = None
+    job_id: JobIdQuery = None
 ) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
@@ -58,7 +58,7 @@ def get_module_trends(
 
 
 @app.get("/api/v1/deps", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_deps(job_id: str | None = None) -> Any:
+def get_deps(job_id: JobIdQuery = None) -> Any:
     """Run dependency analysis and return the result."""
     from archguard.analysis.deps import analyze_dependencies
     from archguard.dashboard.app import get_target_path

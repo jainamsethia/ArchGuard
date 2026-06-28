@@ -2,6 +2,7 @@ import time
 import threading
 from collections import deque
 from fastapi import Request, HTTPException, status
+from archguard.dashboard._auth import _real_client_ip
 
 try:
     from cachetools import TTLCache as RateLimitCache
@@ -26,7 +27,7 @@ _LLM_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
 _LLM_RATE_LOCK = threading.Lock()
 
 def rate_limiter(request: Request) -> None:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _real_client_ip(request)
     now = time.time()
 
     with _RATE_LOCK:
@@ -47,7 +48,7 @@ def rate_limiter(request: Request) -> None:
         history.append(now)
 
 def _llm_rate_limit(request: Request) -> None:
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _real_client_ip(request)
     now = time.time()
 
     with _LLM_RATE_LOCK:
