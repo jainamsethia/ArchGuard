@@ -65,6 +65,20 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+_MAX_BODY = 1 * 1024 * 1024  # 1 MB — sufficient for all documented payloads
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next: Any) -> Any:
+    """Reject requests whose Content-Length exceeds 1 MB before parsing."""
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _MAX_BODY:
+        return JSONResponse(
+            status_code=413,
+            content={"error": "Request body too large (max 1 MB)"},
+        )
+    return await call_next(request)
+
 _allowed_origins: list[str] = [
     o.strip()
     for o in os.environ.get(
