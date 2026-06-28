@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Annotated
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Query, HTTPException
+from fastapi import FastAPI, Request, Query, HTTPException, Form, Response
 import re as _re
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -195,6 +195,56 @@ async def serve_index(request: Request):
         "index.html",
         {"csp_nonce": getattr(request.state, "csp_nonce", "")}
     )
+
+from archguard.dashboard._cookie_auth import issue_session, revoke_session, COOKIE_NAME as _COOKIE_NAME
+
+
+@app.post("/api/auth/login", include_in_schema=False)
+async def login(response: Response, token: str = Form(...)) -> dict:
+    """Exchange the dashboard token for a session cookie."""
+    import os as _os, hmac as _hmac
+    stored = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
+    if not stored or not _hmac.compare_digest(token, stored):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    cookie_value = issue_session(stored)
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=cookie_value,
+        httponly=True,
+        samesite="strict",
+        secure=_os.environ.get("ENVIRONMENT", "") == "production",
+        max_age=int(_os.environ.get("ARCHGUARD_SESSION_COOKIE_TTL", "86400")),
+        path="/",
+    )
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout", include_in_schema=False)
+async def logout(request: Request, response: Response) -> dict:
+    """Invalidate the current session cookie."""
+    cookie_value = request.cookies.get(_COOKIE_NAME, "")
+    if cookie_value:
+        revoke_session(cookie_value)
+    response.delete_cookie(key=_COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@app.get("/api/auth/status", include_in_schema=False)
+async def auth_status(request: Request) -> dict:
+    """Return whether auth is required and whether the current request is authenticated.
+
+    This endpoint intentionally bypasses check_token so it is always reachable.
+    """
+    import os as _os
+    from archguard.dashboard._cookie_auth import validate_session_cookie
+    stored = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
+    token_required = bool(stored)
+    if not token_required:
+        return {"token_required": False, "authenticated": True}
+    cookie = request.cookies.get(_COOKIE_NAME, "")
+    authenticated = bool(cookie and validate_session_cookie(cookie, stored))
+    return {"token_required": token_required, "authenticated": authenticated}
+
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 

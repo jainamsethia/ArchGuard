@@ -77,27 +77,29 @@ def check_token(
 ) -> None:
     """Enforce authentication for all protected endpoints.
 
-    Priority:
-    1. If ARCHGUARD_DASHBOARD_TOKEN is set, a valid Bearer token is REQUIRED
-       for all requests regardless of source IP. No unauthenticated path exists.
-    2. If no token is set, only requests from localhost / trusted test clients
-       are permitted. Remote access is blocked unless explicitly opted into via
-       ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1 (strongly discouraged).
+    Accepts EITHER:
+    1. Authorization: Bearer <token>  — for CLI / API clients
+    2. archguard_session cookie       — for browser clients (set via /api/auth/login)
 
-    ARCHGUARD_TRUSTED_PROXY_IPS is used only for resolving the real client IP
-    from X-Forwarded-For headers — it does not grant authentication bypass.
+    If ARCHGUARD_DASHBOARD_TOKEN is not set, falls back to IP-based allow/deny.
     """
     token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN")
     if token:
-        if not credentials or not hmac.compare_digest(
-            credentials.credentials, token
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return  # authenticated
+        # Path 1: Bearer token (CLI / API clients)
+        if credentials and hmac.compare_digest(credentials.credentials, token):
+            return  # authenticated via Bearer
+
+        # Path 2: Session cookie (browser clients)
+        from archguard.dashboard._cookie_auth import validate_session_cookie
+        cookie_value = request.cookies.get("archguard_session", "")
+        if cookie_value and validate_session_cookie(cookie_value, token):
+            return  # authenticated via cookie
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # No token configured — fall back to IP-based check
     client_host = _real_client_ip(request)
