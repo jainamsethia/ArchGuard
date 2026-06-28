@@ -20,8 +20,19 @@ async def test_max_commits_over_limit_returns_422():
 
 
 @pytest.mark.asyncio
-async def test_max_commits_at_limit_accepted():
+async def test_max_commits_at_limit_accepted(monkeypatch):
     """Regression for MED-02: max_commits=100 must pass Pydantic validation."""
+    # Mock ArchitectureEvolutionTracker.analyze_history to prevent actual long-running analysis
+    from archguard.evolution.tracker import ArchitectureEvolutionTracker
+    
+    class MockReport:
+        snapshots = []
+        debt_velocity = 0.0
+        trend_direction = "stable"
+        score_range = (0.0, 100.0)
+
+    monkeypatch.setattr(ArchitectureEvolutionTracker, "analyze_history", lambda *args, **kwargs: MockReport())
+    
     # Arrange
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

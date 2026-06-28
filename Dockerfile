@@ -46,6 +46,10 @@ USER archguard
 # The default command starts the web dashboard.
 # To run the CLI instead: docker run archguard archguard analyze --help
 # To start the dashboard explicitly: docker run -p 8000:8000 archguard
+# HEALTHCHECK probes port 8000 — correct for local docker run and docker-compose
+# (port 8000 is always mapped in those contexts). Railway overrides CMD with
+# startCommand and uses its own healthcheckPath setting, so this HEALTHCHECK
+# instruction is ignored in Railway deployments.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 

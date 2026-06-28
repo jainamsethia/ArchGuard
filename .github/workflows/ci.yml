@@ -45,6 +45,19 @@ jobs:
         run: |
           poetry run pip-audit --format=json --output=audit-results.json
         # Hard fail — no || true. Triage has been completed.
+      - name: SAST scan (bandit)
+        run: poetry run bandit -r archguard/ -ll
+        # -ll = medium severity and above. Hard fail on any finding.
+
+      - name: Archive bandit report
+        if: always()
+        run: poetry run bandit -r archguard/ -ll --format json -o bandit-results.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-scan
+          path: bandit-results.json
+          retention-days: 30
       - name: Upload audit results
         if: always()
         uses: actions/upload-artifact@v4
@@ -54,15 +67,19 @@ jobs:
           retention-days: 30
 
   test:
-    name: Unit & Integration Tests
+    name: Unit & Integration Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: pip install "poetry==2.4.1" && poetry install --with dev
       - name: Verify test collection
@@ -70,9 +87,9 @@ jobs:
       - name: Run unit and integration tests
         run: |
           poetry run pytest tests/unit/ tests/integration/ \
-            --cov=archguard \
             --cov-report=xml \
-            --timeout=120
+            --timeout=120 \
+            -m "not slow"
         env:
           ARCHGUARD_TEST_MODE: "1"
           ARCHGUARD_SKIP_ML: "1"

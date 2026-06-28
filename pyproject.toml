@@ -58,7 +58,6 @@ types-PyYAML = "*"
 pip-audit = ">=2.6"
 fastapi = ">=0.100.0"
 build = ">=1.0"
-httpx2 = "^2.4.0"
 bandit = "^1.9.4"
 
 

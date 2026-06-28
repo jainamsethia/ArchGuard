@@ -280,6 +280,29 @@ async def submit_analysis_job(
 )
 async def get_job_status(job_id: str) -> dict[str, Any]:
     """Return the current status, progress, and result of an analysis job."""
+    import os as _os, hmac as _hmac
+    from archguard.dashboard._cookie_auth import validate_session_cookie, COOKIE_NAME
+
+    stored_token = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
+    if stored_token:
+        # Try session cookie first (browser EventSource sends cookies automatically)
+        cookie = request.cookies.get(COOKIE_NAME, "")
+        cookie_ok = bool(cookie and validate_session_cookie(cookie, stored_token))
+
+        # Fallback: ?token=<bearer> for non-browser SSE clients
+        qs_token = request.query_params.get("token", "")
+        # Use str compare_digest!
+        qs_ok = False
+        if qs_token:
+            qs_ok = _hmac.compare_digest(qs_token.encode(), stored_token.encode())
+
+        if not cookie_ok and not qs_ok:
+            from fastapi import status as _status
+            raise HTTPException(
+                status_code=_status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing token",
+            )
+
     from archguard.dashboard.job_manager import job_manager, JobStatus
 
     job = job_manager.get_job(job_id)
@@ -343,7 +366,7 @@ async def list_jobs() -> dict[str, Any]:
 @app.get(
     "/api/jobs/{job_id}/stream",
     response_class=StreamingResponse,
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    dependencies=[Depends(rate_limiter)],
     summary="Stream analysis progress as Server-Sent Events",
 )
 async def stream_job_progress(job_id: str, request: Request) -> StreamingResponse:
@@ -359,6 +382,24 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
     The stream ends automatically when the job reaches COMPLETE or FAILED status.
     If the client disconnects, the stream stops but the background job continues.
     """
+    import os as _os, hmac as _hmac
+    from archguard.dashboard._cookie_auth import validate_session_cookie, COOKIE_NAME
+
+    stored_token = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
+    if stored_token:
+        cookie = request.cookies.get(COOKIE_NAME, "")
+        cookie_ok = bool(cookie and validate_session_cookie(cookie, stored_token))
+        qs_token = request.query_params.get("token", "")
+        qs_ok = False
+        if qs_token:
+            qs_ok = _hmac.compare_digest(qs_token.encode(), stored_token.encode())
+        if not cookie_ok and not qs_ok:
+            from fastapi import status as _status
+            raise HTTPException(
+                status_code=_status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing token",
+            )
+
     from archguard.dashboard.job_manager import job_manager, JobStatus
 
     job = job_manager.get_job(job_id)

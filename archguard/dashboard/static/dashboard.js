@@ -7,6 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById('gen-id-click-136b5c30').addEventListener('click', function(event) { document.getElementById('evolution-trends-grid').scrollIntoView({behavior: 'smooth'}) });
     document.getElementById('gen-id-click-d33f8140').addEventListener('click', function(event) { switchTab('overview') });
     document.getElementById('gen-id-click-963abe3f').addEventListener('click', function(event) { switchTab('violations') });
+    document.getElementById('gen-id-click-deps').addEventListener('click', function(event) { switchTab('dependencies') });
     document.getElementById('start-evolution-btn').addEventListener('click', function(event) { startEvolutionAnalysis() });
     document.getElementById('scan-deps-btn').addEventListener('click', function(event) { scanDependencies() });
     document.getElementById('advisor-question-input').addEventListener('keydown', function(event) { if(event.key==='Enter') sendAdvisorQuestion() });
@@ -45,6 +46,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 return await resp.json();
             } catch (e) {
                 console.warn(`[dashboard] ${url} failed:`, e.message);
+                // Replace any remaining skeleton placeholders with '--' and mark as errored
+                document.querySelectorAll('.skeleton').forEach(el => {
+                    el.classList.remove('skeleton');
+                    el.textContent = '--';
+                    el.title = `Failed to load: ${e.message}`;
+                });
                 return fallback;
             }
         }
@@ -127,6 +134,55 @@ document.addEventListener("DOMContentLoaded", () => {
             } finally {
                 document.getElementById('refresh-loader').style.display = 'none';
             }
+        }
+
+        async function initDependencyGraph() {
+            if (window._visNet) {
+                window._visNet.redraw();
+                window._visNet.fit();
+                return;
+            }
+            const container = document.getElementById('dep-graph-container');
+            if (!container) return;
+
+            container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">Loading dependency data\u2026</div>';
+
+            const jobQuery = window._jobQuery || '';
+            let modulesData;
+            try {
+                const res = await fetch(`/api/modules${jobQuery}`);
+                modulesData = res.ok ? await res.json() : null;
+            } catch (e) {
+                container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">Could not load dependency data.</div>';
+                return;
+            }
+
+            if (!modulesData || !modulesData.modules || Object.keys(modulesData.modules).length === 0) {
+                container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">No module data available. Run an analysis to see the dependency graph.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+
+            const modules = modulesData.modules;
+            const nodes = Object.entries(modules).map(([name, score], i) => ({
+                id: i,
+                label: name.split('.').pop(),
+                title: `${name}\nScore: ${score}`,
+                value: Math.max(10, (score || 0) * 2),
+                color: score > 70 ? '#34d399' : score > 40 ? '#f59e0b' : '#ef4444',
+            }));
+
+            const data = {
+                nodes: new vis.DataSet(nodes),
+                edges: new vis.DataSet([]),
+            };
+            const options = {
+                nodes: { shape: 'dot', font: { color: '#94a3b8', size: 12 } },
+                edges: { color: { color: 'rgba(255,255,255,0.15)' } },
+                physics: { stabilization: { iterations: 100 } },
+            };
+            window._visNet = new vis.Network(container, data, options);
         }
 
         function updateMetrics(latestRun) {
@@ -464,8 +520,8 @@ document.addEventListener("DOMContentLoaded", () => {
             
             history.pushState({}, '', window.location.search + `#${name}`);
             
-            if (name === 'dependencies' && window._visNet) {
-                window._visNet.redraw();
+            if (name === 'dependencies') {
+                initDependencyGraph();
             }
         }
 

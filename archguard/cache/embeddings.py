@@ -183,7 +183,7 @@ class EmbeddingCache:
         try:
             placeholders = ",".join("?" * len(lookup_keys))
             query = (
-                f"SELECT file_path || '::' || function_name, content_hash, embedding "
+                f"SELECT file_path || '::' || function_name, content_hash, embedding "  # nosec B608
                 f"FROM embeddings "
                 f"WHERE file_path || '::' || function_name IN ({placeholders})"
             )

@@ -28,6 +28,24 @@ def _installed_version() -> str:
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
 
+async def _periodic_workspace_cleanup() -> None:
+    """Remove stale workspaces every 15 minutes as defense-in-depth for crash scenarios."""
+    import asyncio as _asyncio
+    from archguard.dashboard.workspace import cleanup_stale_workspaces
+    while True:
+        await _asyncio.sleep(900)  # 15 minutes
+        try:
+            removed = await cleanup_stale_workspaces(max_age_seconds=900)
+            if removed:
+                _startup_logger.info(
+                    "Periodic cleanup: removed %d stale workspace(s)", removed
+                )
+        except Exception as exc:
+            _startup_logger.warning(
+                "Periodic workspace cleanup error (non-fatal): %s", exc
+            )
+
+
 @asynccontextmanager
 async def _lifespan(app_instance: FastAPI) -> Any:
     _startup_logger = logging.getLogger("archguard.startup")
@@ -46,6 +64,8 @@ async def _lifespan(app_instance: FastAPI) -> Any:
         removed = await cleanup_stale_workspaces(max_age_seconds=3600)
         if removed:
             _startup_logger.info("Removed %d stale workspace(s) on startup", removed)
+        import asyncio as _asyncio
+        _asyncio.create_task(_periodic_workspace_cleanup())
     except Exception as exc:
         _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
 

@@ -158,6 +158,40 @@
             }
         }
 
+        @media (max-width: 480px) {
+            /* Stack header controls vertically */
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.75rem;
+                padding: 1rem;
+            }
+
+            /* Shrink metric values to prevent overflow */
+            .metric-value {
+                font-size: 1.5rem !important;
+            }
+
+            /* Tab bar becomes horizontally scrollable */
+            .tabs-nav {
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .tabs-nav::-webkit-scrollbar { display: none; }
+
+            /* Cards get full-width padding */
+            .glass-card {
+                padding: 1rem;
+            }
+
+            /* Charts get a fixed height rather than aspect-ratio */
+            .chart-wrapper {
+                height: 220px;
+            }
+        }
+
         .chart-wrapper {
             position: relative;
             height: 300px;
@@ -339,9 +373,32 @@
         }
         
         .chip-pass { background-color: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+        /* Skeleton shimmer loading state */
+        @keyframes shimmer {
+            0%   { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .skeleton {
+            background: linear-gradient(
+                90deg,
+                rgba(255,255,255,0.05) 25%,
+                rgba(255,255,255,0.12) 50%,
+                rgba(255,255,255,0.05) 75%
+            );
+            background-size: 800px 100%;
+            animation: shimmer 1.4s infinite linear;
+            border-radius: 4px;
+            min-height: 1em;
+            min-width: 4ch;
+            display: inline-block;
+            color: transparent;
+        }
     </style>
 <!-- Local Chart.js -->
 <script src="/vendor/chart.umd.min.js"></script>
+<!-- vis-network for dependency graph panel -->
+<script src="/vendor/vis-network.min.js"></script>
 </head>
 <body>
 
@@ -400,99 +457,100 @@ async function doLogin(event) {
 <div>
 <h1>ArchGuard Dashboard</h1>
 <div class="chips-container">
-<span class="chip chip-pass gen-style-1" id="gen-id-click-9273a72d">Fitness</span>
-<span class="chip chip-pass gen-style-1" id="gen-id-click-e936a072">AI Advisor</span>
-<span class="chip chip-pass gen-style-1" id="gen-id-click-136b5c30">Evolution</span>
+<span class="chip chip-pass clickable" id="gen-id-click-9273a72d">Fitness</span>
+<span class="chip chip-pass clickable" id="gen-id-click-e936a072">AI Advisor</span>
+<span class="chip chip-pass clickable" id="gen-id-click-136b5c30">Evolution</span>
 </div>
 </div>
 <div class="refresh-status">
 <span id="last-updated">Last updated: Just now</span>
-<div class="loader gen-style-2" id="refresh-loader"></div>
+<div class="loader hidden" id="refresh-loader"></div>
 </div>
 </div>
 <div class="metrics-grid">
 <div class="glass-card">
 <div class="metric-title">Current ArchDebt Score</div>
-<div class="metric-value" id="current-score">--</div>
+<div class="metric-value" id="current-score"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
 <div class="metric-title">Health Band</div>
-<div class="metric-value gen-style-3" id="current-band">--</div>
+<div class="metric-value text-metric-lg" id="current-band"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
 <div class="metric-title">Active Violations</div>
-<div class="metric-value" id="active-violations">--</div>
+<div class="metric-value" id="active-violations"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 </div>
 <div class="tablist" role="tablist">
 <button aria-controls="overview" aria-selected="true" class="tab" id="gen-id-click-d33f8140" role="tab">Overview</button>
 <button aria-controls="violations" aria-selected="false" class="tab" id="gen-id-click-963abe3f" role="tab">Violations</button>
+<button aria-controls="dependencies" aria-selected="false" class="tab" id="gen-id-click-deps" role="tab">Dependencies</button>
 </div>
 <div class="tab-panel-main active" id="overview" role="tabpanel">
-<div class="glass-card gen-style-4">
-<h2 class="gen-style-5">Overall Trend</h2>
+<div class="glass-card card-section">
+<h2 class="text-section-title">Overall Trend</h2>
 <div class="chart-wrapper">
 <canvas id="trendChart"></canvas>
 </div>
 </div>
-<div class="glass-card gen-style-4">
-<h2 class="gen-style-5">Architecture Fitness</h2>
+<div class="glass-card card-section">
+<h2 class="text-section-title">Architecture Fitness</h2>
 <div id="fitness-container">
-<div class="gen-style-6">Loading...</div>
+<div class="text-placeholder">Loading...</div>
 </div>
 </div>
 <!-- Moved Phase 3 Content into Overview -->
-<h2 class="gen-style-5">Evolution Trends</h2>
+<h2 class="text-section-title">Evolution Trends</h2>
 <div class="metrics-grid" id="evolution-trends-grid">
 <div class="glass-card">
 <div class="metric-title">Health Trend</div>
-<div class="metric-value gen-style-7" id="trend-health-val">--</div>
-<div class="gen-style-8" id="trend-health-status">--</div>
+<div class="metric-value text-metric-md" id="trend-health-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="text-label" id="trend-health-status">--</div>
 </div>
 <div class="glass-card">
 <div class="metric-title">Debt Trend</div>
-<div class="metric-value gen-style-7" id="trend-debt-val">--</div>
-<div class="gen-style-8" id="trend-debt-status">--</div>
+<div class="metric-value text-metric-md" id="trend-debt-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="text-label" id="trend-debt-status">--</div>
 </div>
 <div class="glass-card">
 <div class="metric-title">Violations Trend</div>
-<div class="metric-value gen-style-7" id="trend-violation-val">--</div>
-<div class="gen-style-8" id="trend-violation-status">--</div>
+<div class="metric-value text-metric-md" id="trend-violation-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="text-label" id="trend-violation-status">--</div>
 </div>
 <div class="glass-card">
 <div class="metric-title">Fitness Trend</div>
-<div class="metric-value gen-style-7" id="trend-fitness-val">--</div>
-<div class="gen-style-8" id="trend-fitness-status">--</div>
+<div class="metric-value text-metric-md" id="trend-fitness-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="text-label" id="trend-fitness-status">--</div>
 </div>
 </div>
-<h2 class="gen-style-5">Historical Evolution Analysis</h2>
-<div class="glass-card gen-style-4">
-<div class="gen-style-9">
+<h2 class="text-section-title">Historical Evolution Analysis</h2>
+<div class="glass-card card-section">
+<div class="row-between">
 <div>
 <div class="metric-title">Debt Velocity</div>
-<div class="metric-value gen-style-3" id="debt_velocity">--</div>
-<div class="gen-style-10" id="trend_direction">--</div>
+<div class="metric-value text-metric-lg" id="debt_velocity"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="text-label-muted" id="trend_direction"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
-<div class="gen-style-11">
-<div class="metric-title gen-style-12">Commits Analyzed: <span id="evo-commits-count">0</span></div>
-<button class="gen-style-13" id="start-evolution-btn">Analyze Git History</button>
+<div class="align-right">
+<div class="metric-title card-section-half">Commits Analyzed: <span id="evo-commits-count">0</span></div>
+<button class="btn-action" id="start-evolution-btn">Analyze Git History</button>
 </div>
 </div>
 <div class="chart-wrapper">
 <canvas id="evolutionChart"></canvas>
 </div>
 </div>
-<h2 class="gen-style-5">Dependency Health</h2>
-<div class="glass-card gen-style-4">
-<div class="gen-style-9">
+<h2 class="text-section-title">Dependency Health</h2>
+<div class="glass-card card-section">
+<div class="row-between">
 <div>
 <div class="metric-title">Dependency Score</div>
-<div class="metric-value gen-style-3" id="deps-score">--</div>
+<div class="metric-value text-metric-lg" id="deps-score"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
-<button class="gen-style-13" id="scan-deps-btn">Scan Dependencies</button>
+<button class="btn-action" id="scan-deps-btn">Scan Dependencies</button>
 </div>
-<div class="gen-style-14" id="deps-status">Click "Scan Dependencies" to run pip-audit.</div>
-<div class="table-container gen-style-2" id="deps-table-container">
+<div class="text-helper" id="deps-status">Click "Scan Dependencies" to run pip-audit.</div>
+<div class="table-container hidden" id="deps-table-container">
 <table id="depsTable">
 <thead>
 <tr>
@@ -509,30 +567,30 @@ async function doLogin(event) {
 </div>
 </div>
 <!-- Advisor Panel (Step 14) -->
-<div class="glass-card gen-style-4" id="advisor-panel">
-<h2 class="gen-style-5">AI Advisor</h2>
-<div class="gen-style-15">
-<input class="gen-style-16" id="advisor-question-input" placeholder="Ask an architecture question..." type="text"/>
-<button class="gen-style-17" id="gen-id-click-1e6913c1">Ask</button>
+<div class="glass-card card-section" id="advisor-panel">
+<h2 class="text-section-title">AI Advisor</h2>
+<div class="row-gap">
+<input class="input-text" id="advisor-question-input" placeholder="Ask an architecture question..." type="text"/>
+<button class="btn-action-lg" id="gen-id-click-1e6913c1">Ask</button>
 </div>
-<div class="gen-style-18" id="advisor-response">
+<div class="prose-response" id="advisor-response">
                     Ask a question about your architecture to get AI-driven advice.
                 </div>
 </div>
 <!-- Remediation Panel (Step 17) -->
-<div class="glass-card gen-style-4" id="remediation-panel">
-<div class="gen-style-9">
-<h2 class="gen-style-19">Remediation Plan</h2>
-<button class="gen-style-20" id="remediation-btn">Generate Plan</button>
+<div class="glass-card card-section" id="remediation-panel">
+<div class="row-between">
+<h2 class="text-section-title-flush">Remediation Plan</h2>
+<button class="btn-action" id="remediation-btn">Generate Plan</button>
 </div>
-<div class="gen-style-21" id="remediation-results">
+<div class="text-helper" id="remediation-results">
                     Click "Generate Plan" to create an AI-driven remediation plan from your latest violations.
                 </div>
 </div>
 </div>
 <div class="tab-panel-main" id="violations" role="tabpanel">
-<div class="glass-card gen-style-4">
-<h2 class="gen-style-5">Recent Violations</h2>
+<div class="glass-card card-section">
+<h2 class="text-section-title">Recent Violations</h2>
 <div class="table-container">
 <table id="violationsTable">
 <thead>
@@ -544,16 +602,28 @@ async function doLogin(event) {
 </tr>
 </thead>
 <tbody>
-<tr><td class="gen-style-22" colspan="4">Loading...</td></tr>
+<tr><td class="text-helper-center" colspan="4">Loading...</td></tr>
 </tbody>
 </table>
 </div>
 </div>
-<div class="glass-card gen-style-4">
-<h2 class="gen-style-5">Modules</h2>
+<div class="glass-card card-section">
+<h2 class="text-section-title">Modules</h2>
 <div class="chart-wrapper">
 <canvas id="moduleChart"></canvas>
 </div>
+</div>
+</div>
+<div class="tab-panel-main" id="dependencies" role="tabpanel">
+<div class="glass-card card-section">
+  <h2 class="text-section-title">Dependency Graph</h2>
+  <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1rem;">
+    Module-level import dependency graph. Node size represents coupling score.
+  </p>
+  <div id="dep-graph-container"
+       style="width:100%; height:480px; background:rgba(255,255,255,0.02);
+              border-radius:8px; border:1px solid var(--border-color);">
+  </div>
 </div>
 </div>
 </div>

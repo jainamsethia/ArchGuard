@@ -1,5 +1,40 @@
 # Changelog
 
+## v1.0.0 — 2026-06-29
+
+### Critical fixes
+- CRIT-01: Added session-cookie authentication for browser clients. Web UI is now fully functional with ARCHGUARD_DASHBOARD_TOKEN set.
+- CRIT-02: SSE stream endpoint now validates session cookies. EventSource connections from the browser no longer receive HTTP 401.
+
+### Security hardening
+- HIGH-01: Rate limiter now reads real client IP via X-Forwarded-For when ARCHGUARD_TRUSTED_PROXY_IPS is configured.
+- HIGH-02: job_id query parameters now require UUID format (hex/hyphen, 36–64 chars); path traversal inputs return HTTP 422.
+- MED-02: max_commits capped at 100 via Pydantic Field(le=100); values above 100 return HTTP 422.
+- MED-03: Added 1 MB request body size limit middleware; oversized payloads return HTTP 413.
+
+### Backend reliability
+- MED-01: Analysis workspace directories are now deleted immediately after job completion (keep_alive=False).
+- IMPROVEMENT-02: Periodic 15-minute background task removes any crash-orphaned workspace directories.
+
+### Web flow
+- LOW-01: Dependency graph panel now renders using vis-network (vendor asset was present but never loaded).
+- IMPROVEMENT-03: Analysis submission page falls back to polling if SSE stream fails within 3 seconds.
+
+### UI/UX
+- LOW-02: Metric panels now show animated CSS skeleton shimmers while data loads.
+- LOW-03: CSS class names replaced from machine-generated gen-style-N to semantic names; three duplicate button rules consolidated.
+- LOW-04: Added 480px mobile breakpoint to dashboard and index pages; usable at 375px viewport.
+
+### Deployment & CI
+- LOW-05: CI test matrix now covers Python 3.11 and 3.12.
+- LOW-06: Coverage threshold of 80% enforced; CI fails if coverage drops below this.
+- LOW-07: bandit SAST scan added to CI security job.
+- Removed dead httpx2 dev dependency from pyproject.toml.
+- Added clarifying comment to Dockerfile HEALTHCHECK regarding Railway port behavior.
+
+### Performance baseline
+- octocat/Hello-World analysis: 3.04 seconds wall-clock on 2026-06-29.
+
 ## [0.4.0] — Unreleased
 
 ### Security (added by this guide)

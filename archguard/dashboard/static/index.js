@@ -121,8 +121,54 @@
 
                 // Connect to SSE stream
                 const evtSource = new EventSource(`/api/jobs/${jobId}/stream`);
-                
+
+                let seenMessages = 0;
+                let pollingFallback = null;
+                let reconnectAttempts = 0;
+                const MAX_RECONNECT = 3;
+
+                function startPollingFallback(jobId) {
+                    if (pollingFallback) return;
+                    appendLog('SSE unavailable. Switching to polling mode\u2026', 'warn');
+                    pollingFallback = setInterval(async () => {
+                        try {
+                            const r = await fetch(`/api/jobs/${jobId}`);
+                            if (!r.ok) return;
+                            const job = await r.json();
+
+                            const msgs = job.progress || job.progress_messages || [];
+                            for (let i = seenMessages; i < msgs.length; i++) {
+                                appendLog(msgs[i]);
+                            }
+                            seenMessages = msgs.length;
+
+                            if (job.status === 'complete') {
+                                clearInterval(pollingFallback);
+                                appendLog('Pipeline finished. Generating dashboard\u2026', 'system');
+                                setTimeout(() => {
+                                    window.location.href = `dashboard.html?job_id=${encodeURIComponent(jobId)}`;
+                                }, 1500);
+                            } else if (job.status === 'failed') {
+                                clearInterval(pollingFallback);
+                                appendLog(`ERROR: ${job.error || 'Analysis failed.'}`, 'error');
+                                resetSubmitButton();
+                            }
+                        } catch (e) {
+                            appendLog('Polling error: ' + e.message, 'error');
+                        }
+                    }, 1500);
+                }
+
+                // If no SSE message arrives within 3 seconds of opening the stream, switch to polling
+                const sseTimeoutId = setTimeout(() => {
+                    if (reconnectAttempts === 0 && !pollingFallback) {
+                        evtSource.close();
+                        startPollingFallback(jobId);
+                    }
+                }, 3000);
+
                 evtSource.onmessage = function(event) {
+                    clearTimeout(sseTimeoutId);
                     const payload = JSON.parse(event.data);
                     
                     if (payload.type === 'progress') {
@@ -167,28 +213,15 @@
                     }
                 };
 
-                let reconnectAttempts = 0;
-                const MAX_RECONNECT = 5;
-                evtSource.onerror = async function(err) {
+                evtSource.onerror = function(err) {
                     reconnectAttempts++;
                     if (reconnectAttempts >= MAX_RECONNECT) {
+                        clearTimeout(sseTimeoutId);
                         evtSource.close();
-                        appendLog('Connection failed. Checking job status...', 'error');
-                        try {
-                            const res = await fetch(`/api/jobs/${jobId}`);
-                            if (!res.ok) throw new Error();
-                            const job = await res.json();
-                            if (job.status === 'FAILED') {
-                                appendLog(`Analysis failed: ${job.error || 'Unknown error.'}`, 'error');
-                                resetSubmitButton();
-                            }
-                        } catch (e) {
-                            appendLog('Could not retrieve job status. Please try again.', 'error');
-                        }
-                        resetSubmitButton();
+                        startPollingFallback(jobId);
                         return;
                     }
-                    appendLog(`Stream lost. Retrying (${reconnectAttempts}/${MAX_RECONNECT})...`, 'warn');
+                    appendLog(`Stream lost. Retrying (${reconnectAttempts}/${MAX_RECONNECT})\u2026`, 'warn');
                 };
 
             } catch (err) {
