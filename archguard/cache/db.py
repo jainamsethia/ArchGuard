@@ -74,7 +74,7 @@ def _open_connection(db_path: Path) -> sqlite3.Connection:
         conn.execute("PRAGMA synchronous=NORMAL")
         return conn
     except sqlite3.DatabaseError:
-        # DB is corrupted — back it up and start fresh
+        # DB is corrupted - back it up and start fresh
         backup_path = db_path.with_suffix(".corrupt.db")
         try:
             shutil.move(str(db_path), str(backup_path))

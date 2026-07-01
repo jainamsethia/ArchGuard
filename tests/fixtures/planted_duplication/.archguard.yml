@@ -1,0 +1,12 @@
+fail_threshold: 0.75
+generated_at: '2026-07-01T17:32:41.012777+00:00'
+generated_by: archguard init
+model_weights_version: 2026-Q3
+modules:
+- coupling_budget: 3
+  fan_out_at_init: 0
+  name: misc
+  path: ./
+  semantic_drift_threshold: 0.25
+version: '3.0'
+warn_threshold: 0.5

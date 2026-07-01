@@ -68,7 +68,7 @@ def write_contract(
 
     Atomic write strategy:
       1. Write to a temp file in the same directory.
-      2. ``os.replace(tmp, output_path)`` — atomic on POSIX.
+      2. ``os.replace(tmp, output_path)`` - atomic on POSIX.
     """
     from archguard.contract.validator import validate_contract
 

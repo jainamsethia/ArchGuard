@@ -40,7 +40,7 @@ def validate_repo_path(path: str | Path) -> Path:
     Raises PathTraversalError for any violation. This function intentionally
     does NOT restrict the resolved path to a single project root, because
     legitimate ArchGuard usage analyzes arbitrary repositories supplied by the
-    caller (e.g. CI checkouts, monorepo subdirectories) — it only guarantees
+    caller (e.g. CI checkouts, monorepo subdirectories) - it only guarantees
     the result is a real directory outside the sensitive-system denylist.
     """
     raw = str(path)

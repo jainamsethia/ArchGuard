@@ -26,11 +26,12 @@ class AnalysisEventHandler(FileSystemEventHandler):
             self._debounce_timer.cancel()
         # Debounce: wait 500ms after last change before re-running
         self._debounce_timer = threading.Timer(0.5, self._run_analysis)
+        self._debounce_timer.daemon = True
         self._debounce_timer.start()
 
     def _run_analysis(self) -> None:
         """Run analysis on file changes and report the ArchDebt delta."""
-        self.console.rule("[bold blue]File changed — re-analyzing...[/bold blue]")
+        self.console.rule("[bold blue]File changed - re-analyzing...[/bold blue]")
         exit_code, result = _analyze_command_impl(self.opts)
         if result is not None:
             new_score = result.archdebt.composite_score

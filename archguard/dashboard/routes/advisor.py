@@ -1,5 +1,5 @@
 """AI Advisor session endpoints (OpenAI-backed) and the streaming ask endpoint
-(Anthropic-backed) — two different LLM providers, kept together because both
+(Anthropic-backed) - two different LLM providers, kept together because both
 serve the dashboard's single Advisor UI panel."""
 
 import uuid
@@ -22,9 +22,9 @@ from archguard.llm.advisor import ArchitectureAdvisor
 
 MAX_HISTORY_TURNS = 20  # cap on conversation turns serialised into each LLM prompt
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Advisor session models
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 
 class AdvisorMessageRequest(BaseModel):
@@ -69,9 +69,9 @@ class AdvisorAskRequest(BaseModel):
     context: str = Field("", max_length=10000, description="Optional context from analysis results (max 10000 chars)")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Advisor endpoints
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 
 @app.post(
@@ -88,15 +88,19 @@ def create_advisor_session(limit: int = Query(default=20, ge=1, le=500), job_id:
     advisor = _build_advisor()
     try:
         recs = advisor.analyze(runs)
+        error_msg = None
     except Exception as exc:
         logging.warning("Advisor analysis failed: %s", exc)
         recs = []
+        error_msg = str(exc)
 
     session_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
     # Seed conversation history with a system-level summary
-    if recs:
+    if error_msg:
+        system_msg = f"Advisor unavailable: {error_msg}"
+    elif recs:
         system_msg = (
             f"I have analysed {len(runs)} recent ArchGuard run(s) and found "
             f"{len(recs)} prioritised recommendation(s). The top recommendation is: "
@@ -105,7 +109,7 @@ def create_advisor_session(limit: int = Query(default=20, ge=1, le=500), job_id:
     else:
         system_msg = (
             "I have analysed the ArchGuard history. "
-            "No recommendations were generated — the codebase looks healthy, "
+            "No recommendations were generated - the codebase looks healthy, "
             "or there is not enough audit data yet."
         )
 
@@ -202,7 +206,7 @@ def advisor_message(
             reply = "I'm unable to generate advice for that question at this time."
     except Exception as exc:
         logging.warning("Advisor follow-up failed: %s", exc)
-        reply = "Provider error — please try again later."
+        reply = f"Provider error: {exc}"
 
     new_history = history + [
         {"role": "user", "content": user_msg},
@@ -242,7 +246,7 @@ def advisor_ask_stream(body: AdvisorAskRequest) -> StreamingResponse:
         )
 
     advisor = ArchitectureAdvisor.__new__(ArchitectureAdvisor)
-    # ask_stream() does not use self.provider — it talks to Anthropic directly.
+    # ask_stream() does not use self.provider - it talks to Anthropic directly.
     # We skip provider construction entirely to avoid coupling.
 
     def _sse_generator() -> Generator[str, None, None]:

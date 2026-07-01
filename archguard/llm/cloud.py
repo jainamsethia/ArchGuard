@@ -1,4 +1,4 @@
-"""Anthropic SDK cloud LLM explainer — primary + fallback model."""
+"""Anthropic SDK cloud LLM explainer - primary + fallback model."""
 
 from __future__ import annotations
 
@@ -98,6 +98,12 @@ class CloudLLMExplainer:
         if not result.violations:
             return LLMExplanationResult()
 
+        if not _ANTHROPIC_AVAILABLE:
+            return LLMExplanationResult(
+                unavailable=True,
+                failure_reason='Intelligence layer skipped: install with pip install -e ".[cloud]"'
+            )
+
         safe_violations = self._redact_violations(result.violations)
         summary = build_contract_summary(contract)
 
@@ -126,8 +132,8 @@ class CloudLLMExplainer:
                     model_used = model
                     chunk_success = True
                     break
-                except LLMError as err:
-                    logger.warning("LLMError: %s (cause: %s)", err.message, err.cause)
+                except Exception as err:
+                    logger.warning("LLMError: %s", getattr(err, 'message', str(err)))
                     continue
 
             if not chunk_success:
@@ -145,7 +151,7 @@ class CloudLLMExplainer:
                             single_exps = parse_llm_response(s_resp, 1)
                             all_explanations.extend(single_exps)
                             break
-                        except LLMError:
+                        except Exception:
                             continue
                     if not single_success:
                         all_explanations.append("Explanation unavailable.")
@@ -206,19 +212,24 @@ class CloudLLMExplainer:
 
         if not _ANTHROPIC_AVAILABLE:
             raise RuntimeError(
-                "The Anthropic SDK is not installed. Run: pip install archguard[cloud]"
+                "The Anthropic SDK is not installed. Run: pip install -e \".[cloud]\""
             )
+
+        if not self._api_key and os.getenv("ARCHGUARD_MOCK_LLM") != "1":
+            # Just return a clear explanation unavailable for each violation instead of crashing
+            return ["Explanation unavailable (ANTHROPIC_API_KEY not set)"] * len(violations)
 
         summary = build_contract_summary(contract)
         safe_violations = self._redact_violations(violations)
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def explain_one(violation: ViolationDetail) -> str:
+            prompt = build_violation_prompt([violation], summary, changed_files)
             if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
+                print(f"--- MOCK LLM PROMPT ---\n{prompt}\n--- END MOCK LLM PROMPT ---")
                 return "Mock LLM explanation for testing"
             async with semaphore:
                 # Use anthropic's async client
-                prompt = build_violation_prompt([violation], summary, changed_files)
                 async with anthropic.AsyncAnthropic(api_key=self._api_key) as client:
                     response = await client.messages.create(
                         model=FALLBACK_MODEL,  # Use fallback model for explanations
@@ -241,32 +252,17 @@ class CloudLLMExplainer:
             return "Mock LLM explanation for testing", "end_turn"
         if not _ANTHROPIC_AVAILABLE:
             raise RuntimeError(
-                "The Anthropic SDK is not installed. Run: pip install archguard[cloud]"
+                "The Anthropic SDK is not installed. Run: pip install -e \".[cloud]\""
             )
 
-        try:
-            client: Any = anthropic.Anthropic(api_key=self._api_key)
-            message: Any = client.messages.create(
-                model=model,
-                max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return str(message.content[0].text), str(message.stop_reason)
-        except Exception as e:
-            if (
-                getattr(e, "__class__", None)
-                and e.__class__.__name__ == "RateLimitError"
-            ):
-                logger.warning(
-                    "Rate limit reached. Consider reducing --max-violations or running with --skip-explanation"
-                )
-                from archguard.utils.errors import LLMError
-
-                raise LLMError("Rate limit reached", cause=e) from e
-            from archguard.utils.errors import LLMError
-
-            raise LLMError(f"LLM call to {model} failed", cause=e) from e
+        client: Any = anthropic.Anthropic(api_key=self._api_key)
+        message: Any = client.messages.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return str(message.content[0].text), str(message.stop_reason)
 
     def _redact_violations(
         self,

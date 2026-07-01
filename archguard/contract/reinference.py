@@ -35,7 +35,7 @@ class ContractProposal:
     proposed_drift_threshold: float
     proposed_coupling_budget: int
     semantic_drift_score: float
-    proposal_timestamp: str  # ISO8601 UTC — governs staleness
+    proposal_timestamp: str  # ISO8601 UTC - governs staleness
     source_commit: str
 
 

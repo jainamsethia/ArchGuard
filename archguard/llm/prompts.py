@@ -74,7 +74,9 @@ def build_violation_prompt(
     )
     lines.append("Number your responses to match the violation numbers above.")
 
-    return "\n".join(lines)
+    raw_prompt = "\n".join(lines)
+    from archguard.utils.content_filter import redact_secrets
+    return redact_secrets(raw_prompt).text
 
 
 def parse_llm_response(response_text: str, violation_count: int) -> list[str]:
@@ -90,7 +92,7 @@ def parse_llm_response(response_text: str, violation_count: int) -> list[str]:
     items = [s.strip() for s in splits[1:] if s.strip()]
 
     if not items:
-        # Response isn't numbered — duplicate entire text for each violation
+        # Response isn't numbered - duplicate entire text for each violation
         return [response_text.strip()] * violation_count
 
     # Pad if fewer

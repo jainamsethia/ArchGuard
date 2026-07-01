@@ -1,4 +1,4 @@
-"""archguard init — full 5-phase onboarding wizard."""
+"""archguard init - full 5-phase onboarding wizard."""
 
 from __future__ import annotations
 
@@ -67,6 +67,16 @@ def init_command(
         "--llm-init",
         help="Use Claude to generate contract from code structure (requires ANTHROPIC_API_KEY)",
     ),
+    wizard: bool = typer.Option(
+        False,
+        "--wizard",
+        help="Run interactive onboarding wizard (same as init without --confirm-all).",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing .archguard.yml without prompting.",
+    ),
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     try:
@@ -111,6 +121,8 @@ def init_command(
                     min_history_commits=min_history_commits,
                     monorepo=False,
                     llm_init=llm_init,
+                    wizard=wizard,
+                    force=force,
                 )
             except typer.Exit as e:
                 if e.exit_code != 0:
@@ -135,5 +147,7 @@ def init_command(
         no_llm=no_llm,
         min_history_commits=min_history_commits,
         llm_init=llm_init,
+        wizard=wizard,
+        force=force,
         _console=_console,
     )

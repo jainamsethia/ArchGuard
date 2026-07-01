@@ -1,0 +1,18 @@
+version: '3.0'
+weights:
+  layer1: 0.0
+  layer2: 1.0
+  layer3: 0.0
+  layer4: 0.0
+modules:
+- name: core
+  path: core/
+  coupling_budget: 3
+- name: a
+  path: a/
+- name: b
+  path: b/
+- name: c
+  path: c/
+- name: d
+  path: d/

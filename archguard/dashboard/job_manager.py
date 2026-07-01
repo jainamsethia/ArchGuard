@@ -102,18 +102,18 @@ class JobManager:
         semaphore = await self._ensure_semaphore()
         async with semaphore:
             try:
-                # ── Clone phase ────────────────────────────────────────
+                # -- Clone phase ----------------------------------------
                 job.status = JobStatus.CLONING
-                await send_progress(f"Cloning {job.github_url}…")
+                await send_progress(f"Cloning {job.github_url}...")
 
-                # Reconstruct safe URL from validated parts — never clone raw user input
+                # Reconstruct safe URL from validated parts - never clone raw user input
                 _owner, _repo_name = parse_github_url(job.github_url)
                 clone_url = build_safe_clone_url(_owner, _repo_name)
 
                 async with temp_workspace(clone_url, job_id=job.id, keep_alive=False) as repo_path:
-                    # ── Analysis phase ─────────────────────────────────
+                    # -- Analysis phase ---------------------------------
                     job.status = JobStatus.ANALYSING
-                    await send_progress("Repository cloned. Starting analysis…")
+                    await send_progress("Repository cloned. Starting analysis...")
 
                     result = await run_analysis_on_repo(
                         repo_path=repo_path,
@@ -123,7 +123,7 @@ class JobManager:
                         skip_explanation=True,   # LLM explanation skipped by default for speed
                     )
 
-                    # ── Merge temporary run into global dashboard ──────
+                    # -- Merge temporary run into global dashboard ------
                     from archguard.dashboard.app import get_audit_path
                     import json
                     source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
@@ -137,6 +137,7 @@ class JobManager:
                                     last_run = json.loads(lines[-1])
                                     last_run["project_name"] = job.github_url.split("/")[-1].replace(".git", "")
                                     last_run["repo_url"] = job.github_url
+                                    last_run["job_id"] = job.id
                                     with open(global_runs, "a", encoding="utf-8") as f_dest:
                                         f_dest.write(json.dumps(last_run) + "\n")
                                 except Exception as e:
@@ -166,5 +167,5 @@ class JobManager:
                 logger.exception("[job %s] Unexpected failure", job.id)
 
 
-# Module-level singleton — imported by routes
+# Module-level singleton - imported by routes
 job_manager = JobManager()

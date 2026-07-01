@@ -51,17 +51,17 @@ def _phase4_embeddings(
 
     with EmbeddingDB(db_path) as db:
         _console.print(
-            f"  [green]✔ Found {len(python_files)} Python files[/green]\n"
-            f"  [green]✔ Detected {len(communities)} primary modules[/green]\n"
+            f"  [green][OK] Found {len(python_files)} Python files[/green]\n"
+            f"  [green][OK] Detected {len(communities)} primary modules[/green]\n"
         )
 
         choices = {"1": "strict", "2": "lenient", "3": "ci", "4": "custom"}
         answer = Prompt.ask(
             "Which profile would you like to use?\n"
-            "1. strict — Production-grade enforcement\n"
-            "2. lenient — Minimal enforcement\n"
-            "3. ci — Balanced CI enforcement\n"
-            "4. custom — I'll set thresholds manually",
+            "1. strict - Production-grade enforcement (Coupling <= 5, Duplication <= 5%, Cohesion >= 80%, Health >= 85%)\n"
+            "2. lenient - Minimal enforcement (Coupling <= 15, Duplication <= 20%, Cohesion >= 50%, Health >= 60%)\n"
+            "3. ci - Balanced CI enforcement (Coupling <= 10, Duplication <= 10%, Cohesion >= 65%, Health >= 75%)\n"
+            "4. custom - I'll set thresholds manually",
             choices=["1", "2", "3", "4"],
             default="1",
         )

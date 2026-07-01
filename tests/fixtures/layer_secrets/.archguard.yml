@@ -1,0 +1,16 @@
+version: '3.0'
+model_weights_version: 2026-Q3
+generated_at: '2026-07-01T18:19:38.444128+00:00'
+generated_by: archguard init
+modules:
+- name: api
+  path: api/
+  coupling_budget: 3
+  semantic_drift_threshold: 0.25
+- name: misc
+  path: db/
+  fan_out_at_init: 0
+  coupling_budget: 3
+  semantic_drift_threshold: 0.25
+fail_threshold: 0.75
+warn_threshold: 0.5

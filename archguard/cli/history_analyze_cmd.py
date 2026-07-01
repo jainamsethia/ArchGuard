@@ -1,4 +1,4 @@
-"""archguard history-analyze — analyze historical commits and report evolution."""
+"""archguard history-analyze - analyze historical commits and report evolution."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ history_analyze_app: typer.Typer = typer.Typer(
 _console = Console()
 
 _TREND_ARROWS = {
-    "improving": "[green]↑ improving[/green]",
-    "stable": "[dim]→ stable[/dim]",
-    "declining": "[red]↓ declining[/red]",
+    "improving": "[green][UP] improving[/green]",
+    "stable": "[dim][STABLE] stable[/dim]",
+    "declining": "[red][DOWN] declining[/red]",
 }
 
 
@@ -119,7 +119,7 @@ def _calc_debt_velocity(snapshots: list[dict[str, Any]]) -> float | None:
 
 def _sparkline(values: list[float]) -> str:
     """Generate a sparkline string from a list of values."""
-    bars = "▁▂▃▄▅▆▇█"
+    bars = " .:-=+*#"
     if not values:
         return ""
     min_v, max_v = min(values), max(values)
@@ -135,7 +135,7 @@ def _print_rich_report(
     """Print a Rich-formatted evolution report to the console."""
     _console.print()
     _console.print("[bold]Architecture Evolution Report[/bold]")
-    _console.print("─" * 42)
+    _console.print("-" * 42)
 
     # Summary table
     table = Table(title="Evolution Summary", show_header=True)
@@ -147,9 +147,9 @@ def _print_rich_report(
 
     for trend in [report.health_trend, report.violation_trend, report.debt_trend]:
         prev_str = (
-            f"{trend.previous_value:.2f}" if trend.previous_value is not None else "—"
+            f"{trend.previous_value:.2f}" if trend.previous_value is not None else "-"
         )
-        delta_str = f"{trend.delta:+.4f}" if trend.delta is not None else "—"
+        delta_str = f"{trend.delta:+.4f}" if trend.delta is not None else "-"
         arrow = _TREND_ARROWS.get(
             trend.classification.value, trend.classification.value
         )
@@ -159,8 +159,8 @@ def _print_rich_report(
 
     if report.fitness_trend is not None:
         ft = report.fitness_trend
-        prev_str = f"{ft.previous_value:.2f}" if ft.previous_value is not None else "—"
-        delta_str = f"{ft.delta:+.4f}" if ft.delta is not None else "—"
+        prev_str = f"{ft.previous_value:.2f}" if ft.previous_value is not None else "-"
+        delta_str = f"{ft.delta:+.4f}" if ft.delta is not None else "-"
         arrow = _TREND_ARROWS.get(ft.classification.value, ft.classification.value)
         table.add_row(ft.name, f"{ft.current_value:.2f}", prev_str, delta_str, arrow)
 
@@ -182,7 +182,7 @@ def _print_rich_report(
     scores = [float(s.get("score", 0.0)) for s in snapshots]
     if scores:
         min_s, max_s = min(scores), max(scores)
-        _console.print(f"[bold]Score Range:[/bold] {min_s:.1f} — {max_s:.1f}")
+        _console.print(f"[bold]Score Range:[/bold] {min_s:.1f} - {max_s:.1f}")
         _console.print(f"[bold]Sparkline:[/bold]  {_sparkline(scores)}")
 
     # Commits analyzed
@@ -310,7 +310,7 @@ def history_analyze(
                         snapshots.append(result)
                     else:
                         failed_count += 1
-                except Exception as exc:  # noqa: BLE001 — intentional broad catch for worker pool
+                except Exception as exc:  # noqa: BLE001 - intentional broad catch for worker pool
                     logger.exception("Commit analysis failed: %s", exc)
                     failed_count += 1
 
@@ -350,6 +350,6 @@ def history_analyze(
     else:
         if failed_count > 0:
             _console.print(
-                f"[yellow]⚠ {failed_count} commit(s) failed analysis and were skipped.[/yellow]"
+                f"[yellow][!] {failed_count} commit(s) failed analysis and were skipped.[/yellow]"
             )
         _print_rich_report(snapshots, report, debt_velocity)

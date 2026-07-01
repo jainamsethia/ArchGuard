@@ -59,7 +59,7 @@ class ImportParser:
     """Parse Python source files for import statements using tree-sitter."""
 
     def __init__(self) -> None:
-        # Lazy-init tree-sitter — imported inside __init__ body only
+        # Lazy-init tree-sitter - imported inside __init__ body only
         from tree_sitter import Language, Parser
         import tree_sitter_python as tspython
 
@@ -310,8 +310,8 @@ class ImportParser:
                     continue
 
                 # Build full imported module name
-                # "." + "utils" → ".utils"  (relative, dots only)
-                # "..models" + "." + "User" → "..models.User"
+                # "." + "utils" -> ".utils"  (relative, dots only)
+                # "..models" + "." + "User" -> "..models.User"
                 if all(c == "." for c in module_text):
                     imported_module = module_text + name
                 else:

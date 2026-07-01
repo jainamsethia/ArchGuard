@@ -84,3 +84,17 @@ fitness.json
 scratch/
 node_modules/
 test-results/
+
+test_venv_all/
+test_venv_ml/
+
+
+test_venv_all/
+test_venv_ml/
+test_venv_cloud/
+test_venv_dash/
+test_repo_1commit/
+test_repo_1commit_clean/
+test_final_venv/
+test_final_venv2/
+

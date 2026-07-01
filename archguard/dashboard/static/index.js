@@ -48,14 +48,20 @@
                 if (res.status === 429) {
                     errorMsg.textContent = 'GitHub API rate limit exceeded. Please wait 60 seconds.';
                     errorMsg.classList.add('show');
-                    submitBtn.disabled = true;
+                    submitBtn.disabled = false; // Allow submission anyway
                     submitBtn.textContent = 'Analyze Repository';
                     return;
                 }
 
                 if (!res.ok) {
                     const data = await res.json();
-                    throw new Error(data.detail || 'Validation failed');
+                    let msg = 'Validation failed';
+                    if (Array.isArray(data.detail)) {
+                        msg = data.detail.map(d => d.msg).join(', ');
+                    } else if (data.detail) {
+                        msg = data.detail;
+                    }
+                    throw new Error(msg);
                 }
 
                 const data = await res.json();
@@ -69,7 +75,7 @@
             } catch (err) {
                 errorMsg.textContent = err.message;
                 errorMsg.classList.add('show');
-                submitBtn.disabled = true;
+                submitBtn.disabled = false; // Never lock the user out, let them try
                 submitBtn.textContent = 'Analyze Repository';
             } finally {
                 isValidating = false;
@@ -181,6 +187,14 @@
                     }
                     else if (payload.type === 'result' && payload.result) {
                         const r = payload.result;
+                        if (r.skipped) {
+                            appendLog(`Analysis skipped: ${r.skip_reason}`, 'error');
+                            submitBtn.textContent = 'Analyze Repository';
+                            urlInput.disabled = false;
+                            isJobRunning = false;
+                            evtSource.close();
+                            return;
+                        }
                         document.getElementById('res-score').textContent = r.health_score != null ? parseFloat(r.health_score).toFixed(1) : '--';
                         document.getElementById('res-violations').textContent = r.total_violations || '0';
                         const grade = r.health_grade || '--';

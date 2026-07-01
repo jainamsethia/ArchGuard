@@ -70,14 +70,14 @@ def parse_github_url(url: str) -> tuple[str, str]:
     rejected to eliminate URL path traversal.
 
     Returns:
-        (owner, repo_name) — both without .git suffix
+        (owner, repo_name) - both without .git suffix
 
     Raises:
         ValueError: if the URL does not match any known format
     """
     patterns = [
-        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
-        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
+        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/.*)?$",
+        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/.*)?$",
     ]
     url = url.strip().rstrip("/")
     for pattern in patterns:
@@ -94,7 +94,7 @@ def parse_github_url(url: str) -> tuple[str, str]:
 def build_safe_clone_url(owner: str, repo_name: str) -> str:
     """Reconstruct a safe clone URL from validated owner/repo parts.
 
-    Always builds from parts — never passes raw user input to git.
+    Always builds from parts - never passes raw user input to git.
     """
     return f"https://github.com/{owner}/{repo_name}.git"
 
@@ -238,7 +238,7 @@ async def submit_analysis_job(
     # This prevents wasting the semaphore slot on a 120s git clone timeout.
     # fetch_repo_metadata_public is a synchronous, blocking httpx.Client call
     # (confirmed: it uses `with httpx.Client(timeout=10.0) as client:`, not
-    # httpx.AsyncClient) — it must be wrapped in run_in_executor to avoid
+    # httpx.AsyncClient) - it must be wrapped in run_in_executor to avoid
     # blocking the FastAPI event loop for up to 10 seconds.
     loop = asyncio.get_running_loop()
     try:
@@ -246,7 +246,7 @@ async def submit_analysis_job(
             None, fetch_repo_metadata_public, owner, repo_name
         )
     except GitHubRateLimitError:
-        # Rate limit hit — allow the job through rather than blocking the user.
+        # Rate limit hit - allow the job through rather than blocking the user.
         # The clone will reveal the real state; this is acceptable degraded behaviour.
         pass
     except ValueError as exc:
@@ -373,11 +373,11 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
     """Stream real-time analysis progress for a job.
     
     Events emitted:
-      {"type": "progress", "message": "..."}   — status messages from the pipeline
-      {"type": "status",   "status": "..."}    — current JobStatus string
-      {"type": "result",   "result": {...}}     — final AnalysisJobResult (on COMPLETE)
-      {"type": "error",    "error": "..."}      — error string (on FAILED)
-      {"type": "done"}                          — stream end sentinel
+      {"type": "progress", "message": "..."}   - status messages from the pipeline
+      {"type": "status",   "status": "..."}    - current JobStatus string
+      {"type": "result",   "result": {...}}     - final AnalysisJobResult (on COMPLETE)
+      {"type": "error",    "error": "..."}      - error string (on FAILED)
+      {"type": "done"}                          - stream end sentinel
       
     The stream ends automatically when the job reaches COMPLETE or FAILED status.
     If the client disconnects, the stream stops but the background job continues.

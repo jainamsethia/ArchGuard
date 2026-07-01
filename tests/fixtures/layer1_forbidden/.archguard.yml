@@ -1,0 +1,11 @@
+version: '3.0'
+modules:
+- name: api
+  path: api/
+  allowed_imports:
+    - core
+- name: db
+  path: db/
+  allowed_imports: []
+- name: core
+  path: core/

@@ -22,6 +22,11 @@ def get_runs(
 @app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
 def get_latest_run(job_id: JobIdQuery = None) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
+    if job_id:
+        runs = logger.read_last_n_runs(n=100)
+        for r in runs:
+            if r.get("job_id") == job_id:
+                return r
     return logger.read_last_run() or {}
 
 
@@ -63,8 +68,19 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
     from archguard.analysis.deps import analyze_dependencies
     from archguard.dashboard.app import get_target_path
 
+    target = get_target_path(job_id)
+    if job_id and target == Path.cwd():
+        return {
+            "score": 0.0,
+            "vulnerable_packages": [],
+            "scanned_packages": 0,
+            "skipped": True,
+            "skip_reason": "Repository workspace has been cleaned up. Run analysis again to scan dependencies.",
+            "error": "Workspace deleted",
+        }
+
     try:
-        result = analyze_dependencies(get_target_path(job_id))
+        result = analyze_dependencies(target)
 
         return {
             "score": result.score,

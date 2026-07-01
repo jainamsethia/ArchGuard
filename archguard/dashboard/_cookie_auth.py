@@ -2,7 +2,7 @@
 
 Issues an HttpOnly, SameSite=Strict cookie after the user POSTs the
 dashboard token to /api/auth/login. Subsequent same-origin API calls
-carry the cookie automatically — no JavaScript header injection needed.
+carry the cookie automatically - no JavaScript header injection needed.
 
 Cookie value format: <session_id>.<hmac-sha256>
 where session_id is random 32-byte hex and the HMAC key is ARCHGUARD_DASHBOARD_TOKEN.
@@ -16,7 +16,7 @@ import time
 
 COOKIE_NAME = "archguard_session"
 _TTL = int(os.environ.get("ARCHGUARD_SESSION_COOKIE_TTL", "86400"))
-# 24h default — controls auth cookie lifetime, NOT the AI Advisor session memory
+# 24h default - controls auth cookie lifetime, NOT the AI Advisor session memory
 # See also: ARCHGUARD_SESSION_TTL in _sessions.py (different subsystem)
 # In-memory session store: session_id -> issued_at_unix_timestamp
 # Single-instance deployments only. Multi-instance deployments should use Redis.

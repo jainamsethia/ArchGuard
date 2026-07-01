@@ -158,7 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (!modulesData || !modulesData.modules || Object.keys(modulesData.modules).length === 0) {
-                container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">No module data available. Run an analysis to see the dependency graph.</div>';
+                container.innerHTML = getEmptyStateHtml('???', 'No Dependencies', 'Run an analysis to see the dependency graph.');
                 return;
             }
 
@@ -223,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const fitnessResults = metrics.fitness_results || [];
 
             if (fitnessResults.length === 0) {
-                container.innerHTML = '<div style="color: var(--text-secondary); padding: 1rem; text-align: center;">No fitness functions defined or executed.</div>';
+                container.innerHTML = getEmptyStateHtml('??', 'No Fitness Results', 'No fitness functions defined or executed.');
                 return;
             }
 
@@ -271,7 +271,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const violations = latestRun.violations || [];
 
             if (violations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No active violations. Great job! 🎉</td></tr>';
+                tbody.innerHTML = '<tr><td colspan=\"4\" style=\"padding:0; border:none;\">' + getEmptyStateHtml('??', 'No Violations', 'No active architecture violations. Great job!') + '</td></tr>';
                 return;
             }
 
@@ -286,7 +286,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         function updateTrendChart(runs) {
-            if (!runs || runs.length === 0) return;
+            if (!runs || runs.length === 0) {
+                const ctx = document.getElementById('trendChart');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('??', 'No Trends', 'Not enough historical data to display a trend.');
+                return;
+            }
 
             // Sort runs chronologically
             const sortedRuns = [...runs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -360,7 +364,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         function updateModuleChart(modulesData) {
-            if (!modulesData) return;
+            if (!modulesData || Object.keys(modulesData).length === 0) {
+                const ctx = document.getElementById('moduleChart');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('??', 'No Modules', 'Module complexity data is not available.');
+                return;
+            }
 
             const labels = Object.keys(modulesData);
             const data = Object.values(modulesData);
@@ -505,6 +513,17 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
+        
+function getEmptyStateHtml(icon, title, body) {
+    return `
+        <div class="empty-state" style="margin-top:0;">
+            <div class="empty-icon">${icon}</div>
+            <h3 class="empty-title">${title}</h3>
+            <p class="empty-body">${body}</p>
+        </div>
+    `;
+}
+
         function switchTab(name) {
             document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
             document.querySelectorAll('.tab-panel-main').forEach(p => p.classList.remove('active'));
@@ -591,6 +610,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         
         function updateEvolutionChart(snapshots) {
+            if (!snapshots || snapshots.length === 0) {
+                const ctx = document.getElementById('evolutionChart');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('?', 'No Evolution Data', 'Run a Git history analysis to see the evolution chart.');
+                return;
+            }
             const labels = snapshots.map(s => {
                 const d = new Date(s.committed_at);
                 return `${d.getMonth()+1}/${d.getDate()} ${s.sha.substring(0, 7)}`;

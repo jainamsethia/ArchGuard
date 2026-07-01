@@ -113,7 +113,7 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
             )
 
     await loop.run_in_executor(None, _do_clone)
-    logger.info("Clone completed: %s → %s", clone_url, dest)
+    logger.info("Clone completed: %s -> %s", clone_url, dest)
 
 
 async def cleanup_stale_workspaces(max_age_seconds: int = 3600) -> int:

@@ -15,7 +15,7 @@ def detect_communities(
 
     Returns ``{community_id_str: [file_path, ...]}``.
     Communities smaller than *min_community_size* are filtered out.
-    Community IDs are ``module_0``, ``module_1``, … sorted by size descending.
+    Community IDs are ``module_0``, ``module_1``, ... sorted by size descending.
     """
     import community as community_louvain  # python-louvain
 

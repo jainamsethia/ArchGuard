@@ -89,7 +89,7 @@ def _resolve_changed_files(
             # HEAD~1 exists, use normal diff
             diff_cmd = ["git", "diff", "HEAD~1", "--name-only", "--diff-filter=ACMR"]
         else:
-            # Initial commit or detached HEAD — diff against empty tree
+            # Initial commit or detached HEAD - diff against empty tree
             # The empty tree hash is a git constant, always valid
             EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
             diff_cmd = [
@@ -101,7 +101,7 @@ def _resolve_changed_files(
                 "--diff-filter=ACMR",
             ]
             _console.print(
-                "[yellow]⚠ Initial commit detected — analyzing all Python files.[/yellow]"
+                "[yellow][!] Initial commit detected - analyzing all Python files.[/yellow]"
             )
 
         diff_result = subprocess.run(

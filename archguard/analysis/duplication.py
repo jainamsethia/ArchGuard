@@ -37,7 +37,7 @@ def duplication_score(similarity: float) -> float:
     """Compute duplication score from cosine similarity.
 
     Linear interpolation between 0.85 and 1.0.
-    ``similarity < 0.85`` → ``0.0``.
+    ``similarity < 0.85`` -> ``0.0``.
     """
     return min(1.0, max(0.0, (similarity - 0.85) / 0.15))
 
@@ -85,7 +85,7 @@ class DuplicationAnalyzer:
         """
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
 
         keys = list(embeddings.keys())
@@ -118,7 +118,7 @@ class DuplicationAnalyzer:
         """
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         return np.clip(1.0 - (l2_distances**2) / 2.0, 0.0, 1.0)
 
@@ -152,7 +152,7 @@ class DuplicationAnalyzer:
                 if faiss is None:
                     raise RuntimeError(
                         "faiss-cpu is required for duplication analysis. "
-                        "Install with: pip install archguard[ml]"
+                        "Install with: pip install -e \".[ml]\""
                     )
                 index = faiss.IndexFlatL2(dim)
 
@@ -166,9 +166,12 @@ class DuplicationAnalyzer:
         index: Any,
         keys: list[str],
         module_embeddings: dict[str, npt.NDArray[np.float32]],
-        module_file_set: set[str],
+        module_name: str,
+        module_paths_cfg: list[str],
         k: int,
     ) -> list[DuplicationMatch]:
+        from archguard.utils.paths import path_belongs_to_module
+        
         matches: list[DuplicationMatch] = []
         for func_key, emb in module_embeddings.items():
             query = emb.astype(np.float32).reshape(1, -1)
@@ -189,7 +192,7 @@ class DuplicationAnalyzer:
                     continue
 
                 matched_file = matched_key.split("::")[0]
-                if matched_file in module_file_set:
+                if path_belongs_to_module(matched_file, module_paths_cfg):
                     continue
 
                 sim = float(cosine_sims[j])
@@ -208,11 +211,13 @@ class DuplicationAnalyzer:
         return matches
 
     def analyze_module(
-        self, module_name: str, module_files: list[str], k: int = 10
+        self, module_name: str, module_files: list[str], module_paths_cfg: list[str], k: int = 10
     ) -> DuplicationResult:
         if not _ML_AVAILABLE:
-            raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+            return DuplicationResult(
+                module_name=module_name,
+                skipped=True,
+                skip_reason='Layer 4 (duplication) skipped: install with pip install -e ".[cloud]"',
             )
 
         if self._cache.is_cache_stale(module_name):
@@ -231,7 +236,7 @@ class DuplicationAnalyzer:
             return DuplicationResult(module_name=module_name)
 
         matches = self._query_module_matches(
-            index, keys, module_embeddings, module_file_set, k
+            index, keys, module_embeddings, module_name, module_paths_cfg, k
         )
         agg = float(np.mean([m.duplication_score for m in matches])) if matches else 0.0
 

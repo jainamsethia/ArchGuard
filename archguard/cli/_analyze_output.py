@@ -9,10 +9,10 @@ from archguard.cli.analyze_cmd import AnalyzeOptions
 
 _console = Console()
 _BAND_EMOJI = {
-    "Healthy": "✅ Healthy",
-    "Watch": "⚠️ Watch",
+    "Healthy": "[OK] Healthy",
+    "Watch": "[!] Watch",
     "Warn": "🔶 Warn",
-    "Critical": "🚨 Critical",
+    "Critical": "[!] Critical",
 }
 
 
@@ -24,7 +24,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
 
     _console.print()
     _console.print("[bold]ArchGuard Analysis[/bold]")
-    _console.print("─" * 38)
+    _console.print("-" * 38)
     _console.print(f"Repo:    {repo_root}")
     _console.print(f"Commit:  {result.commit_sha}")
     _console.print(f"Files:   {len(result.changed_files)} changed Python files")
@@ -32,7 +32,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     if getattr(result, "partial_analysis", False):
         failures = getattr(result, "parse_failures", [])
         _console.print(
-            f"[bold yellow]⚠ Analysis Partial: {len(failures)} files could not be parsed[/bold yellow]"
+            f"[bold yellow][!] Analysis Partial: {len(failures)} files could not be parsed[/bold yellow]"
         )
 
     _console.print()
@@ -88,7 +88,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
 
     _console.print(table)
     _console.print(
-        f"\n[bold]Health Score: {archdebt.health_score:.1f} (Grade {archdebt.health_grade}) — {band_str}[/bold]"
+        f"\n[bold]Health Score: {archdebt.health_score:.1f} (Grade {archdebt.health_grade}) - {band_str}[/bold]"
     )
     _console.print(f"Result: {ci_str}\n")
 
@@ -124,8 +124,12 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
             sev_val = getattr(v, "severity", "low")
             sev_style = severity_colors.get(sev_val, "white")
             sev_str = f"[{sev_style}]{str(sev_val).upper()}[/{sev_style}]"
+            explanation = getattr(v, "explanation", "")
+            msg = f"{v.message} - {v.commit_sha[:7]}"
+            if explanation:
+                msg += f"\n[dim italic]AI: {explanation}[/dim italic]"
             table.add_row(
-                f"L{v.layer}", sev_str, v.module, f"{v.message} — {v.commit_sha[:7]}"
+                f"L{v.layer}", sev_str, v.module, msg
             )
 
         _console.print(table)

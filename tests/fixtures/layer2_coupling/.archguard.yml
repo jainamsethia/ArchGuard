@@ -1,0 +1,13 @@
+version: '3.0'
+modules:
+- name: core
+  path: core/
+  coupling_budget: 3
+- name: a
+  path: a/
+- name: b
+  path: b/
+- name: c
+  path: c/
+- name: d
+  path: d/

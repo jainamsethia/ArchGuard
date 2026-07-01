@@ -72,7 +72,7 @@ def _execute_l1_l2_concurrently(
         if progress:
             progress.update(
                 task1,
-                description=f"[green]✓ Layer 1:[/green] {len(l1_viols)} violations",
+                description=f"[green][OK] Layer 1:[/green] {len(l1_viols)} violations",
             )
             progress.stop_task(task1)
         elif not quiet:
@@ -82,7 +82,7 @@ def _execute_l1_l2_concurrently(
         if progress:
             progress.update(
                 task2,
-                description=f"[green]✓ Layer 2:[/green] {len(l2_viols)} violations",
+                description=f"[green][OK] Layer 2:[/green] {len(l2_viols)} violations",
             )
             progress.stop_task(task2)
         elif not quiet:
@@ -113,7 +113,7 @@ def _handle_l1_l2_fail_fast(
         )
         score = layer1 if layer1 >= fail_threshold else layer2
         Console().print(
-            f"[bold red]✗ FAIL-FAST:[/bold red] {layer_name} score {score:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+            f"[bold red][X] FAIL-FAST:[/bold red] {layer_name} score {score:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
         )
 
         res = _build_partial_result_fn(
@@ -214,7 +214,7 @@ def _execute_layer_3(
         with metrics.time_layer("layer3"):
             from archguard.analysis._layer_runners import _run_layer3
 
-            layer3, module_drifts, l3_viols = _run_layer3(
+            layer3, module_drifts, l3_viols, l3_skip_reason = _run_layer3(
                 orchestrator.cache,
                 orchestrator.contract,
                 affected,
@@ -222,24 +222,31 @@ def _execute_layer_3(
                 commit_sha,
                 orchestrator.repo_root,
             )
-        if progress:
-            progress.update(
-                task3,
-                description=f"[green]✓ Layer 3:[/green] {len(l3_viols)} violations",
-            )
-            progress.stop_task(task3)
-        elif not quiet:
-            print(f"[OK] Layer 3 complete ({len(l3_viols)} violations)")
-        return layer3, module_drifts, l3_viols
-    except RuntimeError as e:
-        if "ML dependencies" in str(e):
+        if l3_skip_reason:
+            metrics.extra["layer3_skipped"] = True
+            metrics.extra["layer3_skip_reason"] = l3_skip_reason
             if progress:
                 progress.update(
                     task3,
-                    description="[bold red]✗ Layer 3: Failed (Missing ML dependencies)[/bold red]",
+                    description=f"[yellow][!] {l3_skip_reason}[/yellow]",
                 )
                 progress.stop_task(task3)
-        raise
+            elif not quiet:
+                print(f"[WARN] {l3_skip_reason}")
+        else:
+            if progress:
+                progress.update(
+                    task3,
+                    description=f"[green][OK] Layer 3:[/green] {len(l3_viols)} violations",
+                )
+                progress.stop_task(task3)
+            elif not quiet:
+                print(f"[OK] Layer 3 complete ({len(l3_viols)} violations)")
+        return layer3, module_drifts, l3_viols
+    except Exception as e:
+        if progress:
+            progress.stop_task(task3)
+        raise RuntimeError(f"Layer 3 analysis failed: {e}") from e
 
 
 def _handle_l3_fail_fast(
@@ -261,7 +268,7 @@ def _handle_l3_fail_fast(
         if progress:
             progress.stop()
         Console().print(
-            f"[bold red]✗ FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+            f"[bold red][X] FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
         )
         res = _build_partial_result_fn(
             orchestrator.repo_root,
@@ -315,11 +322,11 @@ def _run_layer_3(
         if progress:
             t = progress.add_task("Layer 3: Semantic Cohesion...", total=None)
             progress.update(
-                t, description="[yellow]⚠ Layer 3: Skipped (config)[/yellow]"
+                t, description="[yellow][!] Layer 3: Skipped (config)[/yellow]"
             )
             progress.stop_task(t)
         elif not quiet:
-            print("⚠ Layer 3 Skipped (config)")
+            print("[WARN] Layer 3 Skipped (config)")
     else:
         layer3, module_drifts, l3_viols = _execute_layer_3(
             orchestrator, py_files, affected, progress, quiet, metrics, commit_sha

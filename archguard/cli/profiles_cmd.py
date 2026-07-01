@@ -1,4 +1,4 @@
-"""archguard profiles list — display configuration profiles."""
+"""archguard profiles list - display configuration profiles."""
 
 from __future__ import annotations
 

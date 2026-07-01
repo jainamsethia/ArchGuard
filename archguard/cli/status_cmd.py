@@ -1,4 +1,4 @@
-"""archguard status — display current configuration and health."""
+"""archguard status - display current configuration and health."""
 
 from __future__ import annotations
 

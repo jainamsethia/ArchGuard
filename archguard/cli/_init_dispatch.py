@@ -37,10 +37,25 @@ def _run_init_cli(
     no_llm: bool,
     min_history_commits: int,
     llm_init: bool,
+    wizard: bool,
+    force: bool,
     _console: Console,
 ) -> None:
     if output is None:
         output = repo_root / ".archguard.yml"
+
+    if output.exists() and not force:
+        if wizard:
+            response = typer.prompt(f"File {output.name} already exists. Overwrite? [y/N]", default="N")
+            if response.lower() not in ("y", "yes"):
+                _console.print("[dim]Init aborted.[/dim]")
+                raise typer.Exit(0)
+        else:
+            _console.print(format_error(f"{output.name} already exists. Use --force to overwrite or run with --wizard."))
+            raise typer.Exit(1)
+
+    if wizard:
+        confirm_all = False
 
     # Shallow clone guard
     if os.environ.get("GITHUB_ACTIONS") and not force_ci:

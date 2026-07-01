@@ -1,0 +1,7 @@
+module_name: misc
+proposed_path: module_a/
+proposed_drift_threshold: 0.25
+proposed_coupling_budget: 3
+semantic_drift_score: 0.28277311949760964
+proposal_timestamp: '2026-07-01T17:33:57.197086+00:00'
+source_commit: f03465c

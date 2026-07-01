@@ -90,9 +90,9 @@ def _evaluate_fitness_helper(
     if progress:
         failures = sum(1 for r in fitness_results if not getattr(r, "passed", True))
         desc = (
-            f"[bold red]✗ Fitness Functions:[/bold red] {failures} failures"
+            f"[bold red][X] Fitness Functions:[/bold red] {failures} failures"
             if failures > 0
-            else "[green]✓ Fitness Functions:[/green] all passed"
+            else "[green][OK] Fitness Functions:[/green] all passed"
         )
         progress.update(task_fit, description=desc)
         progress.stop_task(task_fit)

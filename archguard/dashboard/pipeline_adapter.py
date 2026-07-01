@@ -82,10 +82,10 @@ async def run_analysis_on_repo(
     start = time.monotonic()
     contract_auto_generated = False
 
-    # ── Step 1: Auto-generate contract if absent ─────────────────────────
+    # -- Step 1: Auto-generate contract if absent -------------------------
     archguard_yml = repo_path / ".archguard.yml"
     if not archguard_yml.exists():
-        await _emit("No .archguard.yml found — generating contract from directory structure…")
+        await _emit("No .archguard.yml found - generating contract from directory structure...")
         try:
             await asyncio.get_running_loop().run_in_executor(
                 None, _generate_contract_sync, repo_path
@@ -96,7 +96,7 @@ async def run_analysis_on_repo(
             logger.warning("[job %s] Contract auto-generation failed: %s", job_id, exc)
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
 
-    # ── Step 2: Collect all Python files (fresh clone = all files changed) ──
+    # -- Step 2: Collect all Python files (fresh clone = all files changed) --
     py_files = list(repo_path.rglob("*.py"))
     # Exclude hidden dirs and __pycache__
     py_files = [
@@ -115,9 +115,9 @@ async def run_analysis_on_repo(
             contract_auto_generated=contract_auto_generated,
         )
 
-    await _emit(f"Found {len(py_files)} Python files. Starting 4-layer analysis…")
+    await _emit(f"Found {len(py_files)} Python files. Starting 4-layer analysis...")
 
-    # ── Step 3: Run analysis in thread pool ─────────────────────────────
+    # -- Step 3: Run analysis in thread pool -----------------------------
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
@@ -198,6 +198,8 @@ def _generate_contract_sync(repo_path: Path) -> None:
         no_llm=True,     # skip LLM-based contract inference (faster, offline-safe)
         min_history_commits=1,  # allow community detection with minimal history
         llm_init=False,
+        wizard=False,
+        force=True,
         _console=Console(quiet=True),
     )
 
@@ -222,7 +224,7 @@ def _run_analysis_sync(
             quiet=True,
         )
 
-    # ── Log the result for the dashboard context ──
+    # -- Log the result for the dashboard context --
     try:
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS

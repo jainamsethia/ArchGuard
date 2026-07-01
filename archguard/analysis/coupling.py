@@ -37,9 +37,9 @@ def _assign_file_to_module(
     """Assign a file to a module using longest prefix match.
 
     FR-03 priority:
-    1. test paths (contains ``/test/`` or ``/tests/``) → skip
+    1. test paths (contains ``/test/`` or ``/tests/``) -> skip
     2. longest prefix match on *module_paths*
-    3. unassigned → log warning once, skip
+    3. unassigned -> log warning once, skip
     """
     normalized = normalize_path(file_path)
 
@@ -139,9 +139,9 @@ def compute_coupling_delta(
     """Compute CouplingDelta from fan_out and coupling_budget.
 
     Formula:
-      - fan_out=0, coupling_budget=0 → 1.0 (with warning)
-      - fan_out ≤ coupling_budget    → 0.0
-      - otherwise                    → min(1.0, (fan_out − budget) / max(budget, 1))
+      - fan_out=0, coupling_budget=0 -> 1.0 (with warning)
+      - fan_out ≤ coupling_budget    -> 0.0
+      - otherwise                    -> min(1.0, (fan_out − budget) / max(budget, 1))
     """
     if fan_out == 0 and coupling_budget == 0:
         logger.warning(

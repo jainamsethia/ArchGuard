@@ -1,4 +1,4 @@
-"""archguard analyze — full architectural drift analysis."""
+"""archguard analyze - full architectural drift analysis."""
 
 from __future__ import annotations
 
@@ -40,6 +40,11 @@ def analyze_command(
         "--repo-slug",
         help="Repository slug (e.g. myorg/myrepo).",
     ),
+    github_url: str | None = typer.Option(
+        None,
+        "--github-url",
+        help="Analyze a remote GitHub repository (clones to a temp directory).",
+    ),
     profile: str = typer.Option(
         None,
         "--profile",
@@ -64,6 +69,11 @@ def analyze_command(
         False,
         "--json",
         help="Output JSON instead of Rich table.",
+    ),
+    output_format: str = typer.Option(
+        None,
+        "--output",
+        help="Output format (e.g., json)",
     ),
     fail_on_warn: bool = typer.Option(
         False,
@@ -146,6 +156,25 @@ def analyze_command(
     except PathTraversalError as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR)
+
+    import tempfile
+    import subprocess
+    import atexit
+    import shutil
+
+    if github_url:
+        temp_dir = tempfile.mkdtemp(prefix="archguard_")
+        atexit.register(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
+        _console.print(f"[bold blue]Cloning {github_url} into temporary directory...[/bold blue]")
+        res = subprocess.run(["git", "clone", "--depth", "1", github_url, temp_dir], capture_output=True, text=True)
+        if res.returncode != 0:
+            _console.print(f"[bold red]Failed to clone repository:[/bold red] {res.stderr}")
+            raise typer.Exit(1)
+        repo = Path(temp_dir)
+        _console.print(f"[green]Successfully cloned repository.[/green]")
+
+    if output_format == "json":
+        json_output = True
 
     try:
         opts = AnalyzeOptions(

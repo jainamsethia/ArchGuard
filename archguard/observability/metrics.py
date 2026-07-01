@@ -13,6 +13,7 @@ class AnalysisMetrics:
     files_analyzed: int = 0
     llm_calls: int = 0
     llm_tokens: int = 0
+    extra: dict[str, typing.Any] = field(default_factory=dict)
 
     @contextmanager
     def time_layer(self, layer_name: str) -> typing.Iterator[None]:
@@ -28,4 +29,5 @@ class AnalysisMetrics:
             "violations_found": self.violations_found,
             "files_analyzed": self.files_analyzed,
             "llm_calls": self.llm_calls,
+            **self.extra,
         }

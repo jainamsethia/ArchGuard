@@ -59,17 +59,18 @@ async def _lifespan(app_instance: FastAPI) -> Any:
         if not os.environ.get(var):
             _startup_logger.warning("Optional env var %s not set - %s", var, consequence)
 
+    task = None
     try:
         from archguard.dashboard.workspace import cleanup_stale_workspaces
         removed = await cleanup_stale_workspaces(max_age_seconds=3600)
         if removed:
             _startup_logger.info("Removed %d stale workspace(s) on startup", removed)
         import asyncio as _asyncio
-        _asyncio.create_task(_periodic_workspace_cleanup())
+        task = _asyncio.create_task(_periodic_workspace_cleanup())
     except Exception as exc:
         _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
 
-    # Multi-instance guard — document the in-memory state constraint at startup
+    # Multi-instance guard - document the in-memory state constraint at startup
     _startup_logger.warning(
         "ArchGuard dashboard uses in-memory job/session/rate-limit state. "
         "Multi-instance deployments (load balancers, autoscaling) will lose "
@@ -78,6 +79,8 @@ async def _lifespan(app_instance: FastAPI) -> Any:
 
     _startup_logger.info("Dashboard ready.")
     yield
+    if task:
+        task.cancel()
     _startup_logger.info("ArchGuard Dashboard shutting down.")
 
 app = FastAPI(
@@ -86,7 +89,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-_MAX_BODY = 1 * 1024 * 1024  # 1 MB — sufficient for all documented payloads
+_MAX_BODY = 1 * 1024 * 1024  # 1 MB - sufficient for all documented payloads
 
 
 @app.middleware("http")
@@ -177,11 +180,12 @@ async def _global_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 _APP_START_TIME = time.time()
 STATIC_DIR = Path(__file__).parent / "static"
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 def get_target_path(job_id: str | None = None) -> Path:
     if job_id:
         import tempfile
-        # Double-check even after query validation — defense in depth
+        # Double-check even after query validation - defense in depth
         if not _re.fullmatch(r"[a-f0-9\-]{36,64}", job_id):
             raise HTTPException(status_code=400, detail="Invalid job_id format")
         tmp = Path(tempfile.gettempdir())
@@ -195,7 +199,11 @@ def get_target_path(job_id: str | None = None) -> Path:
     return Path.cwd()
 
 def get_audit_path(job_id: str | None = None) -> Path:
-    return get_target_path(job_id) / AUDIT_LOG_FILENAME
+    target = get_target_path(job_id)
+    audit_file = target / AUDIT_LOG_FILENAME
+    if job_id and not audit_file.exists():
+        return Path.cwd() / AUDIT_LOG_FILENAME
+    return audit_file
 
 # Import routes AFTER app is defined to avoid circular dependencies
 # API Versioning Policy (established 2026-06-25):
@@ -206,13 +214,21 @@ from archguard.dashboard.routes import advisor, evolution, jobs, remediation, ru
 
 from fastapi.templating import Jinja2Templates
 
-_templates = Jinja2Templates(directory=str(STATIC_DIR))
+_templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @app.get("/")
 async def serve_index(request: Request):
     return _templates.TemplateResponse(
         request,
         "index.html",
+        {"csp_nonce": getattr(request.state, "csp_nonce", "")}
+    )
+
+@app.get("/dashboard.html")
+async def serve_dashboard(request: Request):
+    return _templates.TemplateResponse(
+        request,
+        "dashboard.html",
         {"csp_nonce": getattr(request.state, "csp_nonce", "")}
     )
 

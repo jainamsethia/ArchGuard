@@ -8,7 +8,7 @@ from archguard.config import AUDIT_EVENT_ANALYSIS, AUDIT_LOG_FILENAME
 
 
 def _sparkline(scores: list[float]) -> str:
-    bars = "▁▂▃▄▅▆▇█"
+    bars = " .:-=+*#"
     if not scores:
         return ""
     min_s, max_s = min(scores), max(scores)
@@ -144,7 +144,7 @@ def show_history(
             diff = scores[-1] - scores[0]
             direction = "improving" if diff >= 0 else "degrading"
             sign = "+" if diff >= 0 else ""
-            arrow = "↑" if diff >= 0 else "↓"
+            arrow = "[UP]" if diff >= 0 else "[DOWN]"
             console.print(
                 f"Trend: {arrow} {sign}{diff:.1f} points over {len(runs)} runs ({direction})"
             )
@@ -174,14 +174,14 @@ def show_history(
             if prev_score is not None:
                 delta = score - prev_score
                 trend = (
-                    "[red]↑[/red]"
+                    "[red][UP][/red]"
                     if delta > 0.01
-                    else "[green]↓[/green]"
+                    else "[green][DOWN][/green]"
                     if delta < -0.01
-                    else "[dim]→[/dim]"
+                    else "[dim][STABLE][/dim]"
                 )
             else:
-                trend = "[dim]—[/dim]"
+                trend = "[dim]-[/dim]"
 
             band_color = {"PASS": "green", "WARN": "yellow", "FAIL": "red"}.get(
                 band, "white"
@@ -196,4 +196,4 @@ def show_history(
 
         console.print("\n[bold]Score Trend:[/bold]")
         min_v, max_v = min(scores), max(scores)
-        console.print(f"  {_sparkline(scores)}  [dim]{min_v:.2f} → {max_v:.2f}[/dim]")
+        console.print(f"  {_sparkline(scores)}  [dim]{min_v:.2f} -> {max_v:.2f}[/dim]")

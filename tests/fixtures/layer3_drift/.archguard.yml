@@ -1,0 +1,5 @@
+version: '3.0'
+modules:
+- name: core
+  path: core/
+  semantic_drift_threshold: 0.1

@@ -92,8 +92,8 @@ class ArchDebtResult:
         composite_score is 0.0–1.0 where HIGHER = WORSE.
         health_score = (1.0 - composite_score) * 100
         Examples:
-        composite_score=0.125 → health_score=87.5  (healthy)
-        composite_score=0.750 → health_score=25.0  (unhealthy)
+        composite_score=0.125 -> health_score=87.5  (healthy)
+        composite_score=0.750 -> health_score=25.0  (unhealthy)
         """
         return round((1.0 - self.composite_score) * 100, 1)
 
@@ -210,13 +210,18 @@ def calibrate_weights(
 ) -> tuple[float, float, float, float]:
     """Fit weights via NNLS. Normalize to sum=1.0.
 
-    Requires ML extras: pip install archguard[ml]
+    Requires ML extras: pip install -e ".[ml]"
 
     Falls back to ``DEFAULT_WEIGHTS`` on any failure.
     """
     if not historical_scores:
         return DEFAULT_WEIGHTS
     if not _ML_AVAILABLE:
+        import logging
+        logging.getLogger(__name__).warning(
+            "calibrate_weights skipped: ML dependencies missing. "
+            "Install with: pip install -e \".[ml]\""
+        )
         return DEFAULT_WEIGHTS
 
     try:

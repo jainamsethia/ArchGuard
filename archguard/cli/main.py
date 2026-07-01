@@ -1,4 +1,4 @@
-"""Root Typer application — registers all subcommands."""
+"""Root Typer application - registers all subcommands."""
 
 import typer
 from pathlib import Path
@@ -52,20 +52,52 @@ def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
     from archguard.cache.db import EmbeddingDB
     from pathlib import Path
 
-    db_path = Path(".archguard-cache/embeddings.db")
-    try:
-        with EmbeddingDB(db_path) as db:
-            count = db.count_embeddings()
-            console.print(f"[green]Cache OK: {count} embeddings[/green]")
-    except Exception as e:
-        console.print(f"[red]Cache corrupted: {e}[/red]")
-        if repair:
-            db_path.unlink(missing_ok=True)
-            console.print(
-                "[green]Cache cleared. Run archguard analyze to rebuild.[/green]"
-            )
-        else:
-            console.print("Run with --repair to clear and rebuild the cache.")
+    import json
+    import sqlite3
+
+    cache_dir = Path(".archguard-cache")
+    checkpoints_dir = Path(".archguard-checkpoints")
+
+    corrupt_files = []
+    healthy_files = 0
+
+    if cache_dir.exists():
+        for db_file in cache_dir.glob("*.db"):
+            try:
+                # Basic SQLite integrity check
+                with sqlite3.connect(db_file) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("PRAGMA integrity_check;")
+                    result = cursor.fetchone()
+                    if not result or result[0] != "ok":
+                        raise ValueError(f"Integrity check failed: {result}")
+                healthy_files += 1
+            except Exception as e:
+                console.print(f"[yellow]Corrupted SQLite DB found: {db_file} ({e})[/yellow]")
+                corrupt_files.append(db_file)
+
+    if checkpoints_dir.exists():
+        for json_file in checkpoints_dir.glob("*.json"):
+            try:
+                with open(json_file, encoding="utf-8") as f:
+                    json.load(f)
+                healthy_files += 1
+            except Exception as e:
+                console.print(f"[yellow]Corrupted JSON found: {json_file} ({e})[/yellow]")
+                corrupt_files.append(json_file)
+
+    if not corrupt_files:
+        console.print(f"[green]Cache OK: {healthy_files} healthy files found, 0 corrupted.[/green]")
+        return
+
+    if repair:
+        for f in corrupt_files:
+            f.unlink(missing_ok=True)
+            console.print(f"[green]Removed corrupted file: {f}[/green]")
+        console.print("[green]Repair complete. Run archguard analyze to rebuild missing cache files.[/green]")
+    else:
+        console.print(f"[red]Found {len(corrupt_files)} corrupted files. Run with --repair to safely remove them.[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("trends", hidden=True, deprecated=True)

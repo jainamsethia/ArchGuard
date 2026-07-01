@@ -45,11 +45,11 @@ def sync_cache(
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             s3.download_file(bucket, s3_key, str(db_file))
-            console.print(f"[green]✓ Pulled cache from s3://{bucket}/{s3_key}[/green]")
+            console.print(f"[green][OK] Pulled cache from s3://{bucket}/{s3_key}[/green]")
         except s3.exceptions.ClientError as e:
             if "404" in str(e):
                 console.print(
-                    "[yellow]⚠ No cache found in S3 (first run). Starting fresh.[/yellow]"
+                    "[yellow][!] No cache found in S3 (first run). Starting fresh.[/yellow]"
                 )
             else:
                 raise
@@ -57,6 +57,6 @@ def sync_cache(
     if direction in (SyncDirection.push, SyncDirection.both):
         if db_file.exists():
             s3.upload_file(str(db_file), bucket, s3_key)
-            console.print(f"[green]✓ Pushed cache to s3://{bucket}/{s3_key}[/green]")
+            console.print(f"[green][OK] Pushed cache to s3://{bucket}/{s3_key}[/green]")
         else:
-            console.print("[yellow]⚠ No local cache file to push.[/yellow]")
+            console.print("[yellow][!] No local cache file to push.[/yellow]")

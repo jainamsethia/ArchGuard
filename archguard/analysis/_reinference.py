@@ -46,7 +46,7 @@ def _run_reinference(
             if drift_results is not None and mod_name in drift_results:
                 drift_score = drift_results[mod_name]
             else:
-                # We need the drift score — recompute from semantic analyzer
+                # We need the drift score - recompute from semantic analyzer
                 from archguard.analysis.semantic import SemanticAnalyzer
 
                 analyzer = SemanticAnalyzer(cache)

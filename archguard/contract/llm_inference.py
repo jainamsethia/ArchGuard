@@ -64,11 +64,11 @@ def _build_directory_tree(repo_path: Path, max_depth: int = 3) -> str:
 
         for i, p in enumerate(paths):
             is_last = i == len(paths) - 1
-            connector = "└── " if is_last else "├── "
+            connector = "`-- " if is_last else "|-- "
             tree.append(f"{prefix}{connector}{p.name}")
 
             if p.is_dir():
-                new_prefix = prefix + ("    " if is_last else "│   ")
+                new_prefix = prefix + ("    " if is_last else "|   ")
                 walk(p, depth + 1, new_prefix)
 
     tree.append(repo_path.name)
@@ -112,7 +112,7 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
         import anthropic
     except ImportError:
         raise RuntimeError(
-            "ML dependencies are not installed. Run: pip install archguard[ml]"
+            "Cloud dependencies are not installed. Run: pip install -e \".[cloud]\""
         )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")

@@ -253,7 +253,7 @@ class SuppressionStore:
         table.add_column("Created")
 
         for s in suppressions:
-            reason_display = s.reason[:40] + "…" if len(s.reason) > 40 else s.reason
+            reason_display = s.reason[:40] + "..." if len(s.reason) > 40 else s.reason
             expires_str = s.expires_at or "never"
             table.add_row(
                 s.id[:8],

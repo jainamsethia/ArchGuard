@@ -88,7 +88,7 @@ class LocalLLMExplainer:
         """Send a prompt to Ollama and return the result.
 
         Handles three failure paths with actionable error messages.
-        Never raises — always returns a ``LocalLLMResult``.
+        Never raises - always returns a ``LocalLLMResult``.
         """
         url = f"{self._base_url}/api/generate"
 

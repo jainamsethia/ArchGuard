@@ -1,4 +1,4 @@
-"""archguard github-sync — parse and execute GitHub PR commands."""
+"""archguard github-sync - parse and execute GitHub PR commands."""
 
 import json
 import os
@@ -96,7 +96,7 @@ def _execute_suppress(
 
     if len(cmd.args) < 3:
         usage_msg = (
-            f"❌ @{cmd.author} Usage: "
+            f"[X] @{cmd.author} Usage: "
             "`/archguard suppress <module> <layer> <message>`\n"
             "Example: `/archguard suppress api 1 Imports from db directly`"
         )
@@ -109,7 +109,7 @@ def _execute_suppress(
         layer = int(cmd.args[1])
     except ValueError:
         error_msg = (
-            f"❌ @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
+            f"[X] @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
         )
         if repo_slug and pr_number:
             post_comment(repo_slug, error_msg, pr_number=pr_number)
@@ -126,11 +126,11 @@ def _execute_suppress(
             reason=f"Suppressed via PR comment by @{cmd.author}",
             pr_number=pr_number,
         )
-        success_msg = f"✅ @{cmd.author} Suppressed `{module}` L{layer}: `{message}`"
+        success_msg = f"[OK] @{cmd.author} Suppressed `{module}` L{layer}: `{message}`"
     except SuppressionValidationError as exc:
-        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
+        success_msg = f"[X] @{cmd.author} Suppression failed: {exc}"
     except Exception as exc:
-        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
+        success_msg = f"[X] @{cmd.author} Suppression failed: {exc}"
 
     if repo_slug and pr_number:
         post_comment(repo_slug, success_msg, pr_number=pr_number)
@@ -140,7 +140,7 @@ def _execute_re_analyze(
     repo_root: Path, repo_slug: str, pr_number: int, _ctx: object | None
 ) -> None:
     """Trigger re-analysis without requiring a Typer context.
-    Calls AnalysisOrchestrator directly — never calls a Typer command.
+    Calls AnalysisOrchestrator directly - never calls a Typer command.
     Typer commands require a live Typer context; the analysis engine does not.
     """
     import logging

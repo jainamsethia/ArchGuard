@@ -12,7 +12,7 @@ PROFILES: dict[str, Any] = {
             "min_health_score": 85,
         },
         "fail_on_violation": True,
-        "description": "Production-grade enforcement. Suitable for mature codebases.",
+        "description": "Production-grade enforcement (Coupling <= 5, Duplication <= 5%, Cohesion >= 80%, Health >= 85%). Suitable for mature codebases.",
     },
     "lenient": {
         "thresholds": {
@@ -23,7 +23,7 @@ PROFILES: dict[str, Any] = {
             "min_health_score": 60,
         },
         "fail_on_violation": False,
-        "description": "Minimal enforcement. Good for greenfield or legacy projects.",
+        "description": "Minimal enforcement (Coupling <= 15, Duplication <= 20%, Cohesion >= 50%, Health >= 60%). Good for greenfield or legacy projects.",
     },
     "ci": {
         "thresholds": {
@@ -34,7 +34,7 @@ PROFILES: dict[str, Any] = {
             "min_health_score": 75,
         },
         "fail_on_violation": True,
-        "description": "Balanced enforcement for CI pipelines.",
+        "description": "Balanced enforcement for CI pipelines (Coupling <= 10, Duplication <= 10%, Cohesion >= 65%, Health >= 75%).",
     },
 }
 
@@ -42,7 +42,8 @@ PROFILES: dict[str, Any] = {
 def apply_profile(contract: dict[str, Any], profile_name: str) -> dict[str, Any]:
     """Apply a named profile's thresholds to the given contract."""
     if profile_name not in PROFILES:
-        return contract
+        valid = ", ".join(PROFILES.keys())
+        raise ValueError(f"Unknown profile '{profile_name}'. Valid choices are: {valid}")
 
     profile = PROFILES[profile_name]
     thresholds = profile["thresholds"]

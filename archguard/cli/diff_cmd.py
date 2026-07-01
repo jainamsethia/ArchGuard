@@ -68,7 +68,7 @@ def diff_cmd(
     # Rich output
     console = Console()
     console.print(
-        f"\n[bold]ArchDebt Diff[/bold]: {old_run.get('timestamp', 'unknown')} → {new_run.get('timestamp', 'unknown')}"
+        f"\n[bold]ArchDebt Diff[/bold]: {old_run.get('timestamp', 'unknown')} -> {new_run.get('timestamp', 'unknown')}"
     )
     score_color = "red" if score_delta > 0 else "green"
     console.print(f"Score: [{score_color}]{score_delta:+.3f}[/{score_color}]")
@@ -79,6 +79,6 @@ def diff_cmd(
             console.print(f"  • {v}")
 
     if resolved:
-        console.print(f"\n[green]✅ Resolved violations ({len(resolved)}):[/green]")
+        console.print(f"\n[green][OK] Resolved violations ({len(resolved)}):[/green]")
         for v in sorted(resolved):
             console.print(f"  • {v}")

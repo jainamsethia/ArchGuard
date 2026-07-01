@@ -32,7 +32,7 @@ def sha256_of(text: str) -> str:
 class EmbeddingCache:
     """High-level cache for embeddings and module centroids.
 
-    Never raises on DB failures — logs warnings and returns ``None``.
+    Never raises on DB failures - logs warnings and returns ``None``.
     """
 
     def __init__(self, db: EmbeddingDB) -> None:
@@ -51,7 +51,7 @@ class EmbeddingCache:
         """Return stored embedding if *content_hash* matches, else ``None``."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         try:
             cursor = self._db._conn.execute(
@@ -81,7 +81,7 @@ class EmbeddingCache:
         """Upsert an embedding into the cache."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         try:
             blob = embedding.astype(np.float32).tobytes()
@@ -108,7 +108,7 @@ class EmbeddingCache:
         """Return ``(centroid_array, content_hash)`` or ``None``."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         try:
             cursor = self._db._conn.execute(
@@ -134,7 +134,7 @@ class EmbeddingCache:
         """Upsert a module centroid."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         try:
             blob = centroid.astype(np.float32).tobytes()
@@ -160,7 +160,7 @@ class EmbeddingCache:
         """
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         if not keys:
             return {}
@@ -209,7 +209,7 @@ class EmbeddingCache:
         """
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         if not items:
             return
@@ -253,7 +253,7 @@ class EmbeddingCache:
         """Yield embeddings in batches of batch_size to avoid loading all into RAM."""
         if not _ML_AVAILABLE:
             raise RuntimeError(
-                "ML dependencies are not installed. Run: pip install archguard[ml]"
+                "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
         from archguard.cache.locking import file_lock
         from pathlib import Path

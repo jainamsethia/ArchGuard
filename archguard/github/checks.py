@@ -40,7 +40,7 @@ class ChecksAPIClient:
     ) -> Dict[str, Any]:
         """Create or update a GitHub check run with annotations."""
 
-        # GitHub limits 50 annotations per request — create run, then update with annotations
+        # GitHub limits 50 annotations per request - create run, then update with annotations
         payload: Dict[str, Any] = {
             "name": name,
             "head_sha": head_sha,

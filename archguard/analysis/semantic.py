@@ -51,6 +51,8 @@ class SemanticDriftResult:
     post_pr_centroid: npt.NDArray[np.float32]
     functions_analyzed: int
     cache_hit: bool
+    skipped: bool = False
+    skip_reason: str = ""
 
 
 # ------------------------------------------------------------------
@@ -63,7 +65,7 @@ def cosine_distance(a: npt.NDArray[np.float32], b: npt.NDArray[np.float32]) -> f
     if not _ML_AVAILABLE:
         raise RuntimeError(
             "Layer 3 (Semantic Drift) requires ML dependencies. "
-            "Install them with: pip install archguard[ml]\n"
+            "Install them with: pip install -e \".[ml]\"\n"
             "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
         )
     norm_a = float(np.linalg.norm(a))
@@ -87,7 +89,7 @@ def _get_model(model_name: str) -> "SentenceTransformer":
                 if not _ML_AVAILABLE:
                     raise RuntimeError(
                         "Layer 3 (Semantic Drift) requires ML dependencies. "
-                        "Install them with: pip install archguard[ml]"
+                        "Install them with: pip install -e \".[ml]\""
                     )
                 from sentence_transformers import SentenceTransformer
 
@@ -166,7 +168,7 @@ class SemanticAnalyzer:
         if not _ML_AVAILABLE:
             raise RuntimeError(
                 "Layer 3 (Semantic Drift) requires ML dependencies. "
-                "Install them with: pip install archguard[ml]\n"
+                "Install them with: pip install -e \".[ml]\"\n"
                 "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
             )
         result: dict[str, npt.NDArray[np.float32]] = {}
@@ -217,7 +219,7 @@ class SemanticAnalyzer:
         if not _ML_AVAILABLE:
             raise RuntimeError(
                 "Layer 3 (Semantic Drift) requires ML dependencies. "
-                "Install them with: pip install archguard[ml]\n"
+                "Install them with: pip install -e \".[ml]\"\n"
                 "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
             )
         if not embeddings:
@@ -240,10 +242,15 @@ class SemanticAnalyzer:
     ) -> SemanticDriftResult:
         """Compute semantic drift for *module_name* given changed files."""
         if not _ML_AVAILABLE:
-            raise RuntimeError(
-                "Layer 3 (Semantic Drift) requires ML dependencies. "
-                "Install them with: pip install archguard[ml]\n"
-                "To skip this layer, set `skip_layers: [semantic]` in .archguard.yml"
+            return SemanticDriftResult(
+                module_name=module_name,
+                drift_score=0.0,
+                pre_pr_centroid=np.zeros(384, dtype=np.float32) if _NUMPY_AVAILABLE else None, # type: ignore
+                post_pr_centroid=np.zeros(384, dtype=np.float32) if _NUMPY_AVAILABLE else None, # type: ignore
+                functions_analyzed=0,
+                cache_hit=False,
+                skipped=True,
+                skip_reason='Layer 3 (Semantic Drift) skipped: install with pip install -e ".[ml]"',
             )
         # 1. Load pre-PR centroid
         cached = self._cache.get_centroid(module_name)

@@ -1,0 +1,10 @@
+version: '3.0'
+modules:
+- name: core
+  path: core/
+- name: a
+  path: a/
+fitness_functions:
+  - name: No forbidden import
+    rule: "No dependencies from core to a"
+    severity: "critical"

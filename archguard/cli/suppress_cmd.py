@@ -1,4 +1,4 @@
-"""archguard suppress — manage violation suppressions."""
+"""archguard suppress - manage violation suppressions."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def suppress_add(
                     pr_number=pr,
                 )
                 table.add_row(
-                    "✓",
+                    "[OK]",
                     str(v.get("layer", 1)),
                     str(v.get("module", "")),
                     str(v.get("message", "")),

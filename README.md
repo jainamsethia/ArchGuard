@@ -149,12 +149,12 @@ archguard report --slim         # Output minimalist CDN-ready HTML report
 ## Installation
 ### Full Install (recommended)
 ```bash
-pip install archguard[all]
+pip install -e ".[all]"
 ```
 ### Minimal Install (no ML layers)
 ```bash
-pip install archguard
-# Note: Layer 3 (Semantic Drift) and Layer 4 (Duplication) require `pip install archguard[ml]`
+pip install -e .
+# Note: Layer 3 (Semantic Drift) and Layer 4 (Duplication) require `pip install -e ".[ml]"`
 ```
 
 ## Quick Start
@@ -234,6 +234,11 @@ You can view all available presets via:
 ```bash
 archguard profiles list
 ```
+
+### Which profile do I want?
+- **strict**: Use this for mature codebases where you want production-grade enforcement as a hard CI gate. It demands high cohesion and low coupling.
+- **lenient**: Use this for local development, exploratory testing, greenfield projects, or legacy codebases where you want minimal enforcement.
+- **ci**: Use this for balanced enforcement in most standard CI pipelines, providing reasonable defaults without being overly restrictive.
 
 You can also specify a profile globally by answering the interactive prompt during `archguard init` or manually placing it at the root of your `.archguard.yml` file:
 ```yaml

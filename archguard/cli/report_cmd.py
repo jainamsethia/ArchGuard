@@ -1,4 +1,4 @@
-"""archguard report — generates an interactive HTML dashboard."""
+"""archguard report - generates an interactive HTML dashboard."""
 
 from __future__ import annotations
 
@@ -201,7 +201,7 @@ def report_cmd(
             _console.print(
                 "[bold red]Missing Dependencies[/bold red]\n"
                 "Layer 3 or 4 requires ML libraries.\n"
-                "Install them with: pip install archguard[ml]\n"
+                "Install them with: pip install -e \".[ml]\"\n"
                 "Or add skip_layers: [semantic, duplication] to .archguard.yml"
             )
             raise typer.Exit(2)

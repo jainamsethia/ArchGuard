@@ -34,7 +34,7 @@ def _get_trusted_proxy_ips() -> frozenset[str]:
             trusted.add(entry)
         except ValueError:
             logging.warning(
-                "ARCHGUARD_TRUSTED_PROXY_IPS: invalid entry %r — skipped", entry
+                "ARCHGUARD_TRUSTED_PROXY_IPS: invalid entry %r - skipped", entry
             )
     return frozenset(trusted)
 
@@ -78,8 +78,8 @@ def check_token(
     """Enforce authentication for all protected endpoints.
 
     Accepts EITHER:
-    1. Authorization: Bearer <token>  — for CLI / API clients
-    2. archguard_session cookie       — for browser clients (set via /api/auth/login)
+    1. Authorization: Bearer <token>  - for CLI / API clients
+    2. archguard_session cookie       - for browser clients (set via /api/auth/login)
 
     If ARCHGUARD_DASHBOARD_TOKEN is not set, falls back to IP-based allow/deny.
     """
@@ -101,10 +101,15 @@ def check_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # No token configured — fall back to IP-based check
+    # No token configured - fall back to IP-based check
     client_host = _real_client_ip(request)
     if client_host in _ALWAYS_TRUSTED_HOSTS:
         return  # localhost always trusted
+    try:
+        if ipaddress.ip_address(client_host).is_loopback:
+            return
+    except ValueError:
+        pass
 
     allow_remote = os.environ.get(
         "ARCHGUARD_DASHBOARD_ALLOW_REMOTE", ""

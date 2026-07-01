@@ -27,7 +27,7 @@ def dashboard_cmd(
     try:
         import uvicorn
     except ImportError:
-        typer.echo("Dashboard requires: pip install archguard[dashboard]", err=True)
+        typer.echo("Dashboard requires: pip install -e \".[dashboard]\"", err=True)
         raise typer.Exit(2)
 
     import os

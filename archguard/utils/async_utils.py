@@ -16,7 +16,7 @@ def run_async(coro: Coroutine[Any, Any, T]) -> T:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        # No running loop — safe to use asyncio.run()
+        # No running loop - safe to use asyncio.run()
         return asyncio.run(coro)
     # A loop is already running (e.g., pytest-asyncio, Jupyter).
     # Run in a separate thread to avoid nesting.

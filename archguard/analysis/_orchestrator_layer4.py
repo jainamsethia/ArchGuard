@@ -28,18 +28,18 @@ def _run_layer_4(
         if progress:
             progress.update(
                 task4,
-                description="[yellow]⚠ Layer 4: Skipped (config)[/yellow]",
+                description="[yellow][!] Layer 4: Skipped (config)[/yellow]",
             )
             progress.stop_task(task4)
         else:
             if not quiet:
-                print("⚠ Layer 4 Skipped (config)")
+                print("[WARN] Layer 4 Skipped (config)")
     else:
         try:
             with metrics.time_layer("layer4"):
                 from archguard.analysis._layer_runners import _run_layer4
 
-                layer4, l4_viols = _run_layer4(
+                layer4, l4_viols, l4_skip_reason = _run_layer4(
                     orchestrator.repo_root,
                     orchestrator.cache,
                     orchestrator.contract,
@@ -48,26 +48,33 @@ def _run_layer_4(
                 )
                 violations.extend(l4_viols)
             l4_violations = len(l4_viols)
-            if progress:
-                progress.update(
-                    task4,
-                    description=f"[green]✓ Layer 4:[/green] {l4_violations} violations",
-                )
-                progress.stop_task(task4)
-            else:
-                if not quiet:
-                    print(f"[OK] Layer 4 complete ({l4_violations} violations)")
-        except RuntimeError as e:
-            if "ML dependencies" in str(e):
+            
+            if l4_skip_reason:
+                metrics.extra["layer4_skipped"] = True
+                metrics.extra["layer4_skip_reason"] = l4_skip_reason
                 if progress:
                     progress.update(
                         task4,
-                        description="[bold red]✗ Layer 4: Failed (Missing ML dependencies)[/bold red]",
+                        description=f"[yellow][!] {l4_skip_reason}[/yellow]",
                     )
                     progress.stop_task(task4)
-                raise
+                elif not quiet:
+                    print(f"[WARN] {l4_skip_reason}")
             else:
-                raise
+                if progress:
+                    progress.update(
+                        task4,
+                        description=f"[green][OK] Layer 4:[/green] {l4_violations} violations",
+                    )
+                    progress.stop_task(task4)
+                else:
+                    if not quiet:
+                        print(f"[OK] Layer 4 complete ({l4_violations} violations)")
+
+        except Exception as e:
+            if progress:
+                progress.stop_task(task4)
+            raise RuntimeError(f"Layer 4 analysis failed: {e}") from e
 
     return violations, layer4
 

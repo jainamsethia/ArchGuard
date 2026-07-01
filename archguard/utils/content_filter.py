@@ -23,7 +23,7 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         "DATABASE_URL",
     ),
     (r"\bghp_[a-zA-Z0-9]{36}\b", "GITHUB_PAT"),
-    # Fine-grained GitHub PATs (github_pat_...) — fix for MED-03
+    # Fine-grained GitHub PATs (github_pat_...) - fix for MED-03
     (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", "GITHUB_PAT_FINE"),
     (
         r'(password|passwd|secret|api_key|token)\s*=\s*["\'][^"\']{8,}',

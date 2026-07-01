@@ -1,4 +1,4 @@
-"""archguard contract — manage architectural contracts."""
+"""archguard contract - manage architectural contracts."""
 
 from __future__ import annotations
 

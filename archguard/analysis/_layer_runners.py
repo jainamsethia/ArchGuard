@@ -195,7 +195,7 @@ def _run_layer3(
     py_files: list[Path],
     commit_sha: str,
     repo_root: Path,
-) -> tuple[float, dict[str, float], list[ViolationDetail]]:
+) -> tuple[float, dict[str, float], list[ViolationDetail], str]:
     """Layer 3: Semantic drift."""
     violations: list[ViolationDetail] = []
     from archguard.analysis.semantic import SemanticAnalyzer
@@ -208,6 +208,7 @@ def _run_layer3(
 
     max_drift = 0.0
     module_drifts: dict[str, float] = {}
+    skip_reason = ""
     for mod_name, files in affected.items():
         try:
             result = analyzer.compute_drift(mod_name, files, repo_root)
@@ -227,6 +228,8 @@ def _run_layer3(
                         severity=Severity.LOW,
                     )
                 )
+            if getattr(result, "skipped", False):
+                skip_reason = getattr(result, "skip_reason", "")
             max_drift = max(max_drift, result.drift_score)
         except RuntimeError:
             raise
@@ -237,7 +240,7 @@ def _run_layer3(
                 f"Layer 3 analysis failed on module {mod_name}", cause=e
             ) from e
 
-    return max_drift, module_drifts, violations
+    return max_drift, module_drifts, violations, skip_reason
 
 
 def _run_layer4(
@@ -246,7 +249,7 @@ def _run_layer4(
     contract: dict[str, Any],
     affected: dict[str, list[Path]],
     commit_sha: str,
-) -> tuple[float, list[ViolationDetail]]:
+) -> tuple[float, list[ViolationDetail], str]:
     """Layer 4: Duplication analysis."""
     violations: list[ViolationDetail] = []
     from archguard.analysis.duplication import DuplicationAnalyzer
@@ -257,6 +260,7 @@ def _run_layer4(
         m["name"]: m.get("duplication_threshold", 0.5) for m in modules_cfg
     }
     max_agg = 0.0
+    skip_reason = ""
 
     for mod_name, files in affected.items():
         rel_files = [
@@ -266,8 +270,17 @@ def _run_layer4(
             for f in files
         ]
         try:
-            result = analyzer.analyze_module(mod_name, rel_files)
-            if result.aggregate_score > 0.0 and not result.skipped:
+            from archguard.analysis.layers import _get_module_paths
+            mod_paths = next(
+                (_get_module_paths(m) for m in modules_cfg if m["name"] == mod_name), []
+            )
+            if not mod_paths and mod_name == "misc":
+                mod_paths = ["./"]
+            
+            result = analyzer.analyze_module(mod_name, rel_files, mod_paths)
+            if result.skipped:
+                skip_reason = result.skip_reason
+            elif result.aggregate_score > 0.0 and not result.skipped:
                 # Collect file information from the matches
                 match_details = []
                 for m in result.matches[:3]:  # limit to top 3 to avoid huge messages
@@ -309,4 +322,4 @@ def _run_layer4(
                 f"Layer 4 analysis failed on module {mod_name}", cause=e
             ) from e
 
-    return max_agg, violations
+    return max_agg, violations, skip_reason
