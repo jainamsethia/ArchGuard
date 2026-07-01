@@ -231,3 +231,11 @@
                 isJobRunning = false;
             }
         }
+
+        const formEl = document.getElementById('submit-form');
+        if (formEl) {
+            formEl.addEventListener('submit', (e) => {
+                e.preventDefault();
+                handleSubmit();
+            });
+        }
