@@ -16,6 +16,8 @@ import time
 
 COOKIE_NAME = "archguard_session"
 _TTL = int(os.environ.get("ARCHGUARD_SESSION_COOKIE_TTL", "86400"))
+# 24h default — controls auth cookie lifetime, NOT the AI Advisor session memory
+# See also: ARCHGUARD_SESSION_TTL in _sessions.py (different subsystem)
 # In-memory session store: session_id -> issued_at_unix_timestamp
 # Single-instance deployments only. Multi-instance deployments should use Redis.
 _SESSIONS: dict[str, float] = {}

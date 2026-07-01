@@ -278,7 +278,7 @@ async def submit_analysis_job(
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Get analysis job status and result",
 )
-async def get_job_status(job_id: str) -> dict[str, Any]:
+async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
     """Return the current status, progress, and result of an analysis job."""
     import os as _os, hmac as _hmac
     from archguard.dashboard._cookie_auth import validate_session_cookie, COOKIE_NAME
@@ -409,6 +409,8 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
     from typing import AsyncGenerator
     async def event_generator() -> AsyncGenerator[str, None]:
         last_progress_idx = 0
+        last_emitted_status: str | None = None
+
         while True:
             # Detect client disconnect
             if await request.is_disconnected():
@@ -427,8 +429,11 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
                 yield f"data: {payload}\n\n"
             last_progress_idx += len(new_messages)
 
-            # Emit current status
-            yield f"data: {json.dumps({'type': 'status', 'status': current_job.status})}\n\n"
+            # Emit status only when it has changed
+            current_status = str(current_job.status)
+            if current_status != last_emitted_status:
+                yield f"data: {json.dumps({'type': 'status', 'status': current_job.status})}\n\n"
+                last_emitted_status = current_status
 
             # Terminal states: emit result or error, then close
             if current_job.status == JobStatus.COMPLETE:

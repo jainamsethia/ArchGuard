@@ -21,6 +21,9 @@ _ALLOWED_ROOT_FILES = {
     "docker-compose.yml",
     "railway.toml",
     "render.yaml",
+    "package.json",
+    "package-lock.json",
+    "playwright.config.ts",
 }
 
 

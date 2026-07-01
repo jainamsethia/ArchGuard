@@ -82,3 +82,5 @@ test_report.html
 analysis.json
 fitness.json
 scratch/
+node_modules/
+test-results/

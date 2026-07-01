@@ -9,7 +9,7 @@ _SESSION_LOCK = threading.Lock()
 SESSION_STORE: dict[str, dict[str, Any]] = {}
 SESSION_TTL_SECONDS = int(
     os.environ.get("ARCHGUARD_SESSION_TTL", "3600")
-)  # 1 h default
+)  # 1 h default — controls AI Advisor conversation memory, NOT the auth cookie lifetime
 
 def _purge_expired_sessions() -> None:
     """Remove sessions older than SESSION_TTL_SECONDS. Called opportunistically."""

@@ -181,9 +181,9 @@
                     }
                     else if (payload.type === 'result' && payload.result) {
                         const r = payload.result;
-                        document.getElementById('res-score').textContent = r.archdebt?.health_score != null ? parseFloat(r.archdebt.health_score).toFixed(1) : '--';
+                        document.getElementById('res-score').textContent = r.health_score != null ? parseFloat(r.health_score).toFixed(1) : '--';
                         document.getElementById('res-violations').textContent = r.total_violations || '0';
-                        const grade = r.archdebt?.health_grade || '--';
+                        const grade = r.health_grade || '--';
                         const gradeEl = document.getElementById('res-grade');
                         gradeEl.textContent = `Grade: ${grade}`;
                         

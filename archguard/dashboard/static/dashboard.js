@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Configuration for dark mode charts
         Chart.defaults.color = '#94a3b8';
         Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.1)';
-        Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+        Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
 
         const urlParams = new URLSearchParams(window.location.search);
         const highlightJobId = urlParams.get('job_id');

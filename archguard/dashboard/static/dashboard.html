@@ -4,8 +4,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<meta content="default-src 'self'; script-src 'self'; style-src 'self';" http-equiv="Content-Security-Policy"/>
 <title>ArchGuard Dashboard</title>
+<link rel="stylesheet" href="/static/index.css"/>
 <style>
         @font-face {
             font-family: 'Inter';
@@ -75,7 +75,7 @@
         body {
             background-color: var(--bg-color);
             color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             margin: 0;
             padding: 2rem;
             min-height: 100vh;
@@ -173,13 +173,13 @@
             }
 
             /* Tab bar becomes horizontally scrollable */
-            .tabs-nav {
+            .tablist {
                 overflow-x: auto;
                 white-space: nowrap;
                 -webkit-overflow-scrolling: touch;
                 scrollbar-width: none;
             }
-            .tabs-nav::-webkit-scrollbar { display: none; }
+            .tablist::-webkit-scrollbar { display: none; }
 
             /* Cards get full-width padding */
             .glass-card {

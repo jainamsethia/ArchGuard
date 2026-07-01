@@ -35,6 +35,22 @@
 ### Performance baseline
 - octocat/Hello-World analysis: 3.04 seconds wall-clock on 2026-06-29.
 
+## [0.5.0] — Unreleased
+
+### Audit Report Fixes
+- CRIT-01: Fixed `app.url_path_for` vs trailing slash issue breaking 404 handlers.
+- CRIT-02: Removed broken redundant audit-log try block in `pipeline_adapter.py`.
+- CRIT-03: Fixed CSP block in `dashboard.html` by adding nonce to SSE script.
+- CRIT-04: Fixed HTTP 401 on `dashboard.html` jobs API by adding Token Basic Auth headers.
+- HIGH-03: Fixed result card JS to read `health_score` from top-level `AnalysisJobResult`.
+- MED-04: Fixed CSS mobile breakpoint selectors in both pages (`.input-group`, `.tablist`).
+- MED-05: Added 'Inter' font to `dashboard.html` body to match `index.html`.
+- LOW-02: Added `ARCHGUARD_SESSION_COOKIE_TTL`, `OPENAI_API_KEY`, etc., to `.env.example`.
+- LOW-03: Linked `index.css` inside `dashboard.html` for semantic utility classes.
+- LOW-04: Added inline comments distinguishing `SESSION_TTL` from `SESSION_COOKIE_TTL`.
+- IMPROVEMENT-01: Added `dashboard-smoke.yml` GitHub Action for token-auth CI testing.
+- IMPROVEMENT-03: Added `playwright.config.ts` for automated visual regression checks.
+
 ## [0.4.0] — Unreleased
 
 ### Security (added by this guide)

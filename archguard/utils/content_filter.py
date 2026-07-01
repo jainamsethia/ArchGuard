@@ -1,7 +1,4 @@
-"""Regex-based secret redaction pre-filter for LLM input."""
-
-from __future__ import annotations
-
+import os
 import re
 from dataclasses import dataclass
 
@@ -9,9 +6,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class RedactionResult:
     """Result of applying secret redaction to text."""
-
     text: str
-    redactions: list[str]  # labels that were redacted, e.g. ["ANTHROPIC_KEY", "JWT"]
+    redactions: list[str]
 
 
 SECRET_PATTERNS: list[tuple[str, str]] = [
@@ -27,6 +23,8 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
         "DATABASE_URL",
     ),
     (r"\bghp_[a-zA-Z0-9]{36}\b", "GITHUB_PAT"),
+    # Fine-grained GitHub PATs (github_pat_...) — fix for MED-03
+    (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", "GITHUB_PAT_FINE"),
     (
         r'(password|passwd|secret|api_key|token)\s*=\s*["\'][^"\']{8,}',
         "CREDENTIAL",
@@ -47,16 +45,39 @@ _COMPILED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(pattern), label) for pattern, label in SECRET_PATTERNS
 ]
 
+# Environment variables whose live values must be redacted on exact match.
+# These are operator secrets whose shape cannot be inferred from a regex.
+_ENV_SECRET_VARS: tuple[str, ...] = (
+    "ARCHGUARD_DASHBOARD_TOKEN",
+    "GITHUB_TOKEN",
+    "ARCHGUARD_LLM_API_KEY",
+    "OPENAI_API_KEY",
+)
+
+
+def _get_env_secrets() -> list[tuple[str, str]]:
+    """Return (value, label) pairs for live operator secrets that are set."""
+    secrets = []
+    for var in _ENV_SECRET_VARS:
+        val = os.environ.get(var, "").strip()
+        if len(val) >= 8:  # skip trivially short values (empty, placeholder, etc.)
+            secrets.append((val, var))
+    return secrets
+
 
 def redact_secrets(text: str) -> RedactionResult:
-    """Apply all ``SECRET_PATTERNS`` and replace matches with ``[REDACTED:{label}]``.
-
-    Each label appears at most once in the *redactions* list even if multiple
-    matches of the same type are found.
-    """
+    """Apply all SECRET_PATTERNS and live environment secrets to redact sensitive data."""
     redacted = text
     labels_found: list[str] = []
 
+    # Pass 1: exact-match redaction for operator secrets from the environment
+    for secret_val, label in _get_env_secrets():
+        if secret_val in redacted:
+            if label not in labels_found:
+                labels_found.append(label)
+            redacted = redacted.replace(secret_val, f"[REDACTED:{label}]")
+
+    # Pass 2: shape-based regex patterns
     for compiled, label in _COMPILED:
         if compiled.search(redacted):
             if label not in labels_found:
@@ -67,11 +88,7 @@ def redact_secrets(text: str) -> RedactionResult:
 
 
 def is_safe_for_llm(text: str) -> tuple[bool, list[str]]:
-    """Check whether *text* contains any detectable secrets.
-
-    Returns ``(True, [])`` if no secrets detected, otherwise
-    ``(False, [labels])`` listing the types found.
-    """
+    """Check whether *text* contains any detectable secrets."""
     result = redact_secrets(text)
     if result.redactions:
         return False, result.redactions
