@@ -1,5 +1,5 @@
 """Run-history, module-list, trend, and dependency-graph read endpoints."""
-
+from pathlib import Path
 from typing import Any
 from fastapi import Path as FastAPIPath, Depends, Query
 from archguard.dashboard.app import app, get_audit_path, JobIdQuery
