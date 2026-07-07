@@ -30,7 +30,7 @@
   </form>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (async function initAuth() {
   const res = await fetch('/api/auth/status');
   if (!res.ok) return;
