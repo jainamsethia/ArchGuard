@@ -55,6 +55,12 @@ VALID_FITNESS_SEVERITIES: frozenset[str] = frozenset({"critical", "warn", "info"
 
 
 
+import re
+
+_RULE_NAME_PATTERN = re.compile(r"^[\w \-\.]{1,200}$")
+_RULE_EXPR_PATTERN = re.compile(r"^[\w \-\.\[\]<>=]{1,500}$")
+
+
 class FitnessFunctionConfigError(ValueError):
     """Raised when a FitnessFunctionConfig has invalid fields."""
 
@@ -84,6 +90,16 @@ class FitnessFunctionConfig:
             raise FitnessFunctionConfigError(
                 f"Fitness function '{self.name}': severity must be one of "
                 f"{sorted(VALID_FITNESS_SEVERITIES)}, got '{self.severity}'."
+            )
+        if not _RULE_NAME_PATTERN.match(self.name):
+            raise FitnessFunctionConfigError(
+                f"Fitness function name {self.name!r} must be 1-200 characters: "
+                "letters, numbers, spaces, underscores, hyphens, and periods only."
+            )
+        if not _RULE_EXPR_PATTERN.match(self.rule):
+            raise FitnessFunctionConfigError(
+                f"Fitness function '{self.name}': rule expression contains characters "
+                "outside the supported rule DSL."
             )
 
 

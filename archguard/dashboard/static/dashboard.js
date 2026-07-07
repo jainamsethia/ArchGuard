@@ -214,7 +214,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (str === null || str === undefined) return '';
             const div = document.createElement('div');
             div.textContent = String(str);
-            return div.innerHTML;
+            return div.innerHTML
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
         }
 
         function updateFitnessPanel(latestRun) {
