@@ -47,11 +47,11 @@ def test_layers_concurrent_violations():
         ) as m2,
         patch(
             "archguard.analysis._layer_runners._run_layer3",
-            return_value=(0.1, {}, l3_violations),
+            return_value=(0.1, {}, l3_violations, ""),
         ) as m3,
         patch(
             "archguard.analysis._layer_runners._run_layer4",
-            return_value=(0.2, l4_violations),
+            return_value=(0.2, l4_violations, ""),
         ) as m4,
         patch(
             "archguard.analysis._orchestrator_utils._get_affected_modules",

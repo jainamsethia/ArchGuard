@@ -52,6 +52,7 @@ _ENV_SECRET_VARS: tuple[str, ...] = (
     "GITHUB_TOKEN",
     "ARCHGUARD_LLM_API_KEY",
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
 )
 
 

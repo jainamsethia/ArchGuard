@@ -119,11 +119,25 @@ class ArchitectureAdvisor:
         SDK is unavailable or the API key is not configured.
         """
         import os
+        import logging
+        from archguard.utils.content_filter import redact_secrets
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:
             yield "Anthropic API key not configured. Set ANTHROPIC_API_KEY to enable streaming."
             return
+
+        redacted_q = redact_secrets(question)
+        redacted_c = redact_secrets(context) if context else redacted_q.__class__(text="", redactions=[])
+
+        if redacted_q.redactions or redacted_c.redactions:
+            logging.warning(
+                "Advisor stream question/context contained redacted secrets: %s",
+                redacted_q.redactions + redacted_c.redactions,
+            )
+
+        safe_question = redacted_q.text
+        safe_context = redacted_c.text
 
         try:
             import anthropic
@@ -134,7 +148,7 @@ class ArchitectureAdvisor:
                 "You are an expert software architect. Answer questions about "
                 "architecture with actionable, specific advice."
             )
-            user_content = f"{context}\n\nQuestion: {question}" if context else question
+            user_content = f"{safe_context}\n\nQuestion: {safe_question}" if safe_context else safe_question
 
             with client.messages.stream(
                 model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),

@@ -185,6 +185,7 @@ class TestAnalyzeCommand:
             "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"
@@ -268,6 +269,7 @@ class TestAnalyzeCommand:
             "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"
@@ -317,6 +319,7 @@ class TestAnalyzeCommand:
             "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"
@@ -381,6 +384,7 @@ class TestAnalyzeCommand:
             "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"
@@ -424,6 +428,7 @@ class TestAnalyzeCommand:
             "archguard.cli._analyze_core.AnalysisOrchestrator",
         ) as mock_cls:
             mock_orch = MagicMock()
+            mock_orch.contract = {}
             mock_orch.run.return_value = mock_result
             mock_cls.return_value = mock_orch
             mock_cls.get_commit_sha.return_value = "a1b2c3d"

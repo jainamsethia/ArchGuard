@@ -96,7 +96,7 @@ def _execute_suppress(
 
     if len(cmd.args) < 3:
         usage_msg = (
-            f"[X] @{cmd.author} Usage: "
+            f"❌ @{cmd.author} Usage: "
             "`/archguard suppress <module> <layer> <message>`\n"
             "Example: `/archguard suppress api 1 Imports from db directly`"
         )
@@ -109,7 +109,7 @@ def _execute_suppress(
         layer = int(cmd.args[1])
     except ValueError:
         error_msg = (
-            f"[X] @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
+            f"❌ @{cmd.author} Layer must be an integer (1–4). Got: {cmd.args[1]}"
         )
         if repo_slug and pr_number:
             post_comment(repo_slug, error_msg, pr_number=pr_number)
@@ -126,11 +126,11 @@ def _execute_suppress(
             reason=f"Suppressed via PR comment by @{cmd.author}",
             pr_number=pr_number,
         )
-        success_msg = f"[OK] @{cmd.author} Suppressed `{module}` L{layer}: `{message}`"
+        success_msg = f"✅ @{cmd.author} Suppressed `{module}` L{layer}: `{message}`"
     except SuppressionValidationError as exc:
-        success_msg = f"[X] @{cmd.author} Suppression failed: {exc}"
+        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
     except Exception as exc:
-        success_msg = f"[X] @{cmd.author} Suppression failed: {exc}"
+        success_msg = f"❌ @{cmd.author} Suppression failed: {exc}"
 
     if repo_slug and pr_number:
         post_comment(repo_slug, success_msg, pr_number=pr_number)

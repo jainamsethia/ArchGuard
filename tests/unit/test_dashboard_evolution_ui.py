@@ -7,7 +7,7 @@ def test_evolution_dashboard_ui_elements():
         Path(__file__).parent.parent.parent
         / "archguard"
         / "dashboard"
-        / "static"
+        / "templates"
         / "dashboard.html"
     )
     assert index_path.exists(), "dashboard.html not found"

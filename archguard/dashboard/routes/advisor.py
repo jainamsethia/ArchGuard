@@ -209,7 +209,7 @@ def advisor_message(
         reply = f"Provider error: {exc}"
 
     new_history = history + [
-        {"role": "user", "content": user_msg},
+        {"role": "user", "content": safe_user_msg},
         {"role": "assistant", "content": reply},
     ]
 

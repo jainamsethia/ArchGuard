@@ -18,10 +18,10 @@ ARCHGUARD_MARKER: str = "<!-- archguard-report -->"
 RETRY_DELAY_SECONDS: float = 3.0
 
 _BAND_EMOJI: dict[str, str] = {
-    "Healthy": "[OK] Healthy",
-    "Watch": "[!]️ Watch",
+    "Healthy": "✅ Healthy",
+    "Watch": "⚠️ Watch",
     "Warn": "🔶 Warn",
-    "Critical": "[!] Critical",
+    "Critical": "🚨 Critical",
 }
 
 _LAYER_LABELS: list[str] = [
@@ -46,9 +46,9 @@ def build_fitness_section(fitness_results: list[dict[str, Any]]) -> str:
     lines = ["## Architecture Fitness Functions", ""]
 
     if failed_count == 0:
-        lines.append(f"[OK] All {total} fitness function(s) passed.")
+        lines.append(f"✅ All {total} fitness function(s) passed.")
     else:
-        lines.append(f"[X] {failed_count} of {total} fitness function(s) failed.")
+        lines.append(f"❌ {failed_count} of {total} fitness function(s) failed.")
 
     critical_failures = [r for r in failed_results if r.get("severity") == "critical"]
     if critical_failures:
@@ -65,7 +65,7 @@ def build_fitness_section(fitness_results: list[dict[str, Any]]) -> str:
     warn_failures = [r for r in failed_results if r.get("severity") == "warn"]
     if warn_failures:
         lines.append("")
-        lines.append("### [!]️ Warnings")
+        lines.append("### ⚠️ Warnings")
         lines.append("")
         lines.append("| Function | Rule | Evidence |")
         lines.append("|----------|------|----------|")
@@ -78,7 +78,7 @@ def build_fitness_section(fitness_results: list[dict[str, Any]]) -> str:
         lines.append("")
         first_5 = passed_results[:5]
         names = [f.get("name", f.get("rule", "")) for f in first_5]
-        passing_str = f"[OK] Passing: {', '.join(names)}"
+        passing_str = f"✅ Passing: {', '.join(names)}"
         if passed_count > 5:
             passing_str += f" (+{passed_count - 5} more)"
         lines.append(passing_str)
@@ -93,9 +93,9 @@ def build_risk_section(report: Any) -> str:
 
     overall_risk = getattr(report, "overall_risk", "unknown").lower()
     risk_emoji = {
-        "critical": "[!]",
+        "critical": "🚨",
         "high": "🛑",
-        "medium": "[!]️",
+        "medium": "⚠️",
         "low": "ℹ️",
     }.get(overall_risk, "❓")
 

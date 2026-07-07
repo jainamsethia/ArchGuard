@@ -105,7 +105,7 @@ def test_drift_computed_once_per_run(tmp_path):
         ),
         patch(
             "archguard.analysis._layer_runners._run_layer4",
-            return_value=(0.0, []),
+            return_value=(0.0, [], ""),
         ),
         patch(
             "archguard.analysis.semantic.SemanticAnalyzer.compute_drift",

@@ -46,7 +46,8 @@ class OpenAIAdvisorProvider(AdvisorProvider):
     def generate_recommendations(self, context: str) -> list[Recommendation]:
         """Generate recommendations by calling the OpenAI API."""
         if not self.api_key:
-            raise ValueError("OPENAI_API_KEY is missing. Cannot generate recommendations.")
+            logger.error("OPENAI_API_KEY is missing. Cannot generate recommendations.")
+        return []
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},

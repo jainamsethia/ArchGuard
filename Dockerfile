@@ -8,12 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock* ./
-RUN pip install --no-cache-dir "poetry==2.4.1" && \
-    poetry export -f requirements.txt --output requirements.txt --without hashes && \
+RUN pip install --no-cache-dir "poetry==2.4.1" "poetry-plugin-export>=1.8.0" && \
+    poetry lock --no-update && \
+    poetry export -f requirements.txt --output requirements.txt --without-hashes && \
     pip install --no-cache-dir --target /deps -r requirements.txt
 
 COPY archguard/ ./archguard/
-RUN pip install --no-cache-dir --target /deps .
+RUN pip install --no-cache-dir --no-deps --target /deps ".[dashboard,cloud,ml]"
 
 # --- Runtime stage --
 FROM python:3.12-slim AS runtime

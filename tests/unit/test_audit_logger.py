@@ -48,7 +48,7 @@ def test_analysis_orchestrator_logs_parse_failure(tmp_path):
     with (
         patch("archguard.analysis._layer_runners._run_layer1", side_effect=mock_l1),
         patch("archguard.analysis._layer_runners._run_layer2", return_value=(0.0, [])),
-        patch("archguard.analysis._layer_runners._run_layer4", return_value=(0.0, [])),
+        patch("archguard.analysis._layer_runners._run_layer4", return_value=(0.0, [], "")),
     ):
         result = orchestrator.run([bad_py], commit_sha="1234567", quiet=True)
 

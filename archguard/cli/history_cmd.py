@@ -8,7 +8,7 @@ from archguard.config import AUDIT_EVENT_ANALYSIS, AUDIT_LOG_FILENAME
 
 
 def _sparkline(scores: list[float]) -> str:
-    bars = " .:-=+*#"
+    bars = "▁▂▃▄▅▆▇█"
     if not scores:
         return ""
     min_s, max_s = min(scores), max(scores)

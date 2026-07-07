@@ -119,7 +119,7 @@ def _calc_debt_velocity(snapshots: list[dict[str, Any]]) -> float | None:
 
 def _sparkline(values: list[float]) -> str:
     """Generate a sparkline string from a list of values."""
-    bars = " .:-=+*#"
+    bars = "▁▂▃▄▅▆▇█"
     if not values:
         return ""
     min_v, max_v = min(values), max(values)

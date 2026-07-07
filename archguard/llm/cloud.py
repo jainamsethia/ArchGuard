@@ -212,7 +212,7 @@ class CloudLLMExplainer:
 
         if not _ANTHROPIC_AVAILABLE:
             raise RuntimeError(
-                "The Anthropic SDK is not installed. Run: pip install -e \".[cloud]\""
+                'The Anthropic SDK is not installed. Run: pip install "archguard[cloud]"'
             )
 
         if not self._api_key and os.getenv("ARCHGUARD_MOCK_LLM") != "1":
@@ -252,7 +252,7 @@ class CloudLLMExplainer:
             return "Mock LLM explanation for testing", "end_turn"
         if not _ANTHROPIC_AVAILABLE:
             raise RuntimeError(
-                "The Anthropic SDK is not installed. Run: pip install -e \".[cloud]\""
+                'The Anthropic SDK is not installed. Run: pip install "archguard[cloud]"'
             )
 
         client: Any = anthropic.Anthropic(api_key=self._api_key)

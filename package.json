@@ -6,5 +6,8 @@
   },
   "scripts": {
     "test:visual": "playwright test tests/visual/"
+  },
+  "dependencies": {
+    "jsdom": "^29.1.1"
   }
 }
