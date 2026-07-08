@@ -6,6 +6,18 @@ from archguard.dashboard.app import app, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
+from archguard.config import AUDIT_LOG_FILENAME
+
+@app.get("/api/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
+def get_repo_runs(
+    repo_url: str,
+    limit: int = Query(default=50, ge=1, le=500),
+) -> Any:
+    """Return run history for one repository, across all jobs that ever analyzed it."""
+    logger = AuditLogger(Path.cwd() / AUDIT_LOG_FILENAME)  # always the global log -- this view is explicitly cross-job by design
+    runs = logger.read_last_n_runs(n=500)  # read generously, then filter+limit, since read_last_n_runs has no repo_url-aware filtering itself
+    matching = [r for r in runs if r.get("repo_url") == repo_url][:limit]
+    return {"repo_url": repo_url, "runs": matching, "total": len(matching)}
 
 
 @app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
@@ -14,6 +26,8 @@ def get_runs(
 ) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
+    if job_id:
+        runs = [r for r in runs if r.get("job_id") == job_id]
     if module:
         runs = [r for r in runs if module in r.get("modules_analyzed", [])]
     return {"runs": runs, "total": len(runs)}
@@ -35,6 +49,8 @@ def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=100)
+    if job_id:
+        runs = [r for r in runs if r.get("job_id") == job_id]
     modules = {}
     for run in runs:
         for module, score in run.get("module_scores", {}).items():
@@ -54,6 +70,8 @@ def get_module_trends(
 ) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
+    if job_id:
+        runs = [r for r in runs if r.get("job_id") == job_id]
     trend = [
         {"timestamp": r["timestamp"], "score": r.get("module_scores", {}).get(module)}
         for r in runs

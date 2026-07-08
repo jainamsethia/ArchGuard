@@ -158,7 +158,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (!modulesData || !modulesData.modules || Object.keys(modulesData.modules).length === 0) {
-                container.innerHTML = getEmptyStateHtml('???', 'No Dependencies', 'Run an analysis to see the dependency graph.');
+                container.innerHTML = getEmptyStateHtml('📦', 'No Dependencies', 'Run an analysis to see the dependency graph.');
                 return;
             }
 
@@ -225,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const fitnessResults = metrics.fitness_results || [];
 
             if (fitnessResults.length === 0) {
-                container.innerHTML = getEmptyStateHtml('??', 'No Fitness Results', 'No fitness functions defined or executed.');
+                container.innerHTML = getEmptyStateHtml('📋', 'No Fitness Results', 'No fitness functions defined or executed.');
                 return;
             }
 
@@ -273,7 +273,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const violations = latestRun.violations || [];
 
             if (violations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan=\"4\" style=\"padding:0; border:none;\">' + getEmptyStateHtml('??', 'No Violations', 'No active architecture violations. Great job!') + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="padding:0; border:none;">' + getEmptyStateHtml('✅', 'No Violations', 'No active architecture violations. Great job!') + '</td></tr>';
                 return;
             }
 
@@ -290,7 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
         function updateTrendChart(runs) {
             if (!runs || runs.length === 0) {
                 const ctx = document.getElementById('trendChart');
-                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('??', 'No Trends', 'Not enough historical data to display a trend.');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('📈', 'No Trends', 'Not enough historical data to display a trend.');
                 return;
             }
 
@@ -368,7 +368,7 @@ document.addEventListener("DOMContentLoaded", () => {
         function updateModuleChart(modulesData) {
             if (!modulesData || Object.keys(modulesData).length === 0) {
                 const ctx = document.getElementById('moduleChart');
-                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('??', 'No Modules', 'Module complexity data is not available.');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('🧩', 'No Modules', 'Module complexity data is not available.');
                 return;
             }
 
@@ -481,6 +481,12 @@ document.addEventListener("DOMContentLoaded", () => {
             
             try {
                 const res = await fetch(`/api/v1/deps${jobQuery}`);
+                if (!res.ok) {
+                    statusEl.textContent = `Error ${res.status}: could not scan dependencies.`;
+                    scoreEl.textContent = '--';
+                    tableContainer.style.display = 'none';
+                    return;
+                }
                 const data = await res.json();
                 
                 if (data.skipped) {
@@ -548,14 +554,14 @@ function getEmptyStateHtml(icon, title, body) {
 
         window.addEventListener('load', () => {
             const hash = window.location.hash.substring(1);
-            if (['overview', 'violations'].includes(hash)) {
+            if (['overview', 'violations', 'dependencies'].includes(hash)) {
                 switchTab(hash);
             }
         });
         
         window.addEventListener('hashchange', () => {
             const hash = window.location.hash.substring(1);
-            if (['overview', 'violations'].includes(hash)) {
+            if (['overview', 'violations', 'dependencies'].includes(hash)) {
                 switchTab(hash);
             } else if (!hash) {
                 switchTab('overview');
@@ -614,7 +620,7 @@ function getEmptyStateHtml(icon, title, body) {
         function updateEvolutionChart(snapshots) {
             if (!snapshots || snapshots.length === 0) {
                 const ctx = document.getElementById('evolutionChart');
-                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('?', 'No Evolution Data', 'Run a Git history analysis to see the evolution chart.');
+                if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('🕓', 'No Evolution Data', 'Run a Git history analysis to see the evolution chart.');
                 return;
             }
             const labels = snapshots.map(s => {
@@ -672,6 +678,9 @@ function getEmptyStateHtml(icon, title, body) {
 
         // ─── Advisor Panel (Step 11/12 – Anthropic Streaming) ───
         async function sendAdvisorQuestion() {
+            const askBtn = document.getElementById('gen-id-click-1e6913c1');
+            if (askBtn.disabled) return;  // already in flight -- ignore a duplicate click or Enter-key repeat
+
             const input = document.getElementById('advisor-question-input');
             const responseEl = document.getElementById('advisor-response');
             const question = input.value.trim();
@@ -680,6 +689,7 @@ function getEmptyStateHtml(icon, title, body) {
             responseEl.textContent = '▌';  // blinking cursor placeholder
             input.value = '';
             input.disabled = true;
+            askBtn.disabled = true;
 
             let contextStr = "No context data available.";
             if (window.latestRun) {
@@ -731,6 +741,7 @@ function getEmptyStateHtml(icon, title, body) {
                 responseEl.textContent = 'Error communicating with AI Advisor.';
             } finally {
                 input.disabled = false;
+                askBtn.disabled = false;
                 input.focus();
             }
         }
@@ -749,6 +760,11 @@ function getEmptyStateHtml(icon, title, body) {
                 const res = await fetch(`/api/remediation/plan${jobQuery}`);
                 const data = await res.json();
                 const tasks = data.tasks || [];
+
+                if (data.error) {
+                    resultsEl.innerHTML = `<div style="color: var(--danger-color);">Could not generate remediation plan: ${sanitize(data.error)}</div>`;
+                    return;
+                }
 
                 if (tasks.length === 0) {
                     resultsEl.innerHTML = '<div style="color: var(--success-color);">No remediation tasks needed. Architecture is healthy! 🎉</div>';
@@ -779,4 +795,10 @@ function getEmptyStateHtml(icon, title, body) {
                 btn.textContent = 'Generate Plan';
             }
         }
-    
+        
+        async function loadRepoHistory(repoUrl) {
+            const res = await fetch(`/api/repos/${encodeURIComponent(repoUrl)}/runs`);
+            if (!res.ok) return;
+            const data = await res.json();
+            updateTrendChart(data.runs);  // reuse existing chart-rendering function; do not duplicate its logic
+        }

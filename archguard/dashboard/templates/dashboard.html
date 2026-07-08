@@ -12,7 +12,7 @@
 <!-- vis-network for dependency graph panel -->
 <script src="/vendor/vis-network.min.js"></script>
 </head>
-<body>
+<body class="page-dashboard">
 
 <!-- Login overlay — shown when token is required and no valid session cookie exists -->
 <div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(10,12,18,0.97);
@@ -26,44 +26,14 @@
     <input id="token-input" type="password" placeholder="Dashboard token"
            style="padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);
                   background:rgba(255,255,255,0.05); color:var(--text-primary); font-size:1rem;"/>
-    <button type="submit"
-            style="padding:0.75rem; border-radius:8px; background:var(--accent-color);
-                   color:white; border:none; font-weight:600; cursor:pointer; font-size:1rem;">
+    <button type="submit" class="btn-login">
       Sign In
     </button>
     <div id="login-error" style="color:var(--danger-color,#ef4444); font-size:0.85rem; display:none;"></div>
   </form>
 </div>
 
-<script nonce="{{ csp_nonce }}">
-(async function initAuth() {
-  const res = await fetch('/api/auth/status');
-  if (!res.ok) return;
-  const { token_required, authenticated } = await res.json();
-  if (token_required && !authenticated) {
-    const overlay = document.getElementById('login-overlay');
-    overlay.style.display = 'flex';
-    document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = 'hidden');
-  }
-})();
-
-async function doLogin(event) {
-  event.preventDefault();
-  const token = document.getElementById('token-input').value;
-  const errEl = document.getElementById('login-error');
-  errEl.style.display = 'none';
-  const fd = new FormData();
-  fd.append('token', token);
-  const res = await fetch('/api/auth/login', { method: 'POST', body: fd });
-  if (res.ok) {
-    document.getElementById('login-overlay').style.display = 'none';
-    document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = '');
-  } else {
-    errEl.textContent = 'Invalid token. Please try again.';
-    errEl.style.display = 'block';
-  }
-}
-</script>
+<script src="/auth.js"></script>
 <div class="dashboard-container">
 <div class="header">
 <div>
@@ -100,7 +70,10 @@ async function doLogin(event) {
 </div>
 <div class="tab-panel-main active" id="overview" role="tabpanel">
 <div class="glass-card card-section">
-<h2 class="text-section-title">Overall Trend</h2>
+<div class="row-between" style="margin-bottom: 1rem;">
+<h2 class="text-section-title-flush" style="margin: 0;">Overall Trend</h2>
+<button class="btn-action" id="repo-history-btn" onclick="if(window.latestRun && window.latestRun.repo_url) loadRepoHistory(window.latestRun.repo_url)">Load Repository History</button>
+</div>
 <div class="chart-wrapper">
 <canvas id="trendChart"></canvas>
 </div>
