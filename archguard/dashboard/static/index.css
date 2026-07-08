@@ -48,8 +48,48 @@
 .input-text         { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-primary); font-size: 0.95rem; outline: none; }
 
 /* Buttons */
+.btn-action,
+.btn-action-lg {
+    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+.btn-action:hover:not(:disabled),
+.btn-action-lg:hover:not(:disabled) {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+.btn-action:focus-visible,
+.btn-action-lg:focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 2px;
+}
+.btn-action:active:not(:disabled),
+.btn-action-lg:active:not(:disabled) {
+    transform: translateY(0);
+}
+.btn-action:disabled,
+.btn-action-lg:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .btn-action         { background: var(--accent-color); color: white; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; }
 .btn-action-lg      { background: var(--accent-color); color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 8px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+
+.btn-login {
+    padding: 0.75rem;
+    border-radius: 8px;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.btn-login:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.btn-login:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.btn-login:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Content areas */
 .prose-response     { color: var(--text-secondary); padding: 0.5rem; min-height: 2rem; white-space: pre-wrap; font-size: 0.9rem; line-height: 1.6; }
@@ -57,21 +97,26 @@
 
         
 
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background-image:
-                radial-gradient(circle at top left, rgba(59, 130, 246, 0.15), transparent 40%),
-                radial-gradient(circle at bottom right, rgba(139, 92, 246, 0.15), transparent 40%);
-            background-attachment: fixed;
-        }
+/* Shared base rule — every property both pages agree on, declared once */
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    min-height: 100vh;
+    background-attachment: fixed;
+}
+
+/* index.html-specific: single centered card layout */
+body.page-index {
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-image:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.15), transparent 40%),
+        radial-gradient(circle at bottom right, rgba(139, 92, 246, 0.15), transparent 40%);
+}
 
         .container {
             width: 100%;
@@ -412,18 +457,13 @@
             transform: translateY(-2px);
         }
 
-        body {
-            background-color: var(--bg-color);
-            color: var(--text-primary);
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 2rem;
-            min-height: 100vh;
-            background-image:
-                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
-            background-attachment: fixed;
-        }
+/* dashboard.html-specific: full-width dashboard layout */
+body.page-dashboard {
+    padding: 2rem;
+    background-image:
+        radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+}
 
         .dashboard-container {
             max-width: 1200px;
@@ -734,3 +774,6 @@
             display: inline-block;
             color: transparent;
         }
+
+.error-state .empty-icon { color: var(--danger-color); }
+.error-state .btn-action { margin-top: 12px; }

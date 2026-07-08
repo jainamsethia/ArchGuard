@@ -219,6 +219,22 @@ document.addEventListener("DOMContentLoaded", () => {
                 .replaceAll("'", '&#39;');
         }
 
+        function getErrorStateHtml(message, retryFn) {
+            const retryId = 'retry-' + Math.random().toString(36).slice(2, 9);
+            setTimeout(() => {
+                const btn = document.getElementById(retryId);
+                if (btn) btn.addEventListener('click', retryFn);
+            }, 0);
+            return `
+                <div class="empty-state error-state">
+                    <div class="empty-icon">⚠️</div>
+                    <h3 class="empty-title">Something went wrong</h3>
+                    <p class="empty-body">${sanitize(message)}</p>
+                    <button id="${retryId}" class="btn-action">Retry</button>
+                </div>
+            `;
+        }
+
         function updateFitnessPanel(latestRun) {
             const container = document.getElementById('fitness-container');
             const metrics = latestRun.metrics || {};
@@ -706,7 +722,7 @@ function getEmptyStateHtml(icon, title, body) {
                 });
 
                 if (!res.ok) {
-                    responseEl.textContent = `Error ${res.status}: ${res.statusText}`;
+                    responseEl.innerHTML = getErrorStateHtml(`Error ${res.status}: ${res.statusText}`, () => sendAdvisorQuestion());
                     return;
                 }
 
@@ -738,7 +754,7 @@ function getEmptyStateHtml(icon, title, body) {
 
             } catch (err) {
                 console.error('Advisor streaming error:', err);
-                responseEl.textContent = 'Error communicating with AI Advisor.';
+                responseEl.innerHTML = getErrorStateHtml('Error communicating with AI Advisor.', () => sendAdvisorQuestion());
             } finally {
                 input.disabled = false;
                 askBtn.disabled = false;
@@ -762,7 +778,7 @@ function getEmptyStateHtml(icon, title, body) {
                 const tasks = data.tasks || [];
 
                 if (data.error) {
-                    resultsEl.innerHTML = `<div style="color: var(--danger-color);">Could not generate remediation plan: ${sanitize(data.error)}</div>`;
+                    resultsEl.innerHTML = getErrorStateHtml(data.error, () => generateRemediationPlan());
                     return;
                 }
 
@@ -789,7 +805,7 @@ function getEmptyStateHtml(icon, title, body) {
                 }
             } catch (err) {
                 console.error('Remediation error:', err);
-                resultsEl.innerHTML = '<div style="color: var(--danger-color);">Error generating remediation plan.</div>';
+                resultsEl.innerHTML = getErrorStateHtml('Error generating remediation plan.', () => generateRemediationPlan());
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Generate Plan';
