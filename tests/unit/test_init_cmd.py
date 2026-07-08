@@ -331,3 +331,52 @@ class TestInitCommand:
             contract = yaml.safe_load(f)
 
         assert len(contract["modules"]) >= 1  # At least one module detected
+
+    def test_init_path_traversal(self, tmp_path: Path) -> None:
+        """Test path traversal detection."""
+        result = runner.invoke(app, ["init", "--repo", "../outside_dir"])
+        assert result.exit_code != 0
+        assert "Error:" in result.output
+
+    def test_init_monorepo(self, tmp_path: Path) -> None:
+        """Test init with --monorepo flag."""
+        # Create a mock monorepo structure
+        pkg1 = tmp_path / "pkg1"
+        pkg1.mkdir()
+        (pkg1 / "main.py").write_text("x = 1")
+        pkg2 = tmp_path / "pkg2"
+        pkg2.mkdir()
+        (pkg2 / "main.py").write_text("y = 2")
+        
+        mocks = _make_mock_deps()
+        with patch.dict(sys.modules, mocks):
+            with patch("archguard.utils.monorepo.detect_subpackages", return_value=[pkg1, pkg2]):
+                result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo", "--confirm-all"])
+        
+        assert result.exit_code == 0
+        assert (pkg1 / ".archguard.yml").exists()
+        assert (pkg2 / ".archguard.yml").exists()
+        
+    def test_init_monorepo_no_packages(self, tmp_path: Path) -> None:
+        """Test init with --monorepo but no subpackages."""
+        mocks = _make_mock_deps()
+        with patch.dict(sys.modules, mocks):
+            with patch("archguard.utils.monorepo.detect_subpackages", return_value=[]):
+                result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo"])
+        
+        assert result.exit_code == 1
+        assert "No sub-packages found" in result.output
+
+    def test_init_monorepo_error_in_subpackage(self, tmp_path: Path) -> None:
+        """Test init with --monorepo where one subpackage fails."""
+        pkg1 = tmp_path / "pkg1"
+        pkg1.mkdir()
+        
+        mocks = _make_mock_deps()
+        with patch.dict(sys.modules, mocks):
+            with patch("archguard.utils.monorepo.detect_subpackages", return_value=[pkg1]):
+                with patch("archguard.cli.init_cmd.init_command", side_effect=Exception("mocked error")):
+                    result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo", "--confirm-all"])
+        
+        assert result.exit_code == 1
+        assert "Error initializing pkg1" in result.output

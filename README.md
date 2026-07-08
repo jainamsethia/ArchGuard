@@ -16,11 +16,12 @@
 - `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
 - `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
 - `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
+- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (e.g., set this out-of-band via the Railway dashboard or CLI since railway.toml cannot declare env vars).
 
 ### Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-org/archguard)
 
-Set the same environment variables in the Render dashboard under **Environment**.
+Set the same environment variables in the Render dashboard under **Environment**. Note that `ARCHGUARD_TRUSTED_PROXY_IPS` is already configured directly in `render.yaml` with the appropriate CIDR range.
 
 ### Run locally with Docker Compose
 ```bash
@@ -361,7 +362,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and th
 ## Audit Log Security
 
 ArchGuard maintains an append-only JSONL audit log to track structural history. To prevent tampering:
-- By default, ArchGuard generates a random 32-byte HMAC key on first run, persisting it to `.archguard-cache/audit.key` with strict permissions.
+- By default, ArchGuard generates a random 32-byte HMAC key on first run, persisting it to `/app/.archguard-cache/audit.key` inside the container (mounted from the archguard-cache volume on Docker Compose, a Render Disk, or a Railway Volume, depending on platform. Note: Railway's volume attachment is a dashboard/IaC step, not part of the checked-in railway.toml) with strict permissions.
 - You can override this by setting `ARCHGUARD_AUDIT_SECRET` in your environment.
 - In CI/CD or production environments, you should set `ARCHGUARD_AUDIT_STRICT=1` to enforce that a secure secret is provided (or a key file is already present).
 

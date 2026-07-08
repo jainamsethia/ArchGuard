@@ -26,7 +26,7 @@ _LLM_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
 )
 _LLM_RATE_LOCK = threading.Lock()
 
-def rate_limiter(request: Request, response: Response = None) -> None:
+def rate_limiter(request: Request, response: Response = None) -> None:  # type: ignore[assignment]
     if response is None:
         response = Response()
     client_ip = _real_client_ip(request)
@@ -55,7 +55,7 @@ def rate_limiter(request: Request, response: Response = None) -> None:
 
         history.append(now)
 
-def _llm_rate_limit(request: Request, response: Response = None) -> None:
+def _llm_rate_limit(request: Request, response: Response = None) -> None:  # type: ignore[assignment]
     if response is None:
         response = Response()
     client_ip = _real_client_ip(request)

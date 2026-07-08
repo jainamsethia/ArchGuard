@@ -1,6 +1,7 @@
 """Constants, exit codes, and event names for ArchGuard."""
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,7 +56,6 @@ VALID_FITNESS_SEVERITIES: frozenset[str] = frozenset({"critical", "warn", "info"
 
 
 
-import re
 
 _RULE_NAME_PATTERN = re.compile(r"^[\w \-\.]{1,200}$")
 _RULE_EXPR_PATTERN = re.compile(r"^[\w \-\.\[\]<>=]{1,500}$")

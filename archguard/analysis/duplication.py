@@ -217,7 +217,7 @@ class DuplicationAnalyzer:
             return DuplicationResult(
                 module_name=module_name,
                 skipped=True,
-                skip_reason='Layer 4 (duplication) skipped: install with pip install -e ".[cloud]"',
+                skip_reason='Layer 4 (duplication) skipped: install with pip install ".[ml]"',
             )
 
         if self._cache.is_cache_stale(module_name):

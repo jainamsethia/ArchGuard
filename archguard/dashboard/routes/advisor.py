@@ -75,8 +75,13 @@ class AdvisorAskRequest(BaseModel):
 
 
 @app.post(
+    "/api/v1/advisor/session",
+    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+)
+@app.post(
     "/api/advisor/session",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+    deprecated=True,
 )
 def create_advisor_session(limit: int = Query(default=20, ge=1, le=500), job_id: str | None = None) -> Any:
     """Create a new advisor session by running analysis on recent audit data."""
@@ -143,8 +148,13 @@ def create_advisor_session(limit: int = Query(default=20, ge=1, le=500), job_id:
 
 
 @app.post(
+    "/api/v1/advisor/session/{session_id}/message",
+    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+)
+@app.post(
     "/api/advisor/session/{session_id}/message",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+    deprecated=True,
 )
 def advisor_message(
     session_id: str = FastAPIPath(..., min_length=1, max_length=64),
@@ -197,7 +207,6 @@ def advisor_message(
     )
 
     provider = OpenAIAdvisorProvider()
-    _ = ArchitectureAdvisor(provider)
     try:
         follow_up_recs = provider.generate_recommendations(follow_up_context)
         if follow_up_recs:
@@ -269,8 +278,13 @@ def advisor_ask_stream(body: AdvisorAskRequest) -> StreamingResponse:
 
 
 @app.get(
+    "/api/v1/advisor/session/{session_id}",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+)
+@app.get(
     "/api/advisor/session/{session_id}",
     dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
 )
 def get_advisor_session(
     session_id: str = FastAPIPath(..., min_length=1, max_length=64),

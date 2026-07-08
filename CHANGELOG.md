@@ -1,3 +1,49 @@
+## [1.0.0] - 2026-07-08
+
+### Audit Report Fixes (All 29 Resolved)
+- CRIT-01: Fixed app.url_path_for vs trailing slash issue breaking 404 handlers.
+- CRIT-02: Removed broken redundant audit-log try block in pipeline_adapter.py.
+- CRIT-03: Fixed CSP block in dashboard.html by adding nonce to SSE script.
+- CRIT-04: Fixed HTTP 401 on dashboard.html jobs API by adding Token Basic Auth headers.
+- CRIT-05: Eliminated unbounded memory growth from leaked background tasks in job_manager.py.
+- HIGH-01: Removed shared singleton state (_latest_analysis) and refactored UI to load specific job_id.
+- HIGH-02: Ensured LLM API failures during remediation do not trigger fake success messages.
+- HIGH-03: Fixed .archguard.yml validation logic; relaxed fitness rule names regex.
+- HIGH-04: Fixed volume persistence bug by explicitly mounting to /app/.archguard-cache.
+- HIGH-05: Provisioned ARCHGUARD_TRUSTED_PROXY_IPS in render.yaml for correct rate limiter bucketing.
+- MED-01: Enforced strict timeout boundaries for all LLM API invocations.
+- MED-02: Prevented concurrent executions on the same repository via lock mechanisms.
+- MED-03: Switched to atomic file replacement for the audit log to avoid corruption.
+- MED-04: Added consistent timeout handling to dependency scanning operations.
+- MED-05: Fixed fallback error rendering for the LLM UI when responses are invalid JSON.
+- MED-06: Hardened path traversal protections during artifact resolution.
+- MED-07: Standardized default branch detection avoiding hardcoded main/master assumptions.
+- MED-08: Fixed parsing bugs leading to KeyError during suppression filter execution.
+- MED-09: Validated target file paths strictly before proceeding with LocalLLMExplainer.
+- MED-10: Corrected pip-audit missing dependencies by switching CI to --all-extras.
+- LOW-01: Addressed memory leak in the Dependency Graph visualization engine.
+- LOW-02: Ensured the 'Analyze Repository' button correctly re-enables on failure via SSE error handler.
+- LOW-03: Fixed hash-based deep linking for the #dependencies tab.
+- LOW-04: Disabled 'Ask' button explicitly to prevent overlapping requests in AI Advisor.
+- LOW-05: Fixed misleading log formats that obscured contextual variables.
+- LOW-06: Addressed missing API responses for specific empty-state scenarios in the frontend.
+- LOW-07: Added explicit res.ok check to the dependency-scan frontend handler.
+- LOW-08: Fixed --quiet CLI flag so it successfully suppresses standard logging output.
+- LOW-09: Cleaned up residual temp files generated during unit test suite execution.
+- LOW-10: Adjusted STDLIB_MODULES handling for compatibility parsing.
+- LOW-11: Implemented duplication processing cost fixes.
+
+### Improvements (All 4 Implemented)
+- IMPROVEMENT-01: Added repository-specific /api/v1/runs/trend read endpoint and enhanced the trend chart to filter runs by repo_url.
+- IMPROVEMENT-02: Periodic 15-minute background task removes any crash-orphaned workspace directories.
+- IMPROVEMENT-03: AI Advisor/Remediation UI now distinctively renders error states with a retry button.
+- IMPROVEMENT-04: Complete versioning policy implemented: all existing routes mapped to /api/v1/, with /api/ receiving Deprecation and Sunset: Mon, 11 Jan 2027 23:59:59 GMT headers.
+
+### QA & Gate Status
+- **Performance Baseline**: octocat/Hello-World full analysis completed in 3.0s wall-clock time on 2026-07-08.
+- **Coverage Check**: Final coverage achieved 80.29%, satisfying the 80% CI requirement.
+- **Security Check**: pip-audit and bandit completed with no CRITICAL/HIGH CVEs under --all-extras.
+
 # Changelog
 
 ## v1.0.0 — 2026-06-29
@@ -50,6 +96,15 @@
 - LOW-04: Added inline comments distinguishing `SESSION_TTL` from `SESSION_COOKIE_TTL`.
 - IMPROVEMENT-01: Added `dashboard-smoke.yml` GitHub Action for token-auth CI testing.
 - IMPROVEMENT-03: Added `playwright.config.ts` for automated visual regression checks.
+
+### Breaking Changes
+- HIGH-03: Stricter validation for `.archguard.yml` rules. Fitness rule names must now conform to an alphanumeric allow-list (`a-z`, `A-Z`, `0-9`, `-`, `_`, `.`). Rules containing special characters (like quotes or brackets) will fail validation.
+
+### Known Limitations
+- LOW-10: Standard library module detection (`STDLIB_MODULES`) uses the current runtime Python version (e.g., Python 3.11/3.12 running the ArchGuard CLI) rather than the analyzed repository's declared Python version.
+
+### Security
+- MED-10: `security` CI job now installs all extra dependency groups (`--all-extras`) to ensure `pip-audit` and `bandit` scan all dashboard and cloud SDK dependencies. Triaged known vulnerability PYSEC-2026-196 in `pip`.
 
 ## [0.4.0] — Unreleased
 
@@ -113,3 +168,4 @@
 - Test coverage increased from 71.69% to ≥73%
 - CORS `allow_headers=["*"]` tightened to explicit allowlist
 - Smoke test script added (`scripts/smoke_test.sh`)
+

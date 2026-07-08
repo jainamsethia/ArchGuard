@@ -12,7 +12,10 @@ from archguard.audit.logger import AuditLogger
 
 
 @app.get(
-    "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500)) -> Any:
     """Return the complete evolution trend report."""
@@ -26,7 +29,10 @@ def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500)) -> Any:
 
 
 @app.get(
-    "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def get_evolution_history(limit: int = Query(default=50, ge=1, le=500)) -> Any:
     """Return the parsed evolution snapshots."""
@@ -43,7 +49,10 @@ def get_evolution_history(limit: int = Query(default=50, ge=1, le=500)) -> Any:
 
 
 @app.get(
-    "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500)) -> Any:
     """Return just the calculated trends."""
@@ -80,7 +89,10 @@ class EvolutionAnalyzeRequest(BaseModel):
 
 
 @app.post(
-    "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.post(
+    "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
@@ -119,7 +131,10 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
 
 
 @app.get(
-    "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def get_latest_evolution(job_id: JobIdQuery = None) -> Any:
     """Get the latest completed architecture evolution report."""

@@ -20,8 +20,13 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
-def configure_logging(verbose: bool = False, json_logs: bool = False) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
+def configure_logging(verbose: bool = False, quiet: bool = False, json_logs: bool = False) -> None:
+    if quiet:
+        level = logging.ERROR
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
     handler = logging.StreamHandler(sys.stderr)
 
     # Enable JSON logs if explicitly requested or if stderr is not a TTY (e.g. running in CI/piped)

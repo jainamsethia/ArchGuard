@@ -108,12 +108,8 @@ def _read_readme_excerpt(repo_path: Path, max_chars: int = 2000) -> str:
 
 
 async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
-    try:
-        import anthropic
-    except ImportError:
-        raise RuntimeError(
-            "Cloud dependencies are not installed. Run: pip install -e \".[cloud]\""
-        )
+    import asyncio
+    from archguard.llm.cloud import CloudLLMExplainer, PRIMARY_MODEL, FALLBACK_MODEL
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
@@ -129,13 +125,23 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
         readme_excerpt=readme,
     )
 
-    async with anthropic.AsyncAnthropic(api_key=api_key) as client:
-        response = await client.messages.create(
-            model=os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514"),
-            max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
+    explainer = CloudLLMExplainer(api_key=api_key)
+    response_text: str = ""
+    last_error: Exception | None = None
+
+    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+        try:
+            response_text, _stop_reason = await asyncio.to_thread(
+                explainer._call_api, prompt, model, system=""
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            continue
+    else:
+        raise RuntimeError(
+            f"Contract generation failed on both {PRIMARY_MODEL} and {FALLBACK_MODEL}. Last error: {last_error}"
         )
-        response_text = response.content[0].text  # type: ignore[union-attr]
 
     import json
 

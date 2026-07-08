@@ -43,7 +43,7 @@ def test_evolution_dashboard_js_functions():
     content = index_path.read_text(encoding="utf-8")
 
     # Verify fetch call
-    assert "safeFetch(`/api/evolution/trends" in content
+    assert "safeFetch(`/api/v1/evolution/trends" in content
 
     # Verify update function exists
     assert "function updateEvolutionTrends(evoData)" in content

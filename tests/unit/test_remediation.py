@@ -10,6 +10,7 @@ from archguard.llm.remediation import (
     RemediationProvider,
     RemediationTask,
     OpenAIRemediationProvider,
+    RemediationUnavailableError,
 )
 
 
@@ -236,14 +237,14 @@ def test_openai_provider_success(oai_provider):
 
 def test_openai_provider_missing_api_key():
     provider = OpenAIRemediationProvider(api_key="")
-    tasks = provider.generate_tasks("context")
-    assert tasks == []
+    with pytest.raises(RemediationUnavailableError):
+        provider.generate_tasks("context")
 
 
 def test_openai_provider_timeout(oai_provider):
     with patch("httpx.Client.post", side_effect=httpx.TimeoutException("Timeout")):
-        tasks = oai_provider.generate_tasks("context")
-    assert tasks == []
+        with pytest.raises(RemediationUnavailableError):
+            oai_provider.generate_tasks("context")
 
 
 def test_openai_provider_rate_limit(oai_provider):
@@ -257,8 +258,8 @@ def test_openai_provider_rate_limit(oai_provider):
                 )
             )
         )
-        tasks = oai_provider.generate_tasks("context")
-    assert tasks == []
+        with pytest.raises(RemediationUnavailableError):
+            oai_provider.generate_tasks("context")
 
 
 def test_openai_provider_malformed_json(oai_provider):
@@ -268,8 +269,8 @@ def test_openai_provider_malformed_json(oai_provider):
     }
     mock_resp.raise_for_status.return_value = None
     with patch("httpx.Client.post", return_value=mock_resp):
-        tasks = oai_provider.generate_tasks("context")
-    assert tasks == []
+        with pytest.raises(RemediationUnavailableError):
+            oai_provider.generate_tasks("context")
 
 
 def test_openai_provider_invalid_task_fields_skipped(oai_provider):
@@ -402,3 +403,26 @@ def test_remediation_too_many_violations_returns_422() -> None:
         json={"violations": [{"id": str(i)} for i in range(51)]},
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_remediation_job_id_filter(monkeypatch):
+    import tempfile, pathlib
+    from archguard.audit.logger import AuditLogger
+    from archguard.dashboard.routes import remediation
+
+    with tempfile.TemporaryDirectory() as d:
+        log_path = pathlib.Path(d) / "audit.jsonl"
+        logger = AuditLogger(log_path)
+        logger.log("analysis_run", job_id="job-A", timestamp="2026-01-01T00:00:00Z", violations=[{"id": "v1"}])
+        logger.log("analysis_run", job_id="job-B", timestamp="2026-01-02T00:00:00Z", violations=[{"id": "v2"}])
+        
+        monkeypatch.setattr(remediation, "get_audit_path", lambda jid: log_path)
+        
+        async def mock_gen(violations):
+            return violations
+        monkeypatch.setattr("archguard.llm.remediation.generate_remediation_plan", mock_gen)
+        
+        res = await remediation.remediation_plan_from_audit(limit=1, job_id="job-A")
+        assert len(res) == 1
+        assert res[0]["id"] == "v1"

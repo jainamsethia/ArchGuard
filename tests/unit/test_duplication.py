@@ -87,7 +87,7 @@ class TestDuplicationAnalyzer:
         cache._db._conn.commit()
 
         analyzer = DuplicationAnalyzer(cache)
-        result = analyzer.analyze_module("mod", ["a.py"])
+        result = analyzer.analyze_module("mod", ["a.py"], [])
         assert result.skipped is True
         assert "stale" in result.skip_reason.lower()
 
@@ -98,7 +98,7 @@ class TestDuplicationAnalyzer:
         """Invalid cache (hash mismatch) -> skipped=False."""
         # No centroid stored -> is_cache_stale returns False
         analyzer = DuplicationAnalyzer(cache)
-        result = analyzer.analyze_module("mod", ["a.py"])
+        result = analyzer.analyze_module("mod", ["a.py"], [])
         assert result.skipped is False
 
     def test_empty_corpus(
@@ -107,7 +107,7 @@ class TestDuplicationAnalyzer:
     ) -> None:
         """Empty corpus -> aggregate_score=0.0, no matches."""
         analyzer = DuplicationAnalyzer(cache)
-        result = analyzer.analyze_module("mod", ["a.py"])
+        result = analyzer.analyze_module("mod", ["a.py"], [])
         assert result.aggregate_score == 0.0
         assert result.matches == []
 
@@ -119,9 +119,9 @@ class TestDuplicationAnalyzer:
         # Store two embeddings from the same module and one from another
         v = np.ones(384, dtype=np.float32)
         v = v / np.linalg.norm(v)
-        cache.store_embedding("a.py", "f1", v, "h1", "m")
-        cache.store_embedding("a.py", "f2", v, "h2", "m")  # same module
-        cache.store_embedding("b.py", "f3", v, "h3", "m")  # different module
+        cache.store_embedding("a/a.py", "f1", v, "h1", "m")
+        cache.store_embedding("a/a.py", "f2", v, "h2", "m")  # same module
+        cache.store_embedding("b/b.py", "f3", v, "h3", "m")  # different module
 
         # Mock faiss
         mock_faiss = MagicMock()
@@ -139,13 +139,14 @@ class TestDuplicationAnalyzer:
         with patch.dict(sys.modules, {"faiss": mock_faiss}):
             result = analyzer.analyze_module(
                 "mod",
-                ["a.py"],
+                ["a/a.py"],
+                ["a"],
                 k=10,
             )
 
         # Only matches with b.py should appear (cross-module)
         for m in result.matches:
-            assert not m.matched_function.startswith("a.py::")
+            assert not m.matched_function.startswith("a/a.py::")
 
     def test_same_function_name_different_files_detected(
         self,
@@ -171,7 +172,7 @@ class TestDuplicationAnalyzer:
 
         analyzer = DuplicationAnalyzer(cache)
         with patch.dict(sys.modules, {"faiss": mock_faiss}):
-            result = analyzer.analyze_module("mod", ["a.py"], k=10)
+            result = analyzer.analyze_module("mod", ["a.py"], [], k=10)
 
         assert len(result.matches) > 0
         match = result.matches[0]

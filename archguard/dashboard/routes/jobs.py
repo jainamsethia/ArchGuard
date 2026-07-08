@@ -66,8 +66,6 @@ def parse_github_url(url: str) -> tuple[str, str]:
         git@github.com:owner/repo.git
 
     Does NOT accept path suffixes like /tree/main or /../../etc/passwd.
-    Those were previously accepted by a greedy (?:/.*)? suffix and are now
-    rejected to eliminate URL path traversal.
 
     Returns:
         (owner, repo_name) - both without .git suffix
@@ -76,8 +74,8 @@ def parse_github_url(url: str) -> tuple[str, str]:
         ValueError: if the URL does not match any known format
     """
     patterns = [
-        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/.*)?$",
-        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:/.*)?$",
+        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
+        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
     ]
     url = url.strip().rstrip("/")
     for pattern in patterns:
@@ -166,10 +164,17 @@ def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
 
 
 @app.post(
+    "/api/v1/jobs/validate",
+    response_model=RepoMetadata,
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    summary="Validate a GitHub URL and return repository metadata",
+)
+@app.post(
     "/api/jobs/validate",
     response_model=RepoMetadata,
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Validate a GitHub URL and return repository metadata",
+    deprecated=True,
 )
 async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
     """Parse and validate a GitHub repository URL.
@@ -212,10 +217,17 @@ async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
 
 
 @app.post(
+    "/api/v1/jobs",
+    status_code=202,
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    summary="Submit a repository analysis job",
+)
+@app.post(
     "/api/jobs",
     status_code=202,
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Submit a repository analysis job",
+    deprecated=True,
 )
 async def submit_analysis_job(
     request: SubmitJobRequest,
@@ -257,7 +269,8 @@ async def submit_analysis_job(
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)
     job = job_manager.create_job(github_url=safe_url)
-    background_tasks.add_task(job_manager.run_job, job)
+    task = asyncio.create_task(job_manager.run_job(job))
+    job_manager.track_task(job.id, task)
 
     return {
         "job_id": job.id,
@@ -274,9 +287,15 @@ async def submit_analysis_job(
 
 
 @app.get(
+    "/api/v1/jobs/{job_id}",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    summary="Get analysis job status and result",
+)
+@app.get(
     "/api/jobs/{job_id}",
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Get analysis job status and result",
+    deprecated=True,
 )
 async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
     """Return the current status, progress, and result of an analysis job."""
@@ -312,9 +331,15 @@ async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
 
 
 @app.get(
+    "/api/v1/jobs",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    summary="List recent analysis jobs",
+)
+@app.get(
     "/api/jobs",
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="List recent analysis jobs",
+    deprecated=True,
 )
 async def list_jobs() -> dict[str, Any]:
     """Return the most recent analysis jobs (up to 50)."""
@@ -341,10 +366,17 @@ async def list_jobs() -> dict[str, Any]:
 
 
 @app.get(
+    "/api/v1/jobs/{job_id}/stream",
+    response_class=StreamingResponse,
+    dependencies=[Depends(rate_limiter)],
+    summary="Stream analysis progress as Server-Sent Events",
+)
+@app.get(
     "/api/jobs/{job_id}/stream",
     response_class=StreamingResponse,
     dependencies=[Depends(rate_limiter)],
     summary="Stream analysis progress as Server-Sent Events",
+    deprecated=True,
 )
 async def stream_job_progress(job_id: str, request: Request) -> StreamingResponse:
     """Stream real-time analysis progress for a job.
@@ -359,7 +391,8 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
     The stream ends automatically when the job reaches COMPLETE or FAILED status.
     If the client disconnects, the stream stops but the background job continues.
     """
-    import os as _os, hmac as _hmac
+    import os as _os
+    import hmac as _hmac
     from archguard.dashboard._cookie_auth import validate_session_cookie, COOKIE_NAME
 
     stored_token = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")

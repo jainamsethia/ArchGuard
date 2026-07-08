@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import logging
-
-logger = logging.getLogger(__name__)
+import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -14,6 +12,8 @@ from typing import Any
 import typer
 from rich.console import Console
 from rich.table import Table
+
+logger = logging.getLogger(__name__)
 
 history_analyze_app: typer.Typer = typer.Typer(
     name="history-analyze",
@@ -25,9 +25,9 @@ history_analyze_app: typer.Typer = typer.Typer(
 _console = Console()
 
 _TREND_ARROWS = {
-    "improving": "[green][UP] improving[/green]",
-    "stable": "[dim][STABLE] stable[/dim]",
-    "declining": "[red][DOWN] declining[/red]",
+    "improving": "[green]↑ improving[/green]",
+    "stable": "[dim]− stable[/dim]",
+    "declining": "[red]↓ declining[/red]",
 }
 
 

@@ -28,6 +28,9 @@ def _installed_version() -> str:
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
 
+_startup_logger = logging.getLogger("archguard.startup")
+
+
 async def _periodic_workspace_cleanup() -> None:
     """Remove stale workspaces every 15 minutes as defense-in-depth for crash scenarios."""
     import asyncio as _asyncio
@@ -48,7 +51,6 @@ async def _periodic_workspace_cleanup() -> None:
 
 @asynccontextmanager
 async def _lifespan(app_instance: FastAPI) -> Any:
-    _startup_logger = logging.getLogger("archguard.startup")
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
     recommended = {
@@ -81,6 +83,16 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     yield
     if task:
         task.cancel()
+        
+    from archguard.dashboard.job_manager import job_manager
+    cancelled = await job_manager.cancel_all_running(timeout=5.0)
+    if cancelled:
+        _startup_logger.warning(
+            "Cancelled %d in-flight job(s) during shutdown; their /tmp workspaces "
+            "will be swept by the next startup's stale-workspace cleanup.",
+            cancelled,
+        )
+        
     _startup_logger.info("ArchGuard Dashboard shutting down.")
 
 app = FastAPI(
@@ -141,6 +153,15 @@ async def _log_requests(request: Request, call_next: Any) -> Any:
         response.status_code,
         duration_ms,
     )
+    return response
+
+@app.middleware("http")
+async def _deprecation_headers(request: Request, call_next: Any) -> Any:
+    response = await call_next(request)
+    if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/"):
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = "Fri, 01 Jan 2027 00:00:00 GMT"
+        response.headers["Link"] = f'</api/v1{request.url.path[4:]}>; rel="successor-version"'
     return response
 
 @app.middleware("http")
@@ -212,12 +233,12 @@ def get_audit_path(job_id: str | None = None) -> Path:
 # A future migration to /api/v1/ for all routes will include redirect aliases.
 from archguard.dashboard.routes import advisor, evolution, jobs, remediation, runs  # noqa: E402, F401
 
-from fastapi.templating import Jinja2Templates
+from fastapi.templating import Jinja2Templates  # noqa: E402
 
 _templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 @app.get("/")
-async def serve_index(request: Request):
+async def serve_index(request: Request) -> Response:
     return _templates.TemplateResponse(
         request,
         "index.html",
@@ -225,20 +246,22 @@ async def serve_index(request: Request):
     )
 
 @app.get("/dashboard.html")
-async def serve_dashboard(request: Request):
+async def serve_dashboard(request: Request) -> Response:
     return _templates.TemplateResponse(
         request,
         "dashboard.html",
         {"csp_nonce": getattr(request.state, "csp_nonce", "")}
     )
 
-from archguard.dashboard._cookie_auth import issue_session, revoke_session, COOKIE_NAME as _COOKIE_NAME
+from archguard.dashboard._cookie_auth import issue_session, revoke_session, COOKIE_NAME as _COOKIE_NAME  # noqa: E402
 
 
-@app.post("/api/auth/login", include_in_schema=False)
-async def login(response: Response, token: str = Form(...)) -> dict:
+@app.post("/api/v1/auth/login", include_in_schema=False)
+@app.post("/api/auth/login", include_in_schema=False, deprecated=True)
+async def login(response: Response, token: str = Form(...)) -> dict[str, bool]:
     """Exchange the dashboard token for a session cookie."""
-    import os as _os, hmac as _hmac
+    import os as _os
+    import hmac as _hmac
     stored = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
     if not stored or not _hmac.compare_digest(token, stored):
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -255,8 +278,9 @@ async def login(response: Response, token: str = Form(...)) -> dict:
     return {"ok": True}
 
 
-@app.post("/api/auth/logout", include_in_schema=False)
-async def logout(request: Request, response: Response) -> dict:
+@app.post("/api/v1/auth/logout", include_in_schema=False)
+@app.post("/api/auth/logout", include_in_schema=False, deprecated=True)
+async def logout(request: Request, response: Response) -> dict[str, bool]:
     """Invalidate the current session cookie."""
     cookie_value = request.cookies.get(_COOKIE_NAME, "")
     if cookie_value:
@@ -265,8 +289,9 @@ async def logout(request: Request, response: Response) -> dict:
     return {"ok": True}
 
 
-@app.get("/api/auth/status", include_in_schema=False)
-async def auth_status(request: Request) -> dict:
+@app.get("/api/v1/auth/status", include_in_schema=False)
+@app.get("/api/auth/status", include_in_schema=False, deprecated=True)
+async def auth_status(request: Request) -> dict[str, bool]:
     """Return whether auth is required and whether the current request is authenticated.
 
     This endpoint intentionally bypasses check_token so it is always reachable.

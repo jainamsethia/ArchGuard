@@ -8,7 +8,8 @@ from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
 from archguard.config import AUDIT_LOG_FILENAME
 
-@app.get("/api/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/v1/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_repo_runs(
     repo_url: str,
     limit: int = Query(default=50, ge=1, le=500),
@@ -20,7 +21,8 @@ def get_repo_runs(
     return {"repo_url": repo_url, "runs": matching, "total": len(matching)}
 
 
-@app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/v1/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_runs(
     limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: JobIdQuery = None
 ) -> Any:
@@ -33,7 +35,8 @@ def get_runs(
     return {"runs": runs, "total": len(runs)}
 
 
-@app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_latest_run(job_id: JobIdQuery = None) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     if job_id:
@@ -44,7 +47,8 @@ def get_latest_run(job_id: JobIdQuery = None) -> Any:
     return logger.read_last_run() or {}
 
 
-@app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/v1/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path(job_id))
@@ -59,7 +63,10 @@ def get_modules(job_id: JobIdQuery = None) -> Any:
 
 
 @app.get(
-    "/api/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)]
+    "/api/v1/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
 def get_module_trends(
     module: str = FastAPIPath(

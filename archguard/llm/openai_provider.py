@@ -47,7 +47,7 @@ class OpenAIAdvisorProvider(AdvisorProvider):
         """Generate recommendations by calling the OpenAI API."""
         if not self.api_key:
             logger.error("OPENAI_API_KEY is missing. Cannot generate recommendations.")
-        return []
+            return []
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},

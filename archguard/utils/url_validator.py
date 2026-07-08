@@ -42,7 +42,7 @@ def validate_webhook_url(url: str) -> None:
     # or loopback address is caught too.
     try:
         addr_infos = socket.getaddrinfo(host, None)
-    except OSError as exc:
+    except OSError:
         raise ValueError(f"Webhook URL hostname could not be resolved: {host!r}")
 
     resolved_ips = {ipaddress.ip_address(info[4][0]) for info in addr_infos}

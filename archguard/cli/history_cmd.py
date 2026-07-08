@@ -144,7 +144,7 @@ def show_history(
             diff = scores[-1] - scores[0]
             direction = "improving" if diff >= 0 else "degrading"
             sign = "+" if diff >= 0 else ""
-            arrow = "[UP]" if diff >= 0 else "[DOWN]"
+            arrow = "↑" if diff >= 0 else "↓"
             console.print(
                 f"Trend: {arrow} {sign}{diff:.1f} points over {len(runs)} runs ({direction})"
             )
@@ -174,11 +174,11 @@ def show_history(
             if prev_score is not None:
                 delta = score - prev_score
                 trend = (
-                    "[red][UP][/red]"
+                    "[green]↑[/green]"
                     if delta > 0.01
-                    else "[green][DOWN][/green]"
+                    else "[red]↓[/red]"
                     if delta < -0.01
-                    else "[dim][STABLE][/dim]"
+                    else "[dim]−[/dim]"
                 )
             else:
                 trend = "[dim]-[/dim]"

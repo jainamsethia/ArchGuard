@@ -22,12 +22,19 @@ except ImportError:
 
 
 class ArchDebtBand(str, Enum):
-    """Classification bands for ArchDebt composite score."""
+    """Classification bands for ArchDebt composite score.
 
-    HEALTHY = "Healthy"  # score < warn_threshold
-    WATCH = "Watch"  # warn_threshold <= score < fail_threshold
-    WARN = "Warn"  # score >= fail_threshold (soft)
-    CRITICAL = "Critical"  # score >= fail_threshold (composite breach)
+    Boundaries are set by classify_band() against the composite score:
+    HEALTHY:  score <  warn_threshold / 2
+    WATCH:    warn_threshold / 2  <= score < warn_threshold
+    WARN:     warn_threshold      <= score < fail_threshold
+    CRITICAL: score >= fail_threshold
+    """
+
+    HEALTHY = "Healthy"  # score < warn_threshold / 2
+    WATCH = "Watch"  # warn_threshold / 2 <= score < warn_threshold
+    WARN = "Warn"  # warn_threshold <= score < fail_threshold
+    CRITICAL = "Critical"  # score >= fail_threshold
 
 
 @dataclass

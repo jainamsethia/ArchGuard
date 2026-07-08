@@ -97,9 +97,14 @@ class TestValidateContract:
         class MockResponse:
             def __init__(self, text):
                 self.content = [MockContent(text)]
+                self.stop_reason = "end_turn"
 
         class MockMessages:
             async def create(self, **kwargs):
+                return MockResponse(json.dumps(valid_contract))
+
+        class SyncMockMessages:
+            def create(self, **kwargs):
                 return MockResponse(json.dumps(valid_contract))
 
         class MockClient:
@@ -112,11 +117,21 @@ class TestValidateContract:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 return False
 
+        class SyncMockClient:
+            def __init__(self, **kwargs):
+                self.messages = SyncMockMessages()
+
         class MockAnthropicModule:
             AsyncAnthropic = MockClient
+            Anthropic = SyncMockClient
+            class APIConnectionError(Exception): pass
+            class RateLimitError(Exception): pass
+            class InternalServerError(Exception): pass
+            class AuthenticationError(Exception): pass
+            class PermissionDeniedError(Exception): pass
 
         with patch("os.environ.get", return_value="fake_key"):
-            with patch.dict("sys.modules", {"anthropic": MockAnthropicModule()}):
+            with patch("archguard.llm.cloud.anthropic", MockAnthropicModule()):
                 result = await generate_contract_from_llm(Path("."))
                 assert result["version"] == "3.0"
 
@@ -152,9 +167,14 @@ class TestValidateContract:
         class MockResponse:
             def __init__(self, text):
                 self.content = [MockContent(text)]
+                self.stop_reason = "end_turn"
 
         class MockMessages:
             async def create(self, **kwargs):
+                return MockResponse(json.dumps(invalid_contract))
+
+        class SyncMockMessages:
+            def create(self, **kwargs):
                 return MockResponse(json.dumps(invalid_contract))
 
         class MockClient:
@@ -167,11 +187,21 @@ class TestValidateContract:
             async def __aexit__(self, exc_type, exc_val, exc_tb):
                 return False
 
+        class SyncMockClient:
+            def __init__(self, **kwargs):
+                self.messages = SyncMockMessages()
+
         class MockAnthropicModule:
             AsyncAnthropic = MockClient
+            Anthropic = SyncMockClient
+            class APIConnectionError(Exception): pass
+            class RateLimitError(Exception): pass
+            class InternalServerError(Exception): pass
+            class AuthenticationError(Exception): pass
+            class PermissionDeniedError(Exception): pass
 
         with patch("os.environ.get", return_value="fake_key"):
-            with patch.dict("sys.modules", {"anthropic": MockAnthropicModule()}):
+            with patch("archguard.llm.cloud.anthropic", MockAnthropicModule()):
                 with pytest.raises(
                     ValueError, match="LLM generated an invalid contract"
                 ):

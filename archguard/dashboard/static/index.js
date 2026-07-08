@@ -39,7 +39,7 @@
             errorMsg.classList.remove('show');
 
             try {
-                const res = await fetch('/api/jobs/validate', {
+                const res = await fetch('/api/v1/jobs/validate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ github_url: url })
@@ -109,7 +109,7 @@
 
             try {
                 // Submit job
-                const res = await fetch('/api/jobs', {
+                const res = await fetch('/api/v1/jobs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ github_url: url })
@@ -126,7 +126,7 @@
                 appendLog('Establishing secure stream connection...', 'system');
 
                 // Connect to SSE stream
-                const evtSource = new EventSource(`/api/jobs/${jobId}/stream`);
+                const evtSource = new EventSource(`/api/v1/jobs/${jobId}/stream`);
 
                 let seenMessages = 0;
                 let pollingFallback = null;
@@ -138,7 +138,7 @@
                     appendLog('SSE unavailable. Switching to polling mode\u2026', 'warn');
                     pollingFallback = setInterval(async () => {
                         try {
-                            const r = await fetch(`/api/jobs/${jobId}`);
+                            const r = await fetch(`/api/v1/jobs/${jobId}`);
                             if (!r.ok) return;
                             const job = await r.json();
 
@@ -184,6 +184,7 @@
                         appendLog(`ERROR: ${payload.error}`, 'error');
                         submitBtn.textContent = 'Analysis Failed';
                         evtSource.close();
+                        resetSubmitButton();
                     }
                     else if (payload.type === 'result' && payload.result) {
                         const r = payload.result;

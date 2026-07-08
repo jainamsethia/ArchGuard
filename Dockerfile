@@ -34,8 +34,8 @@ COPY --from=builder /deps /app/lib
 RUN chown -R archguard:archguard /app
 
 # Create cache directory with correct permissions
-RUN mkdir -p /home/archguard/.archguard-cache && \
-    chown -R archguard:archguard /home/archguard/.archguard-cache
+RUN mkdir -p /app/.archguard-cache && \
+    chown -R archguard:archguard /app/.archguard-cache
 
 ENV PYTHONPATH=/app/lib
 ENV PYTHONDONTWRITEBYTECODE=1

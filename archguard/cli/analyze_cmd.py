@@ -171,7 +171,7 @@ def analyze_command(
             _console.print(f"[bold red]Failed to clone repository:[/bold red] {res.stderr}")
             raise typer.Exit(1)
         repo = Path(temp_dir)
-        _console.print(f"[green]Successfully cloned repository.[/green]")
+        _console.print("[green]Successfully cloned repository.[/green]")
 
     if output_format == "json":
         json_output = True

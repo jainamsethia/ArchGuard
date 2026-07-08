@@ -7,7 +7,7 @@
     
     <link rel="stylesheet" href="/index.css"/>
 </head>
-<body>
+<body class="page-index">
 
 <!-- Login overlay — shown when token is required and no valid session cookie exists -->
 <div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(10,12,18,0.97);
@@ -21,44 +21,14 @@
     <input id="token-input" type="password" placeholder="Dashboard token"
            style="padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);
                   background:rgba(255,255,255,0.05); color:var(--text-primary); font-size:1rem;"/>
-    <button type="submit"
-            style="padding:0.75rem; border-radius:8px; background:var(--accent-color);
-                   color:white; border:none; font-weight:600; cursor:pointer; font-size:1rem;">
+    <button type="submit" class="btn-login">
       Sign In
     </button>
     <div id="login-error" style="color:var(--danger-color,#ef4444); font-size:0.85rem; display:none;"></div>
   </form>
 </div>
 
-<script nonce="{{ csp_nonce }}">
-(async function initAuth() {
-  const res = await fetch('/api/auth/status');
-  if (!res.ok) return;
-  const { token_required, authenticated } = await res.json();
-  if (token_required && !authenticated) {
-    const overlay = document.getElementById('login-overlay');
-    overlay.style.display = 'flex';
-    document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = 'hidden');
-  }
-})();
-
-async function doLogin(event) {
-  event.preventDefault();
-  const token = document.getElementById('token-input').value;
-  const errEl = document.getElementById('login-error');
-  errEl.style.display = 'none';
-  const fd = new FormData();
-  fd.append('token', token);
-  const res = await fetch('/api/auth/login', { method: 'POST', body: fd });
-  if (res.ok) {
-    document.getElementById('login-overlay').style.display = 'none';
-    document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = '');
-  } else {
-    errEl.textContent = 'Invalid token. Please try again.';
-    errEl.style.display = 'block';
-  }
-}
-</script>
+<script src="/auth.js"></script>
     <div class="container" id="main-container">
         <div class="glass-card">
             <div class="header">

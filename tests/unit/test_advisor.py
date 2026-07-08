@@ -299,3 +299,28 @@ def test_advisor_message_injection_attempt_still_answered_normally(monkeypatch) 
     # Assert: request succeeds normally, and the guard preamble is present
     assert resp.status_code == 200
     assert "Only answer questions about software architecture" in captured_prompt["text"]
+
+def test_advisor_primary_model(monkeypatch) -> None:
+    """
+    Regression test for MED-03.
+    Verifies: ask_stream honors ARCHGUARD_PRIMARY_MODEL.
+    """
+    import os
+    from unittest.mock import patch, MagicMock
+    from archguard.llm.advisor import ArchitectureAdvisor
+    
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-fake-testvalue-1234567890')
+    monkeypatch.setenv('ARCHGUARD_PRIMARY_MODEL', 'claude-test-model-marker')
+    
+    mock_client = MagicMock()
+    mock_stream_ctx = MagicMock()
+    mock_stream_ctx.__enter__.return_value.text_stream = iter(['ok'])
+    mock_client.messages.stream.return_value = mock_stream_ctx
+    import anthropic
+    
+    with patch('anthropic.Anthropic', return_value=mock_client):
+        advisor = ArchitectureAdvisor.__new__(ArchitectureAdvisor)
+        list(advisor.ask_stream('question'))
+        _, kwargs = mock_client.messages.stream.call_args
+        assert kwargs['model'] == 'claude-test-model-marker'
+

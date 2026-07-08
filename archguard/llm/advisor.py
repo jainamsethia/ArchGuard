@@ -151,7 +151,7 @@ class ArchitectureAdvisor:
             user_content = f"{safe_context}\n\nQuestion: {safe_question}" if safe_context else safe_question
 
             with client.messages.stream(
-                model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+                model=os.environ.get("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514"),
                 max_tokens=1024,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_content}],

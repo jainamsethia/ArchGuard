@@ -4,6 +4,10 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
+    disk:
+      name: archguard-cache
+      mountPath: /app/.archguard-cache
+      sizeGB: 1
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -22,3 +26,5 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: ARCHGUARD_TRUSTED_PROXY_IPS
+        value: "10.0.0.0/8"

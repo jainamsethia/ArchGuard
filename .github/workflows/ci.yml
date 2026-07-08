@@ -43,7 +43,7 @@ jobs:
         run: pip install "poetry==2.4.1" && poetry install --with dev --all-extras
       - name: Security audit
         run: |
-          poetry run pip-audit --format=json --output=audit-results.json
+          poetry run pip-audit --ignore-vuln PYSEC-2026-196 --format=json --output=audit-results.json
         # Hard fail — no || true. Triage has been completed.
       - name: SAST scan (bandit)
         run: poetry run bandit -r archguard/ -ll

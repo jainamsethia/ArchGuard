@@ -41,18 +41,33 @@ class AnalysisJob:
 
 class JobManager:
     """Thread-safe in-memory job store with asyncio background execution.
-    
     Usage:
         job = job_manager.create_job("https://github.com/owner/repo")
-        asyncio.create_task(job_manager.run_job(job))
+        task = asyncio.create_task(job_manager.run_job(job))
+        job_manager.track_task(job.id, task)
     """
     def __init__(self) -> None:
         self._jobs: dict[str, AnalysisJob] = {}
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
         # Initialise semaphore to None; created on first async access via _ensure_semaphore().
         # Semaphore cannot be created in __init__ because JobManager may be instantiated
         # before an event loop is running (module import time).
         self._semaphore: asyncio.Semaphore | None = None
         self._semaphore_lock: asyncio.Lock | None = None
+
+    def track_task(self, job_id: str, task: "asyncio.Task[None]") -> None:
+        """Record the running task for a job so it can be cancelled on shutdown."""
+        self._tasks[job_id] = task
+        task.add_done_callback(lambda _t: self._tasks.pop(job_id, None))
+
+    async def cancel_all_running(self, timeout: float = 5.0) -> int:
+        """Cancel every still-running job task. Returns the number cancelled."""
+        pending = list(self._tasks.values())
+        for t in pending:
+            t.cancel()
+        if pending:
+            await asyncio.wait(pending, timeout=timeout)
+        return len(pending)
 
     async def _ensure_semaphore(self) -> asyncio.Semaphore:
         """Return the semaphore, creating it atomically on first call."""

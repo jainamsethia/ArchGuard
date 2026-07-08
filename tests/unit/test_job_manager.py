@@ -206,3 +206,14 @@ async def test_run_job_rejects_malformed_github_url_safely() -> None:
     assert job.status == JobStatus.FAILED
     assert job.error is not None
     assert "Cannot parse GitHub URL" in job.error
+
+@pytest.mark.asyncio
+async def test_shutdown_cancel_all_running(manager):
+    """cancel_all_running cancels tracked tasks within timeout."""
+    async def fake_job():
+        await asyncio.sleep(30)
+    task = asyncio.create_task(fake_job())
+    manager.track_task('fake-job-id', task)
+    cancelled = await manager.cancel_all_running(timeout=2.0)
+    assert cancelled == 1
+    assert task.cancelled() or task.done()

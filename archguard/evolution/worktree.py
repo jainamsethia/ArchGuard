@@ -82,9 +82,7 @@ class GitWorktreeManager:
                     else:
                         raise
 
-                shutil.rmtree(wt_path, onexc=onerror) if hasattr(
-                    shutil, "onexc"
-                ) else shutil.rmtree(wt_path, onerror=onerror)
+                shutil.rmtree(wt_path, onerror=onerror)
             except Exception as e:
                 logger.warning(
                     f"Failed to manually remove worktree directory {wt_path}: {e}"
@@ -106,8 +104,6 @@ class GitWorktreeManager:
 
 
 import tempfile  # noqa: E402
-from contextlib import contextmanager  # noqa: E402
-import subprocess
 
 
 @contextmanager
@@ -146,7 +142,4 @@ def git_worktree(repo_root: Path | str, sha: str) -> Iterator[Path]:
                 else:
                     raise
 
-            if hasattr(shutil, "onexc"):
-                shutil.rmtree(tmp_dir, onexc=onerror)
-            else:
-                shutil.rmtree(tmp_dir, onerror=onerror)
+            shutil.rmtree(tmp_dir, onerror=onerror)

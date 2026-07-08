@@ -11,6 +11,11 @@ from typing import Any
 
 import httpx
 
+class RemediationUnavailableError(RuntimeError):
+    """Raised when a remediation task list could not be generated (config or API error),
+    as distinct from a successful call that legitimately found nothing to remediate.
+    """
+
 logger = logging.getLogger(__name__)
 
 VALID_PRIORITIES = {"critical", "high", "medium", "low"}
@@ -98,6 +103,8 @@ class RemediationEngine:
 
         try:
             raw_tasks = self.provider.generate_tasks(context)
+        except RemediationUnavailableError:
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.error("RemediationProvider raised an unexpected error: %s", exc)
             return RemediationPlan()
@@ -210,7 +217,7 @@ class OpenAIRemediationProvider(RemediationProvider):
     def generate_tasks(self, context: str) -> list[RemediationTask]:
         if not self.api_key:
             logger.warning("OPENAI_API_KEY missing. Cannot generate remediation tasks.")
-            return []
+            raise RemediationUnavailableError("OPENAI_API_KEY is not configured")
 
         messages = [
             {"role": "system", "content": _REMEDIATION_SYSTEM_PROMPT},
@@ -241,24 +248,24 @@ class OpenAIRemediationProvider(RemediationProvider):
 
         except httpx.TimeoutException:
             logger.error("Timeout calling OpenAI for remediation.")
-            return []
+            raise RemediationUnavailableError("Timeout calling OpenAI for remediation.")
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
             if status_code == 429:
                 logger.error("Rate limit exceeded calling OpenAI for remediation.")
+                raise RemediationUnavailableError("Rate limit exceeded calling OpenAI for remediation.")
             else:
-                logger.error(
-                    "HTTP %s calling OpenAI for remediation: %s",
-                    status_code,
-                    e.response.text,
-                )
-            return []
+                msg = f"HTTP {status_code} calling OpenAI for remediation: {e.response.text}"
+                logger.error(msg)
+                raise RemediationUnavailableError(msg)
         except httpx.RequestError as e:
-            logger.error("Network error calling OpenAI for remediation: %s", e)
-            return []
+            msg = f"Network error calling OpenAI for remediation: {e}"
+            logger.error(msg)
+            raise RemediationUnavailableError(msg)
         except (KeyError, IndexError) as e:
-            logger.error("Malformed OpenAI response for remediation: %s", e)
-            return []
+            msg = f"Malformed OpenAI response for remediation: {e}"
+            logger.error(msg)
+            raise RemediationUnavailableError(msg)
 
     def _parse(self, raw: str) -> list[RemediationTask]:
         if not raw.strip():
@@ -266,13 +273,15 @@ class OpenAIRemediationProvider(RemediationProvider):
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as e:
-            logger.error("Failed to JSON-decode remediation response: %s", e)
-            return []
+            msg = f"Failed to JSON-decode remediation response: {e}"
+            logger.error(msg)
+            raise RemediationUnavailableError(msg)
 
         tasks_data = data.get("tasks", [])
         if not isinstance(tasks_data, list):
-            logger.error("Remediation response 'tasks' is not a list.")
-            return []
+            msg = "Remediation response 'tasks' is not a list."
+            logger.error(msg)
+            raise RemediationUnavailableError(msg)
 
         result: list[RemediationTask] = []
         for item in tasks_data:
@@ -375,6 +384,8 @@ async def generate_remediation_plan(
             for t in plan.all_tasks
         ]
         return {"tasks": tasks}
+    except RemediationUnavailableError:
+        raise
     except Exception as exc:
         logger.error("generate_remediation_plan failed: %s", exc)
         return {"tasks": []}

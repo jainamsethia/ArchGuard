@@ -17,8 +17,11 @@ services:
       # explicit decision in .env, not a default.
       - ENVIRONMENT=development
     volumes:
-      # Persistent storage for audit log and cache between runs
-      - archguard-cache:/home/archguard/.archguard-cache
+      # Persistent storage for audit log and cache between runs.
+      # Mounted at /app/.archguard-cache to match Path.cwd()-relative
+      # resolution in get_audit_path() -- NOT /home/archguard/..., which
+      # the app's WORKDIR (/app) never resolves to.
+      - archguard-cache:/app/.archguard-cache
     tmpfs:
       # Isolated in-memory temp space for git clone workspaces.
       # Size limit prevents disk exhaustion from large repos.

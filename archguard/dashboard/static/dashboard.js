@@ -60,11 +60,11 @@ document.addEventListener("DOMContentLoaded", () => {
             document.getElementById('refresh-loader').style.display = 'inline-block';
             try {
                 const [runsData, latestData, modulesData, evolutionData, gitEvoData] = await Promise.all([
-                    safeFetch(`/api/runs?limit=30${jobQueryAmp}`, { runs: [] }),
-                    safeFetch(`/api/runs/latest${jobQuery}`, null),
-                    safeFetch(`/api/modules${jobQuery}`, { modules: [] }),
-                    safeFetch(`/api/evolution/trends${jobQuery}`, { trends: [] }),
-                    safeFetch(`/api/evolution/latest${jobQuery}`, null)
+                    safeFetch(`/api/v1/runs?limit=30${jobQueryAmp}`, { runs: [] }),
+                    safeFetch(`/api/v1/runs/latest${jobQuery}`, null),
+                    safeFetch(`/api/v1/modules${jobQuery}`, { modules: [] }),
+                    safeFetch(`/api/v1/evolution/trends${jobQuery}`, { trends: [] }),
+                    safeFetch(`/api/v1/evolution/latest${jobQuery}`, null)
                 ]);
 
                 if (!runsData?.runs?.length && !latestData) {
@@ -88,7 +88,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 if (highlightJobId) {
                     // Try to fetch specific job if available
-                    safeFetch(`/api/jobs/${highlightJobId}`, null).then(job => {
+                    safeFetch(`/api/v1/jobs/${highlightJobId}`, null).then(job => {
                         const overview = document.getElementById('overview');
                         if (overview && !document.getElementById('job-banner')) {
                             const banner = document.createElement('div');
@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const jobQuery = window._jobQuery || '';
             let modulesData;
             try {
-                const res = await fetch(`/api/modules${jobQuery}`);
+                const res = await fetch(`/api/v1/modules${jobQuery}`);
                 modulesData = res.ok ? await res.json() : null;
             } catch (e) {
                 container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">Could not load dependency data.</div>';
@@ -592,7 +592,7 @@ function getEmptyStateHtml(icon, title, body) {
             btn.textContent = "Analyzing...";
             
             try {
-                const res = await fetch(`/api/evolution/analyze${jobQuery}`, {
+                const res = await fetch(`/api/v1/evolution/analyze${jobQuery}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ max_commits: 10 })
@@ -773,7 +773,7 @@ function getEmptyStateHtml(icon, title, body) {
             resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation plan...</div>';
 
             try {
-                const res = await fetch(`/api/remediation/plan${jobQuery}`);
+                const res = await fetch(`/api/v1/remediation/plan${jobQuery}`);
                 const data = await res.json();
                 const tasks = data.tasks || [];
 
@@ -813,7 +813,7 @@ function getEmptyStateHtml(icon, title, body) {
         }
         
         async function loadRepoHistory(repoUrl) {
-            const res = await fetch(`/api/repos/${encodeURIComponent(repoUrl)}/runs`);
+            const res = await fetch(`/api/v1/repos/${encodeURIComponent(repoUrl)}/runs`);
             if (!res.ok) return;
             const data = await res.json();
             updateTrendChart(data.runs);  // reuse existing chart-rendering function; do not duplicate its logic

@@ -19,8 +19,13 @@ class RemediationRequest(BaseModel):
 
 
 @app.post(
+    "/api/v1/remediation/plan",
+    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+)
+@app.post(
     "/api/remediation/plan",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+    deprecated=True,
 )
 async def remediation_plan(body: RemediationRequest) -> Any:
     """Generate a remediation plan from the provided violations."""
@@ -35,8 +40,13 @@ async def remediation_plan(body: RemediationRequest) -> Any:
 
 
 @app.get(
+    "/api/v1/remediation/plan",
+    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+)
+@app.get(
     "/api/remediation/plan",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
+    deprecated=True,
 )
 async def remediation_plan_from_audit(
     limit: int = Query(default=1, ge=1, le=10),
@@ -46,7 +56,11 @@ async def remediation_plan_from_audit(
     from archguard.llm.remediation import generate_remediation_plan
 
     audit = AuditLogger(get_audit_path(job_id))
-    latest = audit.read_last_run() or {}
+    if job_id:
+        runs = audit.read_last_n_runs(n=100)
+        latest = next((r for r in runs if r.get("job_id") == job_id), {})
+    else:
+        latest = audit.read_last_run() or {}
     violations = latest.get("violations", [])
 
     try:

@@ -49,7 +49,6 @@ app.add_typer(history_analyze_app, name="history-analyze")
 @app.command("cache-check")
 def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
     """Check and optionally repair the embedding cache."""
-    from archguard.cache.db import EmbeddingDB
     from pathlib import Path
 
     import json
@@ -91,9 +90,9 @@ def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
         return
 
     if repair:
-        for f in corrupt_files:
-            f.unlink(missing_ok=True)
-            console.print(f"[green]Removed corrupted file: {f}[/green]")
+        for corrupt_file in corrupt_files:
+            corrupt_file.unlink(missing_ok=True)
+            console.print(f"[green]Removed corrupted file: {corrupt_file}[/green]")
         console.print("[green]Repair complete. Run archguard analyze to rebuild missing cache files.[/green]")
     else:
         console.print(f"[red]Found {len(corrupt_files)} corrupted files. Run with --repair to safely remove them.[/red]")
@@ -150,7 +149,7 @@ def cli(
         typer.echo(f"archguard, version {v}")
         raise typer.Exit()
 
-    configure_logging(verbose=verbose)
+    configure_logging(verbose=verbose, quiet=quiet)
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
     ctx.obj["quiet"] = quiet

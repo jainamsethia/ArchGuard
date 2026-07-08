@@ -23,7 +23,6 @@ from archguard.llm.prompts import (
     parse_llm_response,
 )
 from archguard.utils.content_filter import redact_secrets
-from archguard.utils.errors import LLMError
 from archguard.utils.retry import with_retry
 
 if TYPE_CHECKING:
@@ -246,7 +245,7 @@ class CloudLLMExplainer:
         retryable_exceptions=_CLOUD_RETRYABLE,
         non_retryable_exceptions=_CLOUD_NON_RETRYABLE,
     )
-    def _call_api(self, prompt: str, model: str) -> tuple[str, str]:
+    def _call_api(self, prompt: str, model: str, system: str = SYSTEM_PROMPT) -> tuple[str, str]:
         """Call the Anthropic API. Lazy-imports the SDK."""
         if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
             return "Mock LLM explanation for testing", "end_turn"
@@ -259,7 +258,7 @@ class CloudLLMExplainer:
         message: Any = client.messages.create(
             model=model,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
         )
         return str(message.content[0].text), str(message.stop_reason)
