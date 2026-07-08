@@ -1,7 +1,7 @@
 import time
 import threading
 from collections import deque
-from fastapi import Request, HTTPException, status
+from fastapi import Request, Response, HTTPException, status
 from archguard.dashboard._auth import _real_client_ip
 
 try:
@@ -26,7 +26,9 @@ _LLM_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
 )
 _LLM_RATE_LOCK = threading.Lock()
 
-def rate_limiter(request: Request) -> None:
+def rate_limiter(request: Request, response: Response = None) -> None:
+    if response is None:
+        response = Response()
     client_ip = _real_client_ip(request)
     now = time.time()
 
@@ -39,7 +41,13 @@ def rate_limiter(request: Request) -> None:
         while history and history[0] < now - RATE_LIMIT_WINDOW:
             history.popleft()
 
+        remaining = max(0, RATE_LIMIT_MAX_REQUESTS - len(history) - 1)
+        response.headers["X-RateLimit-Limit"] = str(RATE_LIMIT_MAX_REQUESTS)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(now + RATE_LIMIT_WINDOW))
+
         if len(history) >= RATE_LIMIT_MAX_REQUESTS:
+            response.headers["Retry-After"] = str(int(RATE_LIMIT_WINDOW))
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many requests",
@@ -47,7 +55,9 @@ def rate_limiter(request: Request) -> None:
 
         history.append(now)
 
-def _llm_rate_limit(request: Request) -> None:
+def _llm_rate_limit(request: Request, response: Response = None) -> None:
+    if response is None:
+        response = Response()
     client_ip = _real_client_ip(request)
     now = time.time()
 
@@ -60,7 +70,13 @@ def _llm_rate_limit(request: Request) -> None:
         while history and history[0] < now - RATE_LIMIT_WINDOW:
             history.popleft()
 
+        remaining = max(0, _LLM_MAX - len(history) - 1)
+        response.headers["X-RateLimit-Limit"] = str(_LLM_MAX)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(now + RATE_LIMIT_WINDOW))
+
         if len(history) >= _LLM_MAX:
+            response.headers["Retry-After"] = str(int(RATE_LIMIT_WINDOW))
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many LLM requests",
