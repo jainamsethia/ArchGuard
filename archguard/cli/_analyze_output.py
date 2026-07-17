@@ -235,7 +235,7 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         # composite_score: 0.0–1.0, HIGHER = WORSE (debt score)
         # health_score: 0–100, HIGHER = BETTER (use for user display)
         score = result.archdebt.health_score
-        grade = str(result.archdebt.band.value)
+        grade = result.archdebt.health_grade
         metrics = {
             "layer_score": float(result.archdebt.layer_scores.layer1_violation) * 100,
             "coupling_score": float(result.archdebt.layer_scores.layer2_coupling) * 100,
