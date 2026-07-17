@@ -16,7 +16,8 @@
 - `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
 - `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
 - `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
-- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (e.g., set this out-of-band via the Railway dashboard or CLI since railway.toml cannot declare env vars).
+- `ENVIRONMENT` — set to `production` for secure session cookies (already set in `railway.toml`'s `[env]` section)
+- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set via the Railway dashboard or CLI).
 
 ### Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-org/archguard)
