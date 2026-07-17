@@ -25,6 +25,17 @@ from archguard.cli._analyze_output import (
 from archguard.cli._analyze_github import _post_github_annotations
 
 _console = Console()
+_console_err = Console(stderr=True)
+
+def _status(msg: Any, opts: AnalyzeOptions | None = None) -> None:
+    is_json = False
+    if opts is not None:
+        if getattr(opts, "json_output", False) or getattr(opts, "output_format", "") == "json":
+            is_json = True
+    if is_json:
+        _console_err.print(msg)
+    else:
+        _console.print(msg)
 
 
 def attach_explanations(
@@ -101,13 +112,10 @@ def _resolve_changed_files(
                 "--name-only",
                 "--diff-filter=ACMR",
             ]
-            if opts is None or not opts.json_output:
-                _console.print(
-                    "[yellow][!] Initial commit detected - analyzing all Python files.[/yellow]"
-                )
-            else:
-                import sys
-                print("Initial commit detected - analyzing all Python files.", file=sys.stderr)
+            _status(
+                "[yellow][!] Initial commit detected - analyzing all Python files.[/yellow]",
+                opts
+            )
 
         diff_result = subprocess.run(
             diff_cmd, cwd=repo_root, capture_output=True, text=True
@@ -235,7 +243,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
     try:
         orchestrator = AnalysisOrchestrator(repo_root)
     except Exception as e:
-        _console.print(format_error(f"Failed to load contract: {e}"))
+        _status(format_error(f"Failed to load contract: {e}"), opts)
         return EXIT_CONFIG_ERROR, None
 
     with orchestrator:
@@ -291,7 +299,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
                     "layer_durations", {}
                 ).items():
                     table.add_row(layer, f"{duration:.3f}s")
-                _console.print(table)
+                _status(table, opts)
 
             vprint("Analysis core completed.", opts.ctx, level="debug")
 
@@ -309,14 +317,15 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
 
         except RuntimeError as exc:
             if "ML dependencies" in str(exc):
-                _console.print(
-                    "\n[bold red]Missing Dependencies[/bold red]\nLayer 3 requires ML libraries."
+                _status(
+                    "\n[bold red]Missing Dependencies[/bold red]\nLayer 3 requires ML libraries.",
+                    opts
                 )
                 return EXIT_CONFIG_ERROR, None
-            _console.print(format_error(f"Analysis failed: {exc}"))
+            _status(format_error(f"Analysis failed: {exc}"), opts)
             return EXIT_ANALYSIS_ERROR, None
         except Exception as exc:
-            _console.print(format_error(f"Analysis failed: {exc}"))
+            _status(format_error(f"Analysis failed: {exc}"), opts)
             return EXIT_ANALYSIS_ERROR, None
 
         from archguard.cli._analyze_llm import _run_llm_explanation
@@ -344,8 +353,9 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
         )
         if has_critical_parse_failures:
             if not opts.ctx.obj.get("quiet"):
-                _console.print(
-                    "[bold red]Critical parse failures detected. Analysis is invalid.[/bold red]"
+                _status(
+                    "[bold red]Critical parse failures detected. Analysis is invalid.[/bold red]",
+                    opts
                 )
             return 3, result
 

@@ -165,13 +165,15 @@ def analyze_command(
     if github_url:
         temp_dir = tempfile.mkdtemp(prefix="archguard_")
         atexit.register(lambda: shutil.rmtree(temp_dir, ignore_errors=True))
-        _console.print(f"[bold blue]Cloning {github_url} into temporary directory...[/bold blue]")
+        from archguard.cli._analyze_core import _status
+        _dummy_opts = type("Opts", (), {"output_format": output_format})()
+        _status(f"[bold blue]Cloning {github_url} into temporary directory...[/bold blue]", _dummy_opts)
         res = subprocess.run(["git", "clone", "--depth", "1", github_url, temp_dir], capture_output=True, text=True)
         if res.returncode != 0:
-            _console.print(f"[bold red]Failed to clone repository:[/bold red] {res.stderr}")
+            _status(f"[bold red]Failed to clone repository:[/bold red] {res.stderr}", _dummy_opts)
             raise typer.Exit(1)
         repo = Path(temp_dir)
-        _console.print("[green]Successfully cloned repository.[/green]")
+        _status("[green]Successfully cloned repository.[/green]", _dummy_opts)
 
     if output_format == "json":
         json_output = True
@@ -239,8 +241,10 @@ def analyze_command(
 
         if not json_output:
             if dep_res.skipped:
-                _console.print(
-                    f"[dim]Dependency Health skipped: {dep_res.skip_reason}[/dim]"
+                from archguard.cli._analyze_core import _status
+                _status(
+                    f"[dim]Dependency Health skipped: {dep_res.skip_reason}[/dim]",
+                    opts
                 )
             else:
                 table = Table(
@@ -264,18 +268,22 @@ def analyze_command(
 
                 panel_content = summary
                 if dep_res.vulnerabilities:
-                    _console.print(table)
+                    from archguard.cli._analyze_core import _status
+                    _status(table, opts)
                     if len(dep_res.vulnerabilities) > 5:
-                        _console.print(
-                            f"[dim]... and {len(dep_res.vulnerabilities) - 5} more vulnerabilities.[/dim]"
+                        _status(
+                            f"[dim]... and {len(dep_res.vulnerabilities) - 5} more vulnerabilities.[/dim]",
+                            opts
                         )
 
-                _console.print(
+                from archguard.cli._analyze_core import _status
+                _status(
                     Panel(
                         panel_content,
                         title="Dependency Health Score",
                         border_style="cyan",
-                    )
+                    ),
+                    opts
                 )
 
         if caught_exit is not None:
