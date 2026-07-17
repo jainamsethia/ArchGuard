@@ -165,6 +165,8 @@ archguard init           # Auto-detect architecture
 archguard analyze        # Check for violations
 ```
 
+> **Note:** `archguard analyze` analyzes the full repository by default. For faster PR-level runs, use `archguard analyze --incremental` to only check changed files.
+
 ## Sample Output
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
