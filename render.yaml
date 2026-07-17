@@ -11,6 +11,8 @@ services:
     envVars:
       - key: ENVIRONMENT
         value: production
+      - key: PORT
+        value: "8000"
       # ARCHGUARD_DASHBOARD_ALLOW_REMOTE is intentionally omitted.
       # Set ARCHGUARD_DASHBOARD_TOKEN in the Render dashboard secrets instead.
       # See .env.example for instructions.
