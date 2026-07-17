@@ -51,6 +51,9 @@
 .btn-action,
 .btn-action-lg {
     transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
 }
 .btn-action:hover:not(:disabled),
 .btn-action-lg:hover:not(:disabled) {
@@ -713,6 +716,9 @@ body.page-dashboard {
             color: var(--text-secondary);
             border: none;
             padding: 0.5rem 1rem;
+            min-height: 44px;
+            display: inline-flex;
+            align-items: center;
             cursor: pointer;
             font-size: 1rem;
             font-weight: 600;
@@ -746,6 +752,11 @@ body.page-dashboard {
         
         .chip {
             padding: 0.25rem 0.75rem;
+            min-height: 44px;
+            min-width: 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             border-radius: 9999px;
             font-size: 0.75rem;
             font-weight: 600;
