@@ -200,7 +200,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         function updateMetrics(latestRun) {
-            if (!latestRun || !latestRun.score) return;
+            if (!latestRun || latestRun.score === undefined || latestRun.score === null) return;
 
             document.getElementById('current-score').textContent = latestRun.score.toFixed(1);
 
