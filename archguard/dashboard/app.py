@@ -7,6 +7,8 @@ import logging
 import time
 import importlib.metadata
 import secrets
+import uuid
+from archguard.dashboard._auth import _real_client_ip
 from pathlib import Path
 from typing import Any, Annotated
 from contextlib import asynccontextmanager
@@ -143,16 +145,21 @@ _request_logger = logging.getLogger("archguard.http")
 
 @app.middleware("http")
 async def _log_requests(request: Request, call_next: Any) -> Any:
+    correlation_id = str(uuid.uuid4())[:8]
+    client_ip = _real_client_ip(request)
     start = time.monotonic()
     response = await call_next(request)
     duration_ms = round((time.monotonic() - start) * 1000)
     _request_logger.info(
-        "%s %s -> %d (%dms)",
+        "[%s] %s %s -> %d (%dms) ip=%s",
+        correlation_id,
         request.method,
         request.url.path,
         response.status_code,
         duration_ms,
+        client_ip,
     )
+    response.headers["X-Correlation-ID"] = correlation_id
     return response
 
 @app.middleware("http")

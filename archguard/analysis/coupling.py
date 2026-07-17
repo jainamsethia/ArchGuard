@@ -161,6 +161,7 @@ def default_coupling_budget(fan_out_at_init: int) -> int:
     """
     return max(3, math.ceil(fan_out_at_init * 1.5))
 
+_PROJECT_DEFAULT_FAN_OUT_BASELINE = 5
 
 # ------------------------------------------------------------------
 # Orchestrator
@@ -181,7 +182,7 @@ def analyze_coupling(
 
         budget = budgets.get(module_name)
         if budget is None:
-            budget = default_coupling_budget(fan_out_val)
+            budget = default_coupling_budget(_PROJECT_DEFAULT_FAN_OUT_BASELINE)
 
         delta = compute_coupling_delta(fan_out_val, budget, module_name)
 

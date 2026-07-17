@@ -1,3 +1,0 @@
-# pip-audit ignore list
-# Format: GHSA-xxxx-xxxx-xxxx <reason>
-# Add entries here after triage, with a comment explaining why it's accepted

@@ -12,6 +12,7 @@ docs/
 
 # Markdown files
 *.md
+!README.md
 
 # ArchGuard runtime cache (rebuilt in container)
 .archguard-cache/

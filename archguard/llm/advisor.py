@@ -27,6 +27,10 @@ class AdvisorProvider(abc.ABC):
         pass
 
 
+def _mock_advisor_response(question: str) -> str:
+    print(f"--- MOCK LLM PROMPT ---\n{question}\n--- END MOCK LLM PROMPT ---")
+    return "Mock advisor response for testing"
+
 class ArchitectureAdvisor:
     """Core service for analyzing ArchGuard results and generating recommendations."""
 
@@ -121,6 +125,10 @@ class ArchitectureAdvisor:
         import os
         import logging
         from archguard.utils.content_filter import redact_secrets
+
+        if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+            yield _mock_advisor_response(question)
+            return
 
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
         if not api_key:

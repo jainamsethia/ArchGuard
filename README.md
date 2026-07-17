@@ -121,7 +121,7 @@ ArchGuard integrates multiple intelligent components to actively evaluate and gu
 Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
 
 ### AI Advisor
-An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Supports streaming responses via the Anthropic SDK.
+An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Supports streaming responses via the OpenAI SDK.
 
 ### Architecture Evolution Tracking
 Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
@@ -330,8 +330,10 @@ See `.env.example` for a copy-pasteable template. Full reference:
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | Required for `archguard sync push/pull` (S3 cache backend). |
 | `ARCHGUARD_SKIP_ML` | `false` | Skip Layer 3/4 even if ML extras are installed. |
 | `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `ANTHROPIC_API_KEY` is set. |
-| `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response instead of calling the LLM — used in CI/tests. |
+| `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response across all LLM features (Analysis, AI Advisor, Remediation) instead of calling the LLM — used in CI/tests. |
 | `ARCHGUARD_TEST_MODE` | `false` | Set by the test suite and CI; **currently read nowhere in `archguard/` source** — has no effect today. |
+| `ARCHGUARD_CLONE_TIMEOUT` | `120` | Maximum time in seconds to wait for a git clone to complete. |
+| `ARCHGUARD_ANALYSIS_TIMEOUT` | `600` | Maximum time in seconds to wait for the analysis pipeline to complete. |
 
 ## Testing
 ### Unit Tests
@@ -354,6 +356,10 @@ Example: `/archguard suppress api 1 "Imports from db directly"`
 
 **What does the health score mean?**
 The health score (0-100) measures your project's architectural integrity against the baseline contract. A grade below your configured fail threshold will exit non-zero and fail CI.
+
+## Known Limitations
+
+- **Python Version Skew in Standard Library Classification**: The engine uses the standard library module list of the Python version it is currently running on. If ArchGuard is analyzing a repository that targets a different Python version (e.g. running under Python 3.10 but analyzing a codebase that uses `tomllib` from Python 3.11), a small number of version-boundary standard library modules may be misclassified as third-party imports.
 
 ## Contributing
 

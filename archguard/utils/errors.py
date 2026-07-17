@@ -1,7 +1,19 @@
 """Exit codes and error message helpers for ArchGuard."""
 
 from typing import Any
+import typer
 from archguard.config import EXIT_CONFIG_ERROR, EXIT_ANALYSIS_ERROR, EXIT_LLM_ERROR
+
+
+class ContractGenerationError(typer.Exit):
+    """Raised when contract generation fails with a specific message."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(1)
+        self.message = message
+
+    def __str__(self) -> str:
+        return self.message
 
 
 class ArchGuardError(Exception):

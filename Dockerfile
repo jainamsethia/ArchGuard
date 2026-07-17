@@ -8,9 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml poetry.lock* ./
+COPY README.md ./
 RUN pip install --no-cache-dir "poetry==2.4.1" "poetry-plugin-export>=1.8.0" && \
-    poetry lock --no-update && \
-    poetry export -f requirements.txt --output requirements.txt --without-hashes && \
+    poetry lock && \
+    poetry export -f requirements.txt --output requirements.txt --without-hashes --extras "dashboard cloud ml" && \
     pip install --no-cache-dir --target /deps -r requirements.txt
 
 COPY archguard/ ./archguard/

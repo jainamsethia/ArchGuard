@@ -25,6 +25,23 @@ Each object MUST have exactly these keys:
 If the context shows no issues or violations, return an empty array: []
 """
 
+def _mock_openai_recommendations(context: str) -> list[Recommendation]:
+    print(f"--- MOCK LLM PROMPT ---\n{context}\n--- END MOCK LLM PROMPT ---")
+    return [
+        Recommendation(
+            title="Mock Recommendation",
+            description="Mock description for testing",
+            severity="low",
+            expected_impact="Mock impact",
+            priority_score=100
+        )
+    ]
+
+class AdvisorUnavailableError(Exception):
+    def __init__(self, reason: str, detail: str = "") -> None:
+        self.reason = reason
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
 
 class OpenAIAdvisorProvider(AdvisorProvider):
     """OpenAI implementation of the Architecture Advisor provider."""
@@ -45,9 +62,12 @@ class OpenAIAdvisorProvider(AdvisorProvider):
 
     def generate_recommendations(self, context: str) -> list[Recommendation]:
         """Generate recommendations by calling the OpenAI API."""
+        if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+            return _mock_openai_recommendations(context)
+
         if not self.api_key:
             logger.error("OPENAI_API_KEY is missing. Cannot generate recommendations.")
-            return []
+            raise AdvisorUnavailableError("no_api_key")
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -94,21 +114,22 @@ class OpenAIAdvisorProvider(AdvisorProvider):
 
         except httpx.TimeoutException:
             logger.error("Timeout occurred while calling OpenAI API.")
-            return []
+            raise AdvisorUnavailableError("api_error", detail="Timeout occurred while calling OpenAI API.")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 logger.error("Rate limit exceeded while calling OpenAI API.")
+                raise AdvisorUnavailableError("api_error", detail="Rate limit exceeded while calling OpenAI API.")
             else:
                 logger.error(
                     f"HTTP error {e.response.status_code} calling OpenAI API: {e.response.text}"
                 )
-            return []
+                raise AdvisorUnavailableError("api_error", detail=str(e))
         except httpx.RequestError as e:
             logger.error(f"Network error calling OpenAI API: {e}")
-            return []
+            raise AdvisorUnavailableError("api_error", detail=str(e))
         except (KeyError, IndexError) as e:
             logger.error(f"Malformed response from OpenAI API: {e}")
-            return []
+            raise AdvisorUnavailableError("api_error", detail="Malformed response")
 
     def _parse_response(self, raw_content: str) -> list[Recommendation]:
         """Parse and validate the JSON response into Recommendation objects."""

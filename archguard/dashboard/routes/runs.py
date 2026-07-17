@@ -1,7 +1,7 @@
 """Run-history, module-list, trend, and dependency-graph read endpoints."""
 from pathlib import Path
 from typing import Any
-from fastapi import Path as FastAPIPath, Depends, Query
+from fastapi import Path as FastAPIPath, Depends, Query, HTTPException
 from archguard.dashboard.app import app, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
@@ -38,14 +38,75 @@ def get_runs(
 @app.get("/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
 @app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_latest_run(job_id: JobIdQuery = None) -> Any:
+    from fastapi import HTTPException
     logger = AuditLogger(get_audit_path(job_id))
     if job_id:
         runs = logger.read_last_n_runs(n=100)
         for r in runs:
             if r.get("job_id") == job_id:
                 return r
-    return logger.read_last_run() or {}
+        raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
+    return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
 
+
+class ParsedEdge:
+    def __init__(self, importer: str, imported: str):
+        self.importer_module = importer
+        self.imported_module = imported
+
+def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
+    from archguard.analysis.parser import ImportParser
+    from archguard.dashboard.app import get_target_path
+    from archguard.contract.loader import load_contract
+    from archguard.analysis._orchestrator_utils import _get_module_paths
+    from archguard.analysis.coupling import _assign_file_to_module
+    from archguard.utils.paths import path_belongs_to_module
+    
+    target = get_target_path(job_id)
+    if job_id and target == Path.cwd():
+        return []
+        
+    try:
+        contract = load_contract(target)
+        modules_cfg = contract.get("modules", [])
+        module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
+        
+        parser = ImportParser()
+        parse_result = parser.parse_repo(target, module_paths, allow_partial=True)
+        
+        edges_out = []
+        seen = set()
+        for e in parse_result.edges:
+            if e.is_stdlib or e.is_relative:
+                continue
+            importer = _assign_file_to_module(e.source_file, module_paths)
+            if not importer:
+                continue
+                
+            import_as_path = e.imported_module.replace(".", "/")
+            imported = None
+            for tp_name, t_paths in module_paths.items():
+                targets_us = any(
+                    path_belongs_to_module(import_as_path, [tp])
+                    or path_belongs_to_module(tp, [import_as_path])
+                    for tp in t_paths
+                )
+                if targets_us:
+                    imported = tp_name
+                    break
+                    
+            if not imported:
+                imported = e.imported_module.split(".")[0]
+                
+            if importer != imported:
+                k = (importer, imported)
+                if k not in seen:
+                    seen.add(k)
+                    edges_out.append(ParsedEdge(importer, imported))
+                    
+        return edges_out
+    except Exception:
+        return []
 
 @app.get("/api/v1/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
 @app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
@@ -59,7 +120,12 @@ def get_modules(job_id: JobIdQuery = None) -> Any:
     for run in runs:
         for module, score in run.get("module_scores", {}).items():
             modules[module] = score  # latest score wins
-    return {"modules": modules}
+            
+    edges = [
+        {"from": e.importer_module, "to": e.imported_module}
+        for e in get_import_edges(job_id)
+    ]
+    return {"modules": modules, "edges": edges}
 
 
 @app.get(
@@ -94,15 +160,11 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
     from archguard.dashboard.app import get_target_path
 
     target = get_target_path(job_id)
-    if job_id and target == Path.cwd():
-        return {
-            "score": 0.0,
-            "vulnerable_packages": [],
-            "scanned_packages": 0,
-            "skipped": True,
-            "skip_reason": "Repository workspace has been cleaned up. Run analysis again to scan dependencies.",
-            "error": "Workspace deleted",
-        }
+    if not job_id:
+        raise HTTPException(status_code=400, detail="No analysis selected. Submit a job first.")
+    
+    if target == Path.cwd():
+        raise HTTPException(status_code=410, detail="Analysis workspace no longer available")
 
     try:
         result = analyze_dependencies(target)

@@ -10,6 +10,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById('gen-id-click-deps').addEventListener('click', function(event) { switchTab('dependencies') });
     document.getElementById('start-evolution-btn').addEventListener('click', function(event) { startEvolutionAnalysis() });
     document.getElementById('scan-deps-btn').addEventListener('click', function(event) { scanDependencies() });
+    
+    document.getElementById('repo-history-btn')?.addEventListener('click', () => {
+        if (window.latestRun && window.latestRun.repo_url) {
+            loadRepoHistory(window.latestRun.repo_url);
+        }
+    });
+
     document.getElementById('advisor-question-input').addEventListener('keydown', function(event) { if(event.key==='Enter') sendAdvisorQuestion() });
     document.getElementById('gen-id-click-1e6913c1').addEventListener('click', function(event) { sendAdvisorQuestion() });
     document.getElementById('remediation-btn').addEventListener('click', function(event) { generateRemediationPlan() });
@@ -34,10 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const jobQuery = highlightJobId ? `?job_id=${highlightJobId}` : '';
         const jobQueryAmp = highlightJobId ? `&job_id=${highlightJobId}` : '';
 
-        // Clean the URL param as requested
-        if (highlightJobId) {
-            history.replaceState({}, '', 'dashboard.html');
-        }
+        // job_id intentionally kept in the URL so the page is bookmarkable/refreshable
 
         async function safeFetch(url, fallback) {
             try {
@@ -56,6 +60,24 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
+        function renderEmptyState() {
+            const mainContainer = document.querySelector('.metrics-grid').parentElement;
+            mainContainer.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h1 style="margin: 0; font-size: 2.5rem; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ArchGuard Dashboard</h1>
+                </div>
+                <div class="empty-state">
+                    <div class="empty-icon">🏗️</div>
+                    <h3 class="empty-title">No analyses yet</h3>
+                    <p class="empty-body">
+                        Analyze a GitHub repository to see architectural health data here.
+                    </p>
+                    <a href="/" class="btn-primary">Analyze a Repository →</a>
+                </div>
+            `;
+            document.getElementById('refresh-loader').style.display = 'none';
+        }
+
         async function fetchData() {
             document.getElementById('refresh-loader').style.display = 'inline-block';
             try {
@@ -67,22 +89,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     safeFetch(`/api/v1/evolution/latest${jobQuery}`, null)
                 ]);
 
-                if (!runsData?.runs?.length && !latestData) {
-                    const mainContainer = document.querySelector('.metrics-grid').parentElement;
-                    mainContainer.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                            <h1 style="margin: 0; font-size: 2.5rem; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ArchGuard Dashboard</h1>
-                        </div>
-                        <div class="empty-state">
-                            <div class="empty-icon">🏗️</div>
-                            <h3 class="empty-title">No analyses yet</h3>
-                            <p class="empty-body">
-                                Analyze a GitHub repository to see architectural health data here.
-                            </p>
-                            <a href="index.html" class="btn-primary">Analyze a Repository →</a>
-                        </div>
-                    `;
-                    document.getElementById('refresh-loader').style.display = 'none';
+                if ((!runsData?.runs?.length && !latestData) || (latestData && latestData.empty)) {
+                    renderEmptyState();
                     return;
                 }
 
@@ -147,7 +155,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             container.innerHTML = '<div style="color:var(--text-secondary);padding:2rem;text-align:center;">Loading dependency data\u2026</div>';
 
-            const jobQuery = window._jobQuery || '';
             let modulesData;
             try {
                 const res = await fetch(`/api/v1/modules${jobQuery}`);
@@ -165,17 +172,24 @@ document.addEventListener("DOMContentLoaded", () => {
             container.innerHTML = '';
 
             const modules = modulesData.modules;
-            const nodes = Object.entries(modules).map(([name, score], i) => ({
-                id: i,
+            const nodes = Object.entries(modules).map(([name, score]) => ({
+                id: name,
                 label: name.split('.').pop(),
                 title: `${name}\nScore: ${score}`,
                 value: Math.max(10, (score || 0) * 2),
                 color: score > 70 ? '#34d399' : score > 40 ? '#f59e0b' : '#ef4444',
             }));
 
+            const edgeList = (modulesData.edges || []).map(e => ({
+                from: e.from,
+                to: e.to,
+                arrows: 'to',
+                color: { color: 'rgba(255, 255, 255, 0.2)' }
+            }));
+
             const data = {
                 nodes: new vis.DataSet(nodes),
-                edges: new vis.DataSet([]),
+                edges: new vis.DataSet(edgeList),
             };
             const options = {
                 nodes: { shape: 'dot', font: { color: '#94a3b8', size: 12 } },
@@ -394,6 +408,15 @@ document.addEventListener("DOMContentLoaded", () => {
             // Sort by score descending
             const combined = labels.map((l, i) => ({label: l, data: data[i]}));
             combined.sort((a, b) => b.data - a.data);
+
+            const noteEl = document.getElementById('module-chart-note');
+            if (noteEl) {
+                if (combined.length > 10) {
+                    noteEl.textContent = `Showing top 10 of ${combined.length} modules by trend magnitude.`;
+                } else {
+                    noteEl.textContent = '';
+                }
+            }
 
             const sortedLabels = combined.slice(0, 10).map(x => x.label);
             const sortedData = combined.slice(0, 10).map(x => x.data);
@@ -710,8 +733,7 @@ function getEmptyStateHtml(icon, title, body) {
             let contextStr = "No context data available.";
             if (window.latestRun) {
                 const run = window.latestRun;
-                const violationsCount = run.violations ? run.violations.length : 0;
-                contextStr = `Current Health Score: ${run.score || 0}\nGrade: ${run.band || 'UNKNOWN'}\nActive Violations: ${violationsCount}`;
+                contextStr = `Fallback context - Score: ${run.score || 0}, Violations: ${run.violations?.length || 0}`;
             }
 
             try {
@@ -730,6 +752,7 @@ function getEmptyStateHtml(icon, title, body) {
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
                 let accumulated = '';
+                let buffer = '';
 
                 responseEl.textContent = '';
 
@@ -739,7 +762,9 @@ function getEmptyStateHtml(icon, title, body) {
 
                     const raw = decoder.decode(value, { stream: true });
                     // Each SSE event is "data: <text>\n\n"
-                    const lines = raw.split('\n');
+                    buffer += raw;
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // last element may be an incomplete line -- carry it over
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
                             const chunk = line.slice(6);  // strip "data: "

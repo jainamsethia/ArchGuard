@@ -16,9 +16,12 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+import os
 from typing import Awaitable, Callable, Any
 
 logger = logging.getLogger(__name__)
+
+ANALYSIS_TIMEOUT_SECONDS: int = int(os.environ.get("ARCHGUARD_ANALYSIS_TIMEOUT", "600"))
 
 # --------------------------------------------------------------------------
 # Result dataclasses (JSON-serializable)
@@ -54,6 +57,23 @@ class AnalysisJobResult:
 # --------------------------------------------------------------------------
 
 ProgressCallback = Callable[[str], Awaitable[None]]
+
+def _log_skip_or_error(job_id: str, repo_path: Path, reason: str) -> None:
+    try:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import AUDIT_EVENT_ANALYSIS
+        audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
+        audit.log(
+            AUDIT_EVENT_ANALYSIS,
+            job_id=job_id,
+            score=0.0,
+            band="FAIL",
+            violations=[],
+            skipped=True,
+            error=reason
+        )
+    except Exception as exc:
+        logger.warning("Failed to write audit log in pipeline adapter: %s", exc)
 
 async def run_analysis_on_repo(
     repo_path: Path,
@@ -106,6 +126,7 @@ async def run_analysis_on_repo(
 
     if not py_files:
         elapsed = round(time.monotonic() - start, 1)
+        _log_skip_or_error(job_id, repo_path, reason="no_python_files")
         return AnalysisJobResult(
             job_id=job_id, repo_url=repo_url,
             health_score=0.0, health_grade="F",
@@ -120,23 +141,30 @@ async def run_analysis_on_repo(
     # -- Step 3: Run analysis in thread pool -----------------------------
     try:
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            _run_analysis_sync,
-            repo_path,
-            py_files,
-            skip_explanation,
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                _run_analysis_sync,
+                repo_path,
+                py_files,
+                skip_explanation,
+                job_id,
+            ),
+            timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
     except Exception as exc:
+        # asyncio.TimeoutError is a subclass of Exception in 3.11+, caught here
         elapsed = round(time.monotonic() - start, 1)
         logger.exception("[job %s] Analysis failed", job_id)
+        err_str = "Analysis timed out" if isinstance(exc, TimeoutError) else str(exc)
+        _log_skip_or_error(job_id, repo_path, reason=err_str)
         return AnalysisJobResult(
             job_id=job_id, repo_url=repo_url,
             health_score=0.0, health_grade="F",
             composite_score=1.0,
             duration_seconds=elapsed,
             contract_auto_generated=contract_auto_generated,
-            error=str(exc),
+            error=err_str,
         )
 
     elapsed = round(time.monotonic() - start, 1)
@@ -207,6 +235,7 @@ def _run_analysis_sync(
     repo_path: Path,
     py_files: list[Path],
     skip_explanation: bool,
+    job_id: str,
 ) -> Any:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool."""
     from archguard.analysis.layers import AnalysisOrchestrator
@@ -228,6 +257,7 @@ def _run_analysis_sync(
     try:
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS
+        from archguard.dashboard._result_schema import AnalysisResultPayload, ViolationPayload
         
         audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
         band_val = str(result.archdebt.band.name).upper()
@@ -240,24 +270,26 @@ def _run_analysis_sync(
         v_list_out = []
         for v in result.violations:
             v_list_out.append(
-                {
-                    "type": "layer",
-                    "layer": getattr(v, "layer", 0),
-                    "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
-                    "message": getattr(v, "message", ""),
-                    "severity": str(getattr(v, "severity", "low")),
-                    "suppressed": getattr(v, "suppressed", False),
-                    "explanation": getattr(v, "explanation", ""),
-                }
+                ViolationPayload(
+                    file=getattr(v, "file_path", "") or None,
+                    module=getattr(v, "module_name", None),
+                    severity=str(getattr(v, "severity", "low")),
+                    message=getattr(v, "message", ""),
+                    layer=str(getattr(v, "layer", "0")),
+                )
             )
+            
+        payload = AnalysisResultPayload(
+            job_id=job_id,
+            score=result.archdebt.health_score,
+            band=audit_band,
+            violations=v_list_out,
+            skipped=False
+        )
             
         audit.log(
             AUDIT_EVENT_ANALYSIS,
-            score=result.archdebt.health_score,
-            band=audit_band,
-            pr_number=None,
-            violations=v_list_out,
-            metrics=result.metrics,
+            **payload.model_dump()
         )
     except Exception as exc:
         logger.warning("Failed to write audit log in pipeline adapter: %s", exc)

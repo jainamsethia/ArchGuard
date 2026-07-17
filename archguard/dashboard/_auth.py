@@ -95,6 +95,15 @@ def check_token(
         if cookie_value and validate_session_cookie(cookie_value, token):
             return  # authenticated via cookie
 
+        # Path 3: Query parameter (SSE EventSource clients)
+        qs_token = request.query_params.get("token", "")
+        if qs_token:
+            if hmac.compare_digest(qs_token.encode(), token.encode()):
+                return  # authenticated via query param
+            from archguard.dashboard._cookie_auth import validate_stream_token
+            if validate_stream_token(qs_token, token):
+                return  # authenticated via short-lived stream token
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing token",

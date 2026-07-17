@@ -38,11 +38,17 @@ def _finalize_result(
     else:
         weights = (0.25, 0.25, 0.25, 0.25)
 
+    skipped_names = [
+        name for name, extra_key in (("Layer 3", "layer3_skipped"), ("Layer 4", "layer4_skipped"))
+        if metrics.extra.get(extra_key)
+    ]
+
     archdebt = compute_archdebt(
         scores,
         weights=weights,
         fail_threshold=float(orchestrator.contract.get("fail_threshold", 0.75)),
         warn_threshold=float(orchestrator.contract.get("warn_threshold", 0.50)),
+        skipped=skipped_names,
     )
 
     res = AnalysisResult(
@@ -55,6 +61,7 @@ def _finalize_result(
         metrics=metrics.to_dict(),
         parse_failures=unique_failures,
         partial_analysis=bool(unique_failures),
+        skipped_layers_names=skipped_names,
     )
 
     evaluate_fitness(res)

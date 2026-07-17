@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from enum import Enum
 from rich.console import Console
 from archguard.analysis.layers import AnalysisResult
 from archguard.utils.errors import format_warning
@@ -184,13 +185,14 @@ def _format_rich_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
 def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
     v_list_out = []
     for v in result.violations:
+        sev = getattr(v, "severity", "low")
         v_list_out.append(
             {
                 "type": "layer",
                 "layer": getattr(v, "layer", 0),
                 "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
                 "message": getattr(v, "message", ""),
-                "severity": str(getattr(v, "severity", "low")),
+                "severity": sev.value if isinstance(sev, Enum) else str(sev),
                 "suppressed": getattr(v, "suppressed", False),
                 "explanation": getattr(v, "explanation", ""),
             }
@@ -266,28 +268,31 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             if band_val in ("HEALTHY", "WATCH")
             else ("WARN" if band_val == "WARN" else "FAIL")
         )
+        from archguard.dashboard._result_schema import AnalysisResultPayload, ViolationPayload
         v_list_out = []
         for v in result.violations:
+            sev = getattr(v, "severity", "low")
             v_list_out.append(
-                {
-                    "type": "layer",
-                    "layer": getattr(v, "layer", 0),
-                    "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
-                    "message": getattr(v, "message", ""),
-                    "severity": str(getattr(v, "severity", "low")),
-                    "suppressed": getattr(v, "suppressed", False),
-                    "explanation": getattr(v, "explanation", ""),
-                }
+                ViolationPayload(
+                    file=getattr(v, "file_path", "") or None,
+                    module=getattr(v, "module_name", None),
+                    severity=sev.value if isinstance(sev, Enum) else str(sev),
+                    message=getattr(v, "message", ""),
+                    layer=str(getattr(v, "layer", "0")),
+                )
             )
-        audit.log(
-            AUDIT_EVENT_ANALYSIS,
-            # composite_score: 0.0–1.0, HIGHER = WORSE (debt score)
-            # health_score: 0–100, HIGHER = BETTER (use for user display)
+
+        payload = AnalysisResultPayload(
+            job_id="cli_run",
             score=result.archdebt.health_score,
             band=audit_band,
-            pr_number=opts.pr_number,
             violations=v_list_out,
-            metrics=result.metrics,
+            skipped=False
+        )
+
+        audit.log(
+            AUDIT_EVENT_ANALYSIS,
+            **payload.model_dump()
         )
     except Exception as e:
         import logging

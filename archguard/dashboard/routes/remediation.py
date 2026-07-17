@@ -18,6 +18,20 @@ class RemediationRequest(BaseModel):
     )
 
 
+def _mock_remediation_response(violations: Any) -> dict[str, Any]:
+    print(f"--- MOCK LLM PROMPT ---\nRemediation for: {violations}\n--- END MOCK LLM PROMPT ---")
+    return {
+        "tasks": [
+            {
+                "title": "Mock Remediation Task",
+                "description": "Mock description for testing",
+                "priority": "low",
+                "effort_days": 1,
+                "acceptance_criteria": ["Mock criteria"],
+            }
+        ]
+    }
+
 @app.post(
     "/api/v1/remediation/plan",
     dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
@@ -29,6 +43,10 @@ class RemediationRequest(BaseModel):
 )
 async def remediation_plan(body: RemediationRequest) -> Any:
     """Generate a remediation plan from the provided violations."""
+    import os
+    if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+        return _mock_remediation_response(body.violations)
+
     from archguard.llm.remediation import generate_remediation_plan
 
     try:
@@ -53,14 +71,21 @@ async def remediation_plan_from_audit(
     job_id: str | None = None
 ) -> Any:
     """Generate a remediation plan from the latest audit run violations."""
+    import os
+    if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+        return _mock_remediation_response(f"Audit job_id={job_id}")
+
     from archguard.llm.remediation import generate_remediation_plan
 
     audit = AuditLogger(get_audit_path(job_id))
     if job_id:
         runs = audit.read_last_n_runs(n=100)
-        latest = next((r for r in runs if r.get("job_id") == job_id), {})
+        latest = next((r for r in runs if r.get("job_id") == job_id), None)
+        if latest is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
     else:
-        latest = audit.read_last_run() or {}
+        return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
     violations = latest.get("violations", [])
 
     try:

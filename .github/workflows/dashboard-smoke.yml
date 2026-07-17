@@ -78,6 +78,55 @@ jobs:
           echo "Unauthenticated /api/runs/latest: $HTTP_STATUS"
           [ "$HTTP_STATUS" = "401" ]
 
+      - name: Test frontend login via headless browser (SEED-01 regression)
+        run: |
+          pip3 install playwright
+          playwright install chromium --with-deps
+          python3 -c "
+          from playwright.sync_api import sync_playwright
+          import os
+          
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
+              page = browser.new_page()
+              page.goto('http://localhost:8765/')
+              
+              page.wait_for_selector('#login-overlay', state='visible')
+              page.fill('#token-input', os.environ['ARCHGUARD_DASHBOARD_TOKEN'])
+              page.click('button.btn-login')
+              
+              page.wait_for_selector('#login-overlay', state='hidden')
+              page.wait_for_selector('#main-container', state='visible')
+              
+              cookies = page.context.cookies()
+              auth_cookie = next((c for c in cookies if c['name'] == 'archguard_session'), None)
+              assert auth_cookie is not None, 'No archguard_session cookie found'
+              print('SEED-01 regression: PASS')
+              browser.close()
+          "
+
+      - name: Test backend returns honest 404/empty state instead of global data (SEED-02 regression)
+        run: |
+          curl -sf -b /tmp/cookies.txt -X POST -H "Content-Type: application/json" \
+            -d '{"github_url": "https://github.com/pypa/sampleproject"}' \
+            http://localhost:8765/api/v1/jobs > /dev/null
+          curl -sf -b /tmp/cookies.txt -X POST -H "Content-Type: application/json" \
+            -d '{"github_url": "https://github.com/psf/requests"}' \
+            http://localhost:8765/api/v1/jobs > /dev/null
+            
+          sleep 3
+          
+          HTTP_STATUS=$(curl -sw '%{http_code}' -b /tmp/cookies.txt -o /dev/null \
+            "http://localhost:8765/api/v1/runs/latest?job_id=00000000-0000-0000-0000-123456789abc")
+          echo "Fabricated job_id HTTP status: $HTTP_STATUS"
+          [ "$HTTP_STATUS" = "404" ] || (echo "FAIL: Expected 404, got $HTTP_STATUS" && exit 1)
+          
+          RESPONSE=$(curl -sf -b /tmp/cookies.txt "http://localhost:8765/api/v1/runs/latest")
+          echo "No job_id response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('empty') == True, f'Expected empty state, got {d}'"
+          
+          echo "SEED-02 regression: PASS"
+
       - name: Cleanup
         if: always()
         run: docker rm -f archguard-smoke || true

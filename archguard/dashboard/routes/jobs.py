@@ -9,7 +9,7 @@ from typing import Any
 import importlib.metadata
 
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from archguard.dashboard.app import app
@@ -188,8 +188,11 @@ async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
+    loop = asyncio.get_running_loop()
     try:
-        data = fetch_repo_metadata_public(owner, repo_name)
+        data = await loop.run_in_executor(
+            None, fetch_repo_metadata_public, owner, repo_name
+        )
     except GitHubRateLimitError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     except ValueError as exc:
@@ -253,6 +256,7 @@ async def submit_analysis_job(
     # httpx.AsyncClient) - it must be wrapped in run_in_executor to avoid
     # blocking the FastAPI event loop for up to 10 seconds.
     loop = asyncio.get_running_loop()
+    rate_limit_hit = False
     try:
         await loop.run_in_executor(
             None, fetch_repo_metadata_public, owner, repo_name
@@ -260,7 +264,7 @@ async def submit_analysis_job(
     except GitHubRateLimitError:
         # Rate limit hit - allow the job through rather than blocking the user.
         # The clone will reveal the real state; this is acceptable degraded behaviour.
-        pass
+        rate_limit_hit = True
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
@@ -272,12 +276,17 @@ async def submit_analysis_job(
     task = asyncio.create_task(job_manager.run_job(job))
     job_manager.track_task(job.id, task)
 
+    from archguard.dashboard._cookie_auth import _issue_short_lived_stream_token
+    stream_token = _issue_short_lived_stream_token(job.id)
+    token_qs = f"?token={stream_token}" if stream_token else ""
+
     return {
         "job_id": job.id,
         "status": job.status,
         "message": "Analysis queued.",
-        "poll_url": f"/api/jobs/{job.id}",
-        "stream_url": f"/api/jobs/{job.id}/stream",
+        "validation_skipped_rate_limit": rate_limit_hit,
+        "poll_url": f"/api/v1/jobs/{job.id}",
+        "stream_url": f"/api/v1/jobs/{job.id}/stream{token_qs}",
     }
 
 
@@ -378,7 +387,13 @@ async def list_jobs() -> dict[str, Any]:
     summary="Stream analysis progress as Server-Sent Events",
     deprecated=True,
 )
-async def stream_job_progress(job_id: str, request: Request) -> StreamingResponse:
+async def stream_job_progress(
+    job_id: str,
+    request: Request,
+    token: str | None = Query(None),
+    _rate: None = Depends(rate_limiter),
+    _auth: None = Depends(check_token),
+) -> StreamingResponse:
     """Stream real-time analysis progress for a job.
     
     Events emitted:
@@ -391,24 +406,6 @@ async def stream_job_progress(job_id: str, request: Request) -> StreamingRespons
     The stream ends automatically when the job reaches COMPLETE or FAILED status.
     If the client disconnects, the stream stops but the background job continues.
     """
-    import os as _os
-    import hmac as _hmac
-    from archguard.dashboard._cookie_auth import validate_session_cookie, COOKIE_NAME
-
-    stored_token = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
-    if stored_token:
-        cookie = request.cookies.get(COOKIE_NAME, "")
-        cookie_ok = bool(cookie and validate_session_cookie(cookie, stored_token))
-        qs_token = request.query_params.get("token", "")
-        qs_ok = False
-        if qs_token:
-            qs_ok = _hmac.compare_digest(qs_token.encode(), stored_token.encode())
-        if not cookie_ok and not qs_ok:
-            from fastapi import status as _status
-            raise HTTPException(
-                status_code=_status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing token",
-            )
 
     from archguard.dashboard.job_manager import job_manager, JobStatus
 

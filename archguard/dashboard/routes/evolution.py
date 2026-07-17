@@ -3,8 +3,9 @@
 import logging
 import threading
 from typing import Any
+from pathlib import Path
 from pydantic import BaseModel, Field
-from fastapi import Depends, Query
+from fastapi import Depends, Query, HTTPException
 from archguard.dashboard.app import app, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
@@ -99,8 +100,12 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
     from archguard.dashboard.app import get_target_path
 
+    target = get_target_path(job_id)
+    if job_id and target == Path.cwd():
+        raise HTTPException(status_code=410, detail="Analysis workspace no longer available")
+
     try:
-        tracker = ArchitectureEvolutionTracker(get_target_path(job_id))
+        tracker = ArchitectureEvolutionTracker(target)
         report = tracker.analyze_history(max_commits=body.max_commits)
 
         result = {
@@ -122,7 +127,8 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
         }
 
         with _EVO_LOCK:
-            _EVO_CACHE["latest"] = result
+            cache_key = job_id or "_no_job_id"
+            _EVO_CACHE[cache_key] = result
 
         return result
     except Exception as exc:
@@ -139,6 +145,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
 def get_latest_evolution(job_id: JobIdQuery = None) -> Any:
     """Get the latest completed architecture evolution report."""
     with _EVO_LOCK:
-        if "latest" in _EVO_CACHE:
-            return _EVO_CACHE["latest"]
-    return {"snapshots": [], "commits_analyzed": 0}
+        cache_key = job_id or "_no_job_id"
+        if cache_key in _EVO_CACHE:
+            return _EVO_CACHE[cache_key]
+    return {"available": False}

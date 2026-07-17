@@ -22,6 +22,9 @@ _TTL = int(os.environ.get("ARCHGUARD_SESSION_COOKIE_TTL", "86400"))
 # Single-instance deployments only. Multi-instance deployments should use Redis.
 _SESSIONS: dict[str, float] = {}
 
+_STREAM_TOKENS: dict[str, float] = {}
+_STREAM_TTL = 300  # 5 minutes
+
 
 def _sign(token: str, session_id: str) -> str:
     """Return HMAC-SHA256(token, session_id) as hex."""
@@ -77,3 +80,44 @@ def _evict_expired() -> None:
     expired = [sid for sid, ts in list(_SESSIONS.items()) if now - ts > _TTL]
     for sid in expired:
         del _SESSIONS[sid]
+
+    expired_stream = [t for t, ts in list(_STREAM_TOKENS.items()) if now - ts > _STREAM_TTL]
+    for t in expired_stream:
+        del _STREAM_TOKENS[t]
+
+
+def _issue_short_lived_stream_token(job_id: str) -> str:
+    """Create a single-use short-lived token for SSE streams."""
+    token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
+    if not token:
+        return ""
+    token_id = secrets.token_hex(16)
+    sig = _sign(token, f"{job_id}:{token_id}")
+    token_str = f"{job_id}.{token_id}.{sig}"
+    _STREAM_TOKENS[token_str] = time.time()
+    _evict_expired()
+    return token_str
+
+
+def validate_stream_token(token_str: str, token: str) -> bool:
+    """Validate and consume a single-use stream token."""
+    try:
+        job_id, token_id, sig = token_str.split(".", 2)
+    except ValueError:
+        return False
+
+    expected = _sign(token, f"{job_id}:{token_id}")
+    if not hmac.compare_digest(expected, sig):
+        return False
+
+    issued_at = _STREAM_TOKENS.get(token_str)
+    if issued_at is None:
+        return False
+    if time.time() - issued_at > _STREAM_TTL:
+        del _STREAM_TOKENS[token_str]
+        return False
+
+    # Single-use: remove after successful validation
+    del _STREAM_TOKENS[token_str]
+    return True
+

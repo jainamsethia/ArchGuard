@@ -89,9 +89,14 @@ class JobManager:
 
         # Evict oldest jobs to stay within memory limit
         if len(self._jobs) > MAX_STORED_JOBS:
-            oldest_id = min(self._jobs, key=lambda jid: self._jobs[jid].created_at)
-            del self._jobs[oldest_id]
-            logger.debug("Evicted old job %s", oldest_id)
+            evictable = [jid for jid, j in self._jobs.items() if j.status not in (JobStatus.QUEUED, JobStatus.CLONING, JobStatus.ANALYSING)]
+            if evictable:
+                # evictable is ordered by insertion (python 3.7+ dict order), so evictable[0] is oldest completed/failed
+                oldest_id = evictable[0]
+                del self._jobs[oldest_id]
+                logger.debug("Evicted old job %s", oldest_id)
+            else:
+                logger.debug("All jobs are active; skipping eviction this cycle rather than killing a live job")
         return job
 
     def get_job(self, job_id: str) -> AnalysisJob | None:

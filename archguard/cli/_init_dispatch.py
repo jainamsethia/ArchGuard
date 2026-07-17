@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 from rich.console import Console
 
-from archguard.utils.errors import format_error, format_warning
+from archguard.utils.errors import format_error, format_warning, ContractGenerationError
 from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
 
@@ -51,8 +51,9 @@ def _run_init_cli(
                 _console.print("[dim]Init aborted.[/dim]")
                 raise typer.Exit(0)
         else:
-            _console.print(format_error(f"{output.name} already exists. Use --force to overwrite or run with --wizard."))
-            raise typer.Exit(1)
+            message = format_error(f"{output.name} already exists. Use --force to overwrite or run with --wizard.")
+            _console.print(message)
+            raise ContractGenerationError(str(message))
 
     if wizard:
         confirm_all = False
@@ -65,15 +66,14 @@ def _run_init_cli(
             repo_obj = Repository(str(repo_root))
             commit_count = len(list(repo_obj.traverse_commits()))
             if commit_count < 100:
-                _console.print(
-                    format_error(
-                        "Shallow clone detected (< 100 commits). "
-                        "archguard init requires full history. "
-                        "Use --force-ci to bypass or fetch-depth: 0 "
-                        "in your workflow."
-                    )
+                message = format_error(
+                    "Shallow clone detected (< 100 commits). "
+                    "archguard init requires full history. "
+                    "Use --force-ci to bypass or fetch-depth: 0 "
+                    "in your workflow."
                 )
-                raise typer.Exit(1)
+                _console.print(message)
+                raise ContractGenerationError(str(message))
         except ImportError as e:
             import logging
 
@@ -126,8 +126,9 @@ def _run_init_cli(
             phase1_data = _phase1_scan(repo_root)
 
             if phase1_data["total_files"] == 0:
-                _console.print(format_error("No Python files found in repository."))
-                raise typer.Exit(1)
+                message = format_error("No Python files found in repository.")
+                _console.print(message)
+                raise ContractGenerationError(str(message))
 
             vprint(
                 f"Found {phase1_data['total_files']} Python files | "
@@ -207,10 +208,9 @@ def _run_init_cli(
         if not confirm_all and is_tty():
             communities = _interactive_review(communities)
             if not communities:
-                _console.print(
-                    format_error("All modules were skipped. Cannot generate contract.")
-                )
-                raise typer.Exit(1)
+                message = format_error("All modules were skipped. Cannot generate contract.")
+                _console.print(message)
+                raise ContractGenerationError(str(message))
             phase3_data["communities"] = communities
             phase3_data["num_communities"] = len(communities)
 

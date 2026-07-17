@@ -47,6 +47,7 @@ def _resolve_changed_files(
     changed_files_arg: str | None,
     pr_number: int | None,
     repo_slug: str | None,
+    opts: AnalyzeOptions | None = None,
 ) -> list[Path]:
     """Resolve changed files from CLI args, GitHub, or git diff."""
     if changed_files_arg:
@@ -100,9 +101,13 @@ def _resolve_changed_files(
                 "--name-only",
                 "--diff-filter=ACMR",
             ]
-            _console.print(
-                "[yellow][!] Initial commit detected - analyzing all Python files.[/yellow]"
-            )
+            if opts is None or not opts.json_output:
+                _console.print(
+                    "[yellow][!] Initial commit detected - analyzing all Python files.[/yellow]"
+                )
+            else:
+                import sys
+                print("Initial commit detected - analyzing all Python files.", file=sys.stderr)
 
         diff_result = subprocess.run(
             diff_cmd, cwd=repo_root, capture_output=True, text=True
@@ -243,7 +248,7 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             )
 
         all_changed = _resolve_changed_files(
-            repo_root, opts.changed_files, opts.pr_number, opts.repo_slug
+            repo_root, opts.changed_files, opts.pr_number, opts.repo_slug, opts
         )
         vprint(
             f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]",

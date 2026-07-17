@@ -46,7 +46,8 @@
                 });
 
                 if (res.status === 429) {
-                    errorMsg.textContent = 'GitHub API rate limit exceeded. Please wait 60 seconds.';
+                    const body = await res.json().catch(() => ({}));
+                    errorMsg.textContent = body.detail?.includes('GitHub') ? 'GitHub API rate limit exceeded. Please wait 60 seconds.' : 'Too many requests. Please wait a moment and try again.';
                     errorMsg.classList.add('show');
                     submitBtn.disabled = false; // Allow submission anyway
                     submitBtn.textContent = 'Analyze Repository';
@@ -122,7 +123,13 @@
 
                 const data = await res.json();
                 const jobId = data.job_id;
-                appendLog(`Job queued. ID: ${jobId}`, 'system');
+                
+                if (data.validation_skipped_rate_limit) {
+                    appendLog(`Job queued. ID: ${jobId} (Validation skipped due to GitHub rate limit)`, 'warn');
+                } else {
+                    appendLog(`Job queued. ID: ${jobId}`, 'system');
+                }
+                
                 appendLog('Establishing secure stream connection...', 'system');
 
                 // Connect to SSE stream

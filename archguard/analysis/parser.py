@@ -10,14 +10,10 @@ from typing import Any, Iterator
 
 logger = logging.getLogger(__name__)
 
-# sys.stdlib_module_names reflects the Python version ArchGuard itself is
-# running under, not necessarily the analyzed repository's. This is a
-# reasonable default (most repos are analyzed with a similar-enough Python
-# version) but is a known source of drift for repos pinned to a notably
-# older or newer Python than ArchGuard's own runtime -- e.g. a stdlib
-# module added in 3.12 will be misclassified as a third-party import when
-# analyzing a 3.11 codebase run under ArchGuard's own 3.11 interpreter, or
-# vice versa for a module removed between versions.
+# NOTE: reflects the Python version running ArchGuard itself, not the analyzed
+# repo's target version. A small number of version-boundary stdlib modules
+# (e.g. tomllib, added in 3.11) may be misclassified if they differ. See
+# ArchGuard's own README/known-limitations section.
 STDLIB_MODULES: frozenset[str] = frozenset(sys.stdlib_module_names)
 
 _SKIP_DIRS: frozenset[str] = frozenset(

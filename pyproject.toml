@@ -37,13 +37,14 @@ boto3 = {version = ">=1.28.0", optional = true}
 fastapi = {version = ">=0.100.0", optional = true}
 uvicorn = {version = ">=0.23.0", optional = true}
 python-multipart = {version = ">=0.0.9", optional = true}
+jinja2 = {version = ">=3.1,<4.0.0", optional = true}
 cachetools = ">=5.0"
 
 [tool.poetry.extras]
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
 cloud = ["anthropic", "boto3"]
 
-dashboard = ["fastapi", "uvicorn", "python-multipart"]
+dashboard = ["fastapi", "uvicorn", "python-multipart", "jinja2"]
 all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3", "fastapi", "uvicorn", "python-multipart"]
 
 [tool.poetry.group.dev.dependencies]

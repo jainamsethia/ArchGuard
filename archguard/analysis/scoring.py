@@ -37,6 +37,9 @@ class ArchDebtBand(str, Enum):
     CRITICAL = "Critical"  # score >= fail_threshold
 
 
+_FITNESS_FAILURE_FLOOR = 0.75  # Floor score for a critical fitness failure (aligns with default fail_threshold)
+
+
 @dataclass
 class LayerScores:
     """Raw scores for each analysis layer (0.0–1.0)."""
@@ -92,6 +95,12 @@ class ArchDebtResult:
                 self.fail_reasons.append(
                     f"Fitness function '{name}' FAILED (critical): {details}"
                 )
+
+        if self.should_fail_ci:
+            # A failed fitness gate is a hard finding, not a scoring nuance —
+            self.composite_score = max(self.composite_score, _FITNESS_FAILURE_FLOOR)
+            self.band = ArchDebtBand.CRITICAL
+            self.composite_breach = True
 
     @property
     def health_score(self) -> float:
@@ -150,6 +159,7 @@ def compute_archdebt(
     fail_threshold: float = 0.75,
     warn_threshold: float = 0.50,
     per_component_thresholds: dict[str, float] | None = None,
+    skipped: list[str] | None = None,
 ) -> ArchDebtResult:
     """Compute composite ArchDebt score and determine CI outcome.
 
@@ -158,18 +168,22 @@ def compute_archdebt(
     Per-component breach: any layer score > its per_component_threshold.
     ``should_fail_ci = composite_breach OR per_component_breach``.
     """
-    layer_values = [
-        scores.layer1_violation,
-        scores.layer2_coupling,
-        scores.layer3_drift,
-        scores.layer4_duplication,
-    ]
+    layer_map = {
+        "Layer 1": scores.layer1_violation,
+        "Layer 2": scores.layer2_coupling,
+        "Layer 3": scores.layer3_drift,
+        "Layer 4": scores.layer4_duplication,
+    }
 
-    total_weight = sum(weights)
-    if total_weight == 0:
-        raise ValueError("weights must sum to a non-zero value")
+    skipped_names = skipped or []
+    active = {k: v for k, v in layer_map.items() if k not in skipped_names}
 
-    raw_score = sum(w * v for w, v in zip(weights, layer_values)) / total_weight
+    if not active:
+        raw_score = 0.0
+    else:
+        weight_each = 1.0 / len(active)
+        raw_score = sum(weight_each * s for s in active.values())
+        
     composite = float(max(0.0, min(1.0, raw_score)))
 
     band = classify_band(composite, warn_threshold, fail_threshold)
@@ -178,6 +192,12 @@ def compute_archdebt(
     # Per-component check
     thresholds = per_component_thresholds or {}
     layer_keys = ["layer1", "layer2", "layer3", "layer4"]
+    layer_values = [
+        scores.layer1_violation,
+        scores.layer2_coupling,
+        scores.layer3_drift,
+        scores.layer4_duplication,
+    ]
     per_component_breach = False
     fail_reasons: list[str] = []
 

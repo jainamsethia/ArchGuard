@@ -99,6 +99,7 @@
 
 ### Breaking Changes
 - HIGH-03: Stricter validation for `.archguard.yml` rules. Fitness rule names must now conform to an alphanumeric allow-list (`a-z`, `A-Z`, `0-9`, `-`, `_`, `.`). Rules containing special characters (like quotes or brackets) will fail validation.
+- LOW-17: Removed the unused session-based AI Advisor sub-API (`POST /api/v1/advisor/session`, `POST /api/v1/advisor/session/{session_id}/message`, `GET /api/v1/advisor/session/{session_id}`). The streaming `POST /api/v1/advisor/ask` path remains the single supported advisor interaction model.
 
 ### Known Limitations
 - LOW-10: Standard library module detection (`STDLIB_MODULES`) uses the current runtime Python version (e.g., Python 3.11/3.12 running the ArchGuard CLI) rather than the analyzed repository's declared Python version.

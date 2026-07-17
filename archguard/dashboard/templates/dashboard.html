@@ -21,8 +21,7 @@
   <p style="color:var(--text-secondary); margin:0; font-size:0.9rem;">
     This deployment requires a dashboard token to continue.
   </p>
-  <form id="login-form" style="display:flex; flex-direction:column; gap:0.75rem; width:320px;"
-        onsubmit="doLogin(event)">
+  <form id="login-form" style="display:flex; flex-direction:column; gap:0.75rem; width:320px;">
     <input id="token-input" type="password" placeholder="Dashboard token"
            style="padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);
                   background:rgba(255,255,255,0.05); color:var(--text-primary); font-size:1rem;"/>
@@ -72,7 +71,7 @@
 <div class="glass-card card-section">
 <div class="row-between" style="margin-bottom: 1rem;">
 <h2 class="text-section-title-flush" style="margin: 0;">Overall Trend</h2>
-<button class="btn-action" id="repo-history-btn" onclick="if(window.latestRun && window.latestRun.repo_url) loadRepoHistory(window.latestRun.repo_url)">Load Repository History</button>
+<button class="btn-action" id="repo-history-btn">Load Repository History</button>
 </div>
 <div class="chart-wrapper">
 <canvas id="trendChart"></canvas>
@@ -196,6 +195,7 @@
 <h2 class="text-section-title">Modules</h2>
 <div class="chart-wrapper">
 <canvas id="moduleChart"></canvas>
+<p id="module-chart-note" class="chart-note"></p>
 </div>
 </div>
 </div>

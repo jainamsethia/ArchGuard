@@ -80,125 +80,6 @@ class CloudLLMExplainer:
         self._api_key: str = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self._audit: AuditLogger | None = audit_logger
 
-    def explain(
-        self,
-        result: AnalysisResult,
-        contract: dict[str, Any],
-    ) -> LLMExplanationResult:
-        """Generate explanations for violations using Claude.
-
-        1. Redact secrets from all violation messages before sending.
-        2. Try PRIMARY_MODEL first.
-        3. On any exception: try FALLBACK_MODEL.
-        4. On both failing: return unavailable=True.
-        5. Detect truncation via stop_reason or terminal punctuation.
-        6. Parse response via parse_llm_response().
-        """
-        if not result.violations:
-            return LLMExplanationResult()
-
-        if not _ANTHROPIC_AVAILABLE:
-            return LLMExplanationResult(
-                unavailable=True,
-                failure_reason='Intelligence layer skipped: install with pip install -e ".[cloud]"'
-            )
-
-        safe_violations = self._redact_violations(result.violations)
-        summary = build_contract_summary(contract)
-
-        all_explanations: list[str] = []
-        model_used: str = ""
-        truncated = False
-        unavailable = False
-        failure_reason = ""
-
-        chunk_size = 20
-        for i in range(0, len(safe_violations), chunk_size):
-            chunk = safe_violations[i : i + chunk_size]
-            prompt = build_violation_prompt(
-                chunk,
-                summary,
-                result.changed_files,
-            )
-
-            response_text: str = ""
-            stop_reason: str = ""
-            chunk_success = False
-
-            for model in (PRIMARY_MODEL, FALLBACK_MODEL):
-                try:
-                    response_text, stop_reason = self._call_api(prompt, model)
-                    model_used = model
-                    chunk_success = True
-                    break
-                except Exception as err:
-                    logger.warning("LLMError: %s", getattr(err, 'message', str(err)))
-                    continue
-
-            if not chunk_success:
-                # Fallback to per-violation calls for this chunk
-                for single_violation in chunk:
-                    single_prompt = build_violation_prompt(
-                        [single_violation], summary, result.changed_files
-                    )
-                    single_success = False
-                    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
-                        try:
-                            s_resp, s_stop = self._call_api(single_prompt, model)
-                            model_used = model
-                            single_success = True
-                            single_exps = parse_llm_response(s_resp, 1)
-                            all_explanations.extend(single_exps)
-                            break
-                        except Exception:
-                            continue
-                    if not single_success:
-                        all_explanations.append("Explanation unavailable.")
-                        unavailable = True
-                        failure_reason = "All LLM models failed on fallback"
-                continue
-
-            # Detect truncation
-            if stop_reason != "end_turn":
-                truncated = True
-            elif response_text and response_text.rstrip()[-1:] not in _TERMINAL_PUNCT:
-                truncated = True
-
-            # Parse chunk response
-            chunk_explanations = parse_llm_response(
-                response_text,
-                len(chunk),
-            )
-            all_explanations.extend(chunk_explanations)
-
-        if unavailable and all(
-            e == "Explanation unavailable." for e in all_explanations
-        ):
-            return LLMExplanationResult(
-                unavailable=True,
-                failure_reason=failure_reason,
-            )
-
-        if truncated:
-            # Append truncation note to last explanation
-            if all_explanations:
-                all_explanations[-1] = (
-                    all_explanations[-1] + " [Note: explanation was truncated]"
-                )
-            if self._audit:
-                self._audit.log(
-                    EVENT_TRUNCATED_EXPLANATION,
-                    model=model_used,
-                    violation_count=len(result.violations),
-                )
-
-        return LLMExplanationResult(
-            explanations=all_explanations,
-            model_used=model_used,
-            truncated=truncated,
-            unavailable=unavailable,
-        )
-
     async def explain_violations_concurrent(
         self,
         violations: list[ViolationDetail],
@@ -226,16 +107,33 @@ class CloudLLMExplainer:
             prompt = build_violation_prompt([violation], summary, changed_files)
             if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
                 print(f"--- MOCK LLM PROMPT ---\n{prompt}\n--- END MOCK LLM PROMPT ---")
-                return "Mock LLM explanation for testing"
+                # When testing fallback, raise on PRIMARY_MODEL if instructed via env var
+                if os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") == "1":
+                    # the loop will catch this and try fallback
+                    pass
+                else:
+                    return "Mock LLM explanation for testing"
+            
             async with semaphore:
-                # Use anthropic's async client
                 async with anthropic.AsyncAnthropic(api_key=self._api_key) as client:
-                    response = await client.messages.create(
-                        model=FALLBACK_MODEL,  # Use fallback model for explanations
-                        max_tokens=500,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    return str(response.content[0].text)  # type: ignore[union-attr]
+                    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+                        try:
+                            if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
+                                if model == PRIMARY_MODEL and os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") == "1":
+                                    raise RuntimeError("Simulated primary failure")
+                                return f"Mock LLM explanation for testing (model={model})"
+                                
+                            response = await client.messages.create(
+                                model=model,
+                                max_tokens=500,
+                                messages=[{"role": "user", "content": prompt}],
+                            )
+                            return str(response.content[0].text)  # type: ignore[union-attr]
+                        except Exception:
+                            if model == FALLBACK_MODEL:
+                                raise
+                            continue
+            return "Explanation unavailable"
 
         tasks = [explain_one(v) for v in safe_violations]
         return await asyncio.gather(*tasks, return_exceptions=True)

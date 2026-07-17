@@ -170,7 +170,7 @@ class DuplicationAnalyzer:
         module_paths_cfg: list[str],
         k: int,
     ) -> list[DuplicationMatch]:
-        from archguard.utils.paths import path_belongs_to_module
+        
         
         matches: list[DuplicationMatch] = []
         for func_key, emb in module_embeddings.items():
@@ -189,10 +189,6 @@ class DuplicationAnalyzer:
                     continue
                 matched_key = keys[idx]
                 if matched_key == func_key:
-                    continue
-
-                matched_file = matched_key.split("::")[0]
-                if path_belongs_to_module(matched_file, module_paths_cfg):
                     continue
 
                 sim = float(cosine_sims[j])

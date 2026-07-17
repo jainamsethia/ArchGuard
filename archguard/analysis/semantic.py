@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -240,7 +241,7 @@ class SemanticAnalyzer:
         changed_files: list[Path],
         repo_root: Path,
     ) -> SemanticDriftResult:
-        """Compute semantic drift for *module_name* given changed files."""
+        """Compute semantic drift for a module based on changed files."""
         if not _ML_AVAILABLE:
             return SemanticDriftResult(
                 module_name=module_name,
@@ -271,19 +272,30 @@ class SemanticAnalyzer:
             processed_files += 1
             try:
                 rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
-                source = extract_module_text(fpath)
-                if not source:
+                
+                try:
+                    file_content = fpath.read_text(encoding="utf-8")
+                    tree = ast.parse(file_content)
+                except Exception:
                     continue
-                content_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
-                chunk = FunctionChunk(
-                    file_path=rel,
-                    function_name="<module>",
-                    source=source,
-                    content_hash=content_hash,
-                )
-                embedded = self.embed_chunks([chunk])
-                all_embeddings.update(embedded)
-            except Exception:  # noqa: BLE001
+                
+                chunks = []
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        source = ast.get_source_segment(file_content, node)
+                        if source:
+                            content_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+                            chunks.append(FunctionChunk(
+                                file_path=rel,
+                                function_name=node.name,
+                                source=source,
+                                content_hash=content_hash,
+                            ))
+                
+                if chunks:
+                    embedded = self.embed_chunks(chunks)
+                    all_embeddings.update(embedded)
+            except Exception:
                 continue
 
         # 3. Compute post-PR centroid
