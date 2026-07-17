@@ -17,7 +17,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'cmd /c "set ARCHGUARD_MOCK_LLM=1 && set ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1 && uvicorn archguard.dashboard.app:app --port 8765"',
+    command: 'uvicorn archguard.dashboard.app:app --port 8765',
+    env: { ARCHGUARD_MOCK_LLM: '1', ARCHGUARD_DASHBOARD_ALLOW_REMOTE: '1' },
     url: 'http://localhost:8765/health',
     reuseExistingServer: !process.env.CI,
   },
