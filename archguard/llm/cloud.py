@@ -8,12 +8,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, TYPE_CHECKING
 
 try:
-    import anthropic
+    import anthropic  # type: ignore[import-not-found]
 
     _ANTHROPIC_AVAILABLE = True
 except ImportError:
     _ANTHROPIC_AVAILABLE = False
-    anthropic = None  # type: ignore[assignment]
+    anthropic = None
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
@@ -128,7 +128,7 @@ class CloudLLMExplainer:
                                 max_tokens=500,
                                 messages=[{"role": "user", "content": prompt}],
                             )
-                            return str(response.content[0].text)  # type: ignore[union-attr]
+                            return str(response.content[0].text)
                         except Exception:
                             if model == FALLBACK_MODEL:
                                 raise

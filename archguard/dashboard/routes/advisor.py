@@ -86,7 +86,7 @@ class AdvisorAskRequest(BaseModel):
 # is ArchGuard's one supported advisor interaction model. See CHANGELOG.
 
 
-def _build_context_from_violations(violations: list) -> str:
+def _build_context_from_violations(violations: list[Any]) -> str:
     lines = ["Active Violations:"]
     for v in violations:
         lines.append(

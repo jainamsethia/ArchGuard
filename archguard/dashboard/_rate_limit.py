@@ -5,7 +5,7 @@ from fastapi import Request, Response, HTTPException, status
 from archguard.dashboard._auth import _real_client_ip
 
 try:
-    from cachetools import TTLCache as RateLimitCache
+    from cachetools import TTLCache as RateLimitCache  # type: ignore[import-untyped]
 except ImportError:
     # Fallback for tests if cachetools is not installed
     class RateLimitCache(dict):  # type: ignore
