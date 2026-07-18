@@ -52,6 +52,7 @@ class ImportEdge:
     is_stdlib: bool
     is_third_party: bool  # not stdlib and not in repo
     is_relative: bool
+    line: int = 0
 
 
 def _is_stdlib(module_root: str) -> bool:
@@ -261,6 +262,7 @@ class ImportParser:
                     is_stdlib=stdlib,
                     is_third_party=third_party,
                     is_relative=False,
+                    line=node.start_point[0] + 1,
                 )
             )
         return edges
@@ -298,6 +300,7 @@ class ImportParser:
                     is_stdlib=stdlib,
                     is_third_party=third_party,
                     is_relative=is_relative,
+                    line=node.start_point[0] + 1,
                 )
             )
         else:
@@ -334,6 +337,7 @@ class ImportParser:
                         is_stdlib=stdlib,
                         is_third_party=third_party,
                         is_relative=is_relative,
+                        line=node.start_point[0] + 1,
                     )
                 )
 

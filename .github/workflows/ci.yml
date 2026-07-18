@@ -199,3 +199,33 @@ jobs:
         with:
           name: visual-diff
           path: test-results/
+
+  install-matrix:
+    name: Install Matrix & Docker Smoke
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extras: ["dashboard", "cloud", "ml", "dashboard,cloud,ml"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install and smoke test extras
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          pip install ".[${{ matrix.extras }}]"
+          
+          if [[ "${{ matrix.extras }}" == *"dashboard"* ]]; then
+            python -c "import archguard.dashboard.app"
+          fi
+          if [[ "${{ matrix.extras }}" == *"cloud"* ]]; then
+            python -c "import archguard.analysis.llm"
+          fi
+          if [[ "${{ matrix.extras }}" == *"ml"* ]]; then
+            python -c "import archguard.analysis.semantic"
+          fi
+      - name: Docker build
+        run: docker build .

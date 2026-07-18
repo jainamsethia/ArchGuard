@@ -16,6 +16,7 @@ class ViolationDetail:
     message: str
     commit_sha: str
     file_path: str
+    line: int = 0
     explanation: str = ""
     severity: Severity = Severity.LOW
 

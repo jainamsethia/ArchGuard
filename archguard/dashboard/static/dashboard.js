@@ -251,51 +251,90 @@ document.addEventListener("DOMContentLoaded", () => {
 
         function updateFitnessPanel(latestRun) {
             const container = document.getElementById('fitness-container');
-            const metrics = latestRun.metrics || {};
-            const fitnessResults = metrics.fitness_results || [];
-
-            if (fitnessResults.length === 0) {
-                container.innerHTML = getEmptyStateHtml('📋', 'No Fitness Results', 'No fitness functions defined or executed.');
-                return;
-            }
-
-            const html = fitnessResults.map(r => {
-                const passed = r.passed !== false;
-                const severity = r.severity || 'warn';
-                let statusClass = 'pass';
-                let icon = '✅';
-                
-                if (!passed) {
-                    if (severity === 'critical') {
-                        statusClass = 'fail';
-                        icon = '❌';
+            
+            let layerResultsHtml = '';
+            const layerResults = latestRun.layer_results || [];
+            if (layerResults.length > 0) {
+                const lrHtml = layerResults.map(lr => {
+                    if (lr.skipped) {
+                        return `
+                            <div class="fitness-card skipped">
+                                <div class="fitness-card-header">
+                                    <span class="fitness-card-title">➖ Layer ${sanitize(lr.layer.toString())} (${sanitize(lr.name)})</span>
+                                    <span class="badge skipped">not checked, ${sanitize(lr.skip_reason || 'optional dependency not installed')}</span>
+                                </div>
+                            </div>
+                        `;
                     } else {
-                        statusClass = 'warn';
-                        icon = '⚠️';
+                        const statusClass = lr.score > 0 ? 'fail' : 'pass';
+                        const icon = lr.score > 0 ? '❌' : '✅';
+                        return `
+                            <div class="fitness-card ${statusClass}">
+                                <div class="fitness-card-header">
+                                    <span class="fitness-card-title">${icon} Layer ${sanitize(lr.layer.toString())} (${sanitize(lr.name)})</span>
+                                    <span class="badge ${statusClass}">Score: ${sanitize((lr.score * 100).toFixed(1))}</span>
+                                </div>
+                            </div>
+                        `;
                     }
-                }
-                
-                const rule = sanitize(r.rule || '');
-                const name = sanitize(r.name || r.rule || 'Unknown');
-                const evidence = sanitize(r.evidence || '');
-                
-                let evidenceHtml = '';
-                if (!passed && evidence) {
-                    evidenceHtml = `<div class="fitness-card-evidence">${evidence}</div>`;
-                }
-                
-                return `
-                    <div class="fitness-card ${statusClass}">
-                        <div class="fitness-card-header">
-                            <span class="fitness-card-title">${icon} ${name}</span>
-                            <span class="fitness-card-rule" title="${rule}">${rule}</span>
-                        </div>
-                        ${evidenceHtml}
+                }).join('');
+                layerResultsHtml = `
+                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Layer Results</h3>
+                    <div class="fitness-grid" style="margin-bottom: 2rem;">
+                        ${lrHtml}
                     </div>
                 `;
-            }).join('');
+            }
 
-            container.innerHTML = `<div class="fitness-grid">${html}</div>`;
+            const metrics = latestRun.metrics || {};
+            const fitnessResults = metrics.fitness_results || [];
+            let fitnessHtml = '';
+
+            if (fitnessResults.length === 0) {
+                fitnessHtml = getEmptyStateHtml('📋', 'No Fitness Results', 'No fitness functions defined or executed.');
+            } else {
+                const html = fitnessResults.map(r => {
+                    const passed = r.passed !== false;
+                    const severity = r.severity || 'warn';
+                    let statusClass = 'pass';
+                    let icon = '✅';
+                    
+                    if (!passed) {
+                        if (severity === 'critical') {
+                            statusClass = 'fail';
+                            icon = '❌';
+                        } else {
+                            statusClass = 'warn';
+                            icon = '⚠️';
+                        }
+                    }
+                    
+                    const rule = sanitize(r.rule || '');
+                    const name = sanitize(r.name || r.rule || 'Unknown');
+                    const evidence = sanitize(r.evidence || '');
+                    
+                    let evidenceHtml = '';
+                    if (!passed && evidence) {
+                        evidenceHtml = `<div class="fitness-card-evidence">${evidence}</div>`;
+                    }
+                    
+                    return `
+                        <div class="fitness-card ${statusClass}">
+                            <div class="fitness-card-header">
+                                <span class="fitness-card-title">${icon} ${name}</span>
+                                <span class="fitness-card-rule" title="${rule}">${rule}</span>
+                            </div>
+                            ${evidenceHtml}
+                        </div>
+                    `;
+                }).join('');
+                fitnessHtml = `
+                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Fitness Functions</h3>
+                    <div class="fitness-grid">${html}</div>
+                `;
+            }
+
+            container.innerHTML = layerResultsHtml + fitnessHtml;
         }
 
         function updateViolationsTable(latestRun) {

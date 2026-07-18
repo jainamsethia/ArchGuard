@@ -269,9 +269,14 @@ def _run_analysis_sync(
         
         v_list_out = []
         for v in result.violations:
+            raw_file = getattr(v, "file_path", "") or None
+            line = getattr(v, "line", 0)
+            if raw_file and line > 0:
+                raw_file = f"{raw_file}:{line}"
+
             v_list_out.append(
                 ViolationPayload(
-                    file=getattr(v, "file_path", "") or None,
+                    file=raw_file,
                     module=getattr(v, "module_name", None),
                     severity=str(getattr(v, "severity", "low")),
                     message=getattr(v, "message", ""),
@@ -284,7 +289,18 @@ def _run_analysis_sync(
             score=result.archdebt.health_score,
             band=audit_band,
             violations=v_list_out,
-            skipped=False
+            skipped=False,
+            layer_results=[
+                {
+                    "layer": lr.layer,
+                    "name": lr.name,
+                    "score": lr.score,
+                    "violation_count": lr.violation_count,
+                    "skipped": lr.skipped,
+                    "skip_reason": lr.skip_reason,
+                }
+                for lr in _extract_layer_results(result)
+            ]
         )
             
         audit.log(

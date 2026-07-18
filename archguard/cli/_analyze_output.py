@@ -282,12 +282,52 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
                 )
             )
 
+        layer_names = {
+            1: "Import Boundary Violations",
+            2: "Coupling Delta",
+            3: "Semantic Drift",
+            4: "Duplication / Explanation",
+        }
+        ls = result.layer_scores
+        skipped_names = getattr(result, "skipped_layers_names", [])
+        
+        lr_out = []
+        # Layer 1
+        lr_out.append({
+            "layer": 1, "name": layer_names[1], "score": ls.layer1_violation,
+            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 1),
+            "skipped": "Layer 1" in skipped_names,
+            "skip_reason": getattr(result, "skip_reason", "") if "Layer 1" in skipped_names else ""
+        })
+        # Layer 2
+        lr_out.append({
+            "layer": 2, "name": layer_names[2], "score": ls.layer2_coupling,
+            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 2),
+            "skipped": "Layer 2" in skipped_names,
+            "skip_reason": getattr(result, "skip_reason", "") if "Layer 2" in skipped_names else ""
+        })
+        # Layer 3
+        lr_out.append({
+            "layer": 3, "name": layer_names[3], "score": ls.layer3_drift,
+            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 3),
+            "skipped": "Layer 3" in skipped_names,
+            "skip_reason": getattr(result, "skip_reason", "") if "Layer 3" in skipped_names else ""
+        })
+        # Layer 4
+        lr_out.append({
+            "layer": 4, "name": layer_names[4], "score": ls.layer4_duplication,
+            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 4),
+            "skipped": "Layer 4" in skipped_names,
+            "skip_reason": getattr(result, "skip_reason", "") if "Layer 4" in skipped_names else ""
+        })
+
         payload = AnalysisResultPayload(
             job_id="cli_run",
             score=result.archdebt.health_score,
             band=audit_band,
             violations=v_list_out,
-            skipped=False
+            skipped=False,
+            layer_results=lr_out
         )
 
         audit.log(

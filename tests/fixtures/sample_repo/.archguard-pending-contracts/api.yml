@@ -1,0 +1,7 @@
+module_name: api
+proposed_path: src/api
+proposed_drift_threshold: 0.25
+proposed_coupling_budget: 3
+semantic_drift_score: 1.0
+proposal_timestamp: '2026-07-17T19:52:53.832854+00:00'
+source_commit: 6fe4409

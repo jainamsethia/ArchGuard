@@ -614,6 +614,11 @@ body.page-dashboard {
         .badge-medium { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
         .badge-low { background-color: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
 
+        .badge.pass { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+        .badge.fail { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge.warn { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+        .badge.skipped { background-color: rgba(148, 163, 184, 0.2); color: #cbd5e1; }
+
         .loader {
             display: inline-block;
             width: 20px;
@@ -656,6 +661,7 @@ body.page-dashboard {
         .fitness-card.pass { border-left-color: var(--success-color); }
         .fitness-card.warn { border-left-color: var(--warn-color); }
         .fitness-card.fail { border-left-color: var(--danger-color); }
+        .fitness-card.skipped { border-left-color: var(--text-secondary); }
         
         .fitness-card-header {
             display: flex;

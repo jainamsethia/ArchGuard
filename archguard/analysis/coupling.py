@@ -82,6 +82,8 @@ def compute_fan_out(
     unique_roots: set[str] = set()
 
     for edge in edges:
+        # Relative imports are intra-package by definition and thus don't represent
+        # cross-module architectural coupling. We exclude them from fan-out.
         if edge.is_stdlib or edge.is_relative:
             continue
         if not path_belongs_to_module(edge.source_file, paths):
@@ -105,6 +107,8 @@ def compute_fan_in(
     importing_modules: set[str] = set()
 
     for edge in edges:
+        # Relative imports are intra-package by definition and thus don't represent
+        # cross-module architectural coupling. We exclude them from fan-in.
         if edge.is_stdlib or edge.is_relative:
             continue
 
