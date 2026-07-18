@@ -1,7 +1,0 @@
-module_name: archguard
-proposed_path: archguard/
-proposed_drift_threshold: 0.25
-proposed_coupling_budget: 15
-semantic_drift_score: 0.45180565118789673
-proposal_timestamp: '2026-07-18T04:12:43.819152+00:00'
-source_commit: 8bf9aed

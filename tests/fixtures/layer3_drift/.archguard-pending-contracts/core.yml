@@ -1,7 +1,0 @@
-module_name: core
-proposed_path: core/
-proposed_drift_threshold: 0.25
-proposed_coupling_budget: 3
-semantic_drift_score: 0.7261411817242134
-proposal_timestamp: '2026-07-01T17:44:16.060688+00:00'
-source_commit: f03465c

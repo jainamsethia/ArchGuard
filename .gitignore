@@ -1,9 +1,11 @@
-# Virtual environments
+# Virtual environments (any local venv, including ad hoc test_venv_* variants)
 .venv/
 .venv-test/
-test_venv/
 venv/
 env/
+test_venv/
+test_venv*/
+test_final_venv*/
 
 # Python cache
 __pycache__/
@@ -21,10 +23,11 @@ coverage.xml
 .coverage
 htmlcov/
 
-# ArchGuard runtime/cache
+# ArchGuard runtime/cache output (written by the tool at analysis time)
 .archguard-cache/
 .archguard-checkpoints/
 .archguard-cache.json
+.archguard-pending-contracts/
 
 # Build artifacts
 build/
@@ -36,10 +39,11 @@ dist/
 .vscode/
 .idea/
 
-# Environment files — NEVER commit secrets
+# Environment files and credentials — NEVER commit secrets
 .env
 .env.local
 .env.*.local
+cookies.txt
 
 # OS files
 .DS_Store
@@ -48,9 +52,14 @@ Thumbs.db
 # Logs
 *.log
 
-# Temp/test files
-temp_*.txt
-test_repo/
+# Local scratch repos used for manual testing (root-level only; tests/fixtures/ stays tracked)
+/test_repo/
+/test_repo*/
+/test_repo_1commit/
+/test_repo_1commit_clean/
+/empty_repo*/
+/fixture_repo/
+/test_dup/
 
 # Local debugging scripts (use scripts/adhoc/ for anything worth keeping)
 patch.py
@@ -65,6 +74,12 @@ refactor.py
 update_workflows.py
 check_s*.py
 p[0-9]_*.py
+verify_*.py
+find_advisor.py
+/test.py
+/test2.py
+/test_*.py
+/test_sse_parser.js
 
 # Development artifacts and ad hoc run output (never commit raw run output —
 # use scripts/adhoc/ + README.md for anything meant to be kept and rerun)
@@ -75,8 +90,12 @@ pytest_output.txt
 coverage_*.txt
 cov_*.txt
 gate*.txt
+temp_*.txt
+err.txt
 out.txt
+/out.json
 out_*.txt
+out[0-9]*.txt
 test_out.txt
 test_report.html
 analysis.json
@@ -84,17 +103,3 @@ fitness.json
 scratch/
 node_modules/
 test-results/
-
-test_venv_all/
-test_venv_ml/
-
-
-test_venv_all/
-test_venv_ml/
-test_venv_cloud/
-test_venv_dash/
-test_repo_1commit/
-test_repo_1commit_clean/
-test_final_venv/
-test_final_venv2/
-
