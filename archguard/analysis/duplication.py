@@ -190,6 +190,10 @@ class DuplicationAnalyzer:
                 matched_key = keys[idx]
                 if matched_key == func_key:
                     continue
+                # Layer 4 reports cross-module clones only: skip matches whose
+                # target lives in this module's own files.
+                if matched_key in module_embeddings:
+                    continue
 
                 sim = float(cosine_sims[j])
                 if sim < 0.70:
