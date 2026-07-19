@@ -2,22 +2,18 @@
 (Anthropic-backed) - two different LLM providers, kept together because both
 serve the dashboard's single Advisor UI panel."""
 
-import uuid
-import time
 import logging
-from datetime import datetime, timezone
 from typing import Any, Generator
 from pydantic import BaseModel, Field
-from archguard.utils.content_filter import redact_secrets
-from fastapi import Path as FastAPIPath, Depends, HTTPException, Query, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
-from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard.app import app
 from archguard.dashboard._auth import check_token
-from archguard.dashboard._rate_limit import _llm_rate_limit, rate_limiter
+from archguard.dashboard._rate_limit import _llm_rate_limit
 
 from archguard.audit.logger import AuditLogger
-from archguard.llm.openai_provider import OpenAIAdvisorProvider, AdvisorUnavailableError
+from archguard.llm.openai_provider import OpenAIAdvisorProvider
 from archguard.llm.advisor import ArchitectureAdvisor
 
 def _message_for_reason(reason: str) -> str:
@@ -113,7 +109,6 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
             detail="question must not be empty",
         )
 
-    from archguard.audit.logger import AuditLogger
     from archguard.config import AUDIT_LOG_FILENAME
     from pathlib import Path
 

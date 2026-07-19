@@ -148,7 +148,7 @@ class ArchitectureAdvisor:
         safe_context = redacted_c.text
 
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic
 
             client = anthropic.Anthropic(api_key=api_key)
 

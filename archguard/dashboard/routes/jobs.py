@@ -6,7 +6,6 @@ import logging
 import os
 import re
 from typing import Any
-import importlib.metadata
 
 import httpx
 from fastapi import Depends, HTTPException, Query
@@ -489,11 +488,11 @@ async def health_check() -> dict[str, Any]:
     """
     import time
     import os
-    from archguard.dashboard.app import _APP_START_TIME
+    from archguard.dashboard.app import _APP_START_TIME, _installed_version
 
     return {
         "status": "ok",
-        "version": importlib.metadata.version("archguard"),
+        "version": _installed_version(),
         "environment": os.environ.get("ENVIRONMENT", "development"),
         "uptime_seconds": round(time.time() - _APP_START_TIME),
     }

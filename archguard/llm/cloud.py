@@ -4,29 +4,28 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 try:
-    import anthropic  # type: ignore[import-not-found]
+    import anthropic
 
     _ANTHROPIC_AVAILABLE = True
 except ImportError:
     _ANTHROPIC_AVAILABLE = False
-    anthropic = None
+    anthropic = None  # type: ignore[assignment]
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.prompts import (
     SYSTEM_PROMPT,
     build_contract_summary,
     build_violation_prompt,
-    parse_llm_response,
 )
 from archguard.utils.content_filter import redact_secrets
 from archguard.utils.retry import with_retry
 
 if TYPE_CHECKING:
-    from archguard.analysis.layers import AnalysisResult, ViolationDetail
+    from archguard.analysis.layers import ViolationDetail
     from archguard.audit.logger import AuditLogger
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -56,17 +55,6 @@ _CLOUD_NON_RETRYABLE = (
     if _ANTHROPIC_AVAILABLE
     else (ValueError, TypeError)
 )
-
-
-@dataclass
-class LLMExplanationResult:
-    """Result of an LLM explanation request."""
-
-    explanations: list[str] = field(default_factory=list)
-    model_used: str = ""
-    truncated: bool = False
-    unavailable: bool = False
-    failure_reason: str = ""
 
 
 class CloudLLMExplainer:
@@ -125,10 +113,12 @@ class CloudLLMExplainer:
                                 
                             response = await client.messages.create(
                                 model=model,
-                                max_tokens=500,
+                                max_tokens=MAX_TOKENS,
+                                system=SYSTEM_PROMPT,
                                 messages=[{"role": "user", "content": prompt}],
                             )
-                            return str(response.content[0].text)
+                            text = str(getattr(response.content[0], "text", ""))
+                            return self._flag_truncation(text, str(response.stop_reason))
                         except Exception:
                             if model == FALLBACK_MODEL:
                                 raise
@@ -160,6 +150,23 @@ class CloudLLMExplainer:
             messages=[{"role": "user", "content": prompt}],
         )
         return str(message.content[0].text), str(message.stop_reason)
+
+    def _flag_truncation(self, text: str, stop_reason: str) -> str:
+        """Append a truncation note (and audit-log it) when the response is cut off.
+
+        A response is considered truncated when the API reports max_tokens, or
+        when it stopped normally but does not end in terminal punctuation.
+        """
+        stripped = text.rstrip()
+        truncated = stop_reason == "max_tokens" or (
+            stripped != "" and stripped[-1] not in _TERMINAL_PUNCT
+        )
+        if not truncated:
+            return text
+        logger.warning("LLM explanation truncated (stop_reason=%s)", stop_reason)
+        if self._audit is not None:
+            self._audit.log(EVENT_TRUNCATED_EXPLANATION, stop_reason=stop_reason)
+        return f"{text}\n\n[Note: explanation was truncated]"
 
     def _redact_violations(
         self,
