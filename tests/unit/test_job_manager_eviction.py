@@ -1,4 +1,3 @@
-import pytest
 from archguard.dashboard.job_manager import JobManager, JobStatus, MAX_STORED_JOBS
 
 def test_eviction_skips_running_jobs():
@@ -25,14 +24,7 @@ def test_eviction_skips_running_jobs():
     
     # The first job which is analyzing should NOT have been evicted
     assert first_job_id in manager._jobs
-    
-    # But some other job should have been evicted instead
-    # specifically, the oldest completed job (which would be index 1 in the original order)
-    evicted = False
-    for i in range(1, MAX_STORED_JOBS):
-        # We can't perfectly predict which one was evicted without tracking IDs, but we know first_job_id is kept
-        pass
-        
+
 def test_eviction_skips_when_all_running():
     manager = JobManager()
     

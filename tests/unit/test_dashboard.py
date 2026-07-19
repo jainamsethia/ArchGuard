@@ -11,7 +11,11 @@ def test_dashboard_version_matches_package_version():
     import importlib.metadata
     from archguard.dashboard.app import app
 
-    assert app.version == importlib.metadata.version("archguard")
+    try:
+        expected = importlib.metadata.version("archguard")
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("archguard is not installed as a distribution (source checkout)")
+    assert app.version == expected
 
 
 @pytest.fixture

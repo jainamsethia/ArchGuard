@@ -18,6 +18,7 @@ _ALLOWED_ROOT_FILES = {
     "poetry.toml",
     "coverage.xml",
     ".env.example",
+    ".env",  # documented local dev file (README: cp .env.example .env); gitignored, never committed
     "docker-compose.yml",
     "railway.toml",
     "render.yaml",

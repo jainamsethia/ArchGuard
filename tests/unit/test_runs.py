@@ -1,9 +1,21 @@
 import uuid
+
+import pytest
+from fastapi import HTTPException
+
 from archguard.dashboard.routes import runs
 
-def test_get_deps_name_error(monkeypatch):
-    result = runs.get_deps(job_id=str(uuid.uuid4()))
-    assert isinstance(result, dict)
+def test_get_deps_unknown_job_returns_410(monkeypatch):
+    """A syntactically valid job_id whose workspace is gone -> 410, not a crash."""
+    with pytest.raises(HTTPException) as exc:
+        runs.get_deps(job_id=str(uuid.uuid4()))
+    assert exc.value.status_code == 410
+
+def test_get_deps_without_job_returns_400():
+    """No job selected -> 400 with actionable detail."""
+    with pytest.raises(HTTPException) as exc:
+        runs.get_deps(job_id=None)
+    assert exc.value.status_code == 400
 
 
 def test_runs_job_id_filter(monkeypatch):
@@ -14,23 +26,23 @@ def test_runs_job_id_filter(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         log_path = pathlib.Path(d) / "audit.jsonl"
         logger = AuditLogger(log_path)
-        logger.log("analysis_run", job_id="job-A", timestamp="2026-01-01T00:00:00Z", module_scores={"auth": 0.9})
-        logger.log("analysis_run", job_id="job-B", timestamp="2026-01-02T00:00:00Z", module_scores={"utils": 0.8})
+        logger.log("analysis_run", job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", timestamp="2026-01-01T00:00:00Z", module_scores={"auth": 0.9})
+        logger.log("analysis_run", job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", timestamp="2026-01-02T00:00:00Z", module_scores={"utils": 0.8})
         
         monkeypatch.setattr(runs, "get_audit_path", lambda jid: log_path)
         
-        res = runs.get_runs(limit=50, job_id="job-A")
+        res = runs.get_runs(limit=50, job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
         assert len(res["runs"]) == 1
-        assert res["runs"][0]["job_id"] == "job-A"
+        assert res["runs"][0]["job_id"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
-        res = runs.get_modules(job_id="job-B")
+        res = runs.get_modules(job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
         assert "utils" in res["modules"]
         assert "auth" not in res["modules"]
 
-        res = runs.get_module_trends(module="auth", limit=30, job_id="job-B")
+        res = runs.get_module_trends(module="auth", limit=30, job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
         assert len(res["trend"]) == 0
         
-        res2 = runs.get_module_trends(module="auth", limit=30, job_id="job-A")
+        res2 = runs.get_module_trends(module="auth", limit=30, job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
         assert len(res2["trend"]) == 1
 
 def test_repo_runs(monkeypatch):

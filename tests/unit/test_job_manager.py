@@ -65,11 +65,13 @@ def test_list_jobs_newest_first(manager):
     assert jobs[0].id == j2.id
     assert jobs[1].id == j1.id
 
-def test_evicts_oldest_beyond_max(manager):
-    """Jobs beyond MAX_STORED_JOBS are evicted (oldest first)."""
+def test_evicts_oldest_terminal_beyond_max(manager):
+    """Terminal jobs beyond MAX_STORED_JOBS are evicted oldest-first; live jobs
+    are never evicted (see test_job_manager_eviction.py for the all-live case)."""
     from archguard.dashboard.job_manager import MAX_STORED_JOBS
     for i in range(MAX_STORED_JOBS + 5):
-        manager.create_job(f"https://github.com/x/repo{i}")
+        job = manager.create_job(f"https://github.com/x/repo{i}")
+        job.status = JobStatus.COMPLETE
     assert len(manager._jobs) == MAX_STORED_JOBS
 
 @pytest.mark.asyncio

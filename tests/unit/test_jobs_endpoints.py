@@ -31,7 +31,7 @@ def test_submit_job_returns_202(client):
     body = resp.json()
     assert "job_id" in body
     assert body["status"] == "queued"
-    assert "/api/jobs/" in body["poll_url"]
+    assert "/api/v1/jobs/" in body["poll_url"]
     assert "/stream" in body["stream_url"]
 
 def test_get_job_not_found(client):

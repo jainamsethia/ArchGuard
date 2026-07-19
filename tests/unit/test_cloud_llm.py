@@ -1,8 +1,8 @@
-"""Unit tests for archguard.llm.cloud."""
+"""Unit tests for archguard.llm.cloud (concurrent explainer API)."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -11,6 +11,7 @@ from archguard.analysis.scoring import ArchDebtResult, LayerScores
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.cloud import (
     FALLBACK_MODEL,
+    MAX_TOKENS,
     PRIMARY_MODEL,
     CloudLLMExplainer,
 )
@@ -57,102 +58,129 @@ _CONTRACT: dict = {
 }
 
 
+def _mock_anthropic(monkeypatch: pytest.MonkeyPatch, create: AsyncMock) -> None:
+    """Install a fake anthropic module whose AsyncAnthropic client uses `create`."""
+    mock_client = MagicMock()
+    mock_client.messages = MagicMock()
+    mock_client.messages.create = create
+
+    mock_async_client_cls = MagicMock()
+    mock_async_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_async_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    mock_module = MagicMock()
+    mock_module.AsyncAnthropic = mock_async_client_cls
+    monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_module)
+    monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", True)
+    monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
+
+
+def _response(text: str, stop_reason: str = "end_turn") -> MagicMock:
+    resp = MagicMock()
+    resp.content = [MagicMock(text=text)]
+    resp.stop_reason = stop_reason
+    return resp
+
+
 class TestCloudLLMExplainer:
-    """Tests for CloudLLMExplainer."""
+    """Tests for CloudLLMExplainer.explain_violations_concurrent."""
 
-    def test_primary_model_success(self) -> None:
-        """Primary model success -> unavailable=False, model_used=PRIMARY_MODEL."""
+    @pytest.mark.asyncio
+    async def test_primary_model_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Primary model succeeds -> its text is returned, one call with PRIMARY_MODEL."""
+        create = AsyncMock(return_value=_response("1. Move shared types to a common package."))
+        _mock_anthropic(monkeypatch, create)
+
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
 
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = (
-                "1. The payments module should not import auth internals. "
-                "Move shared types to a common package.",
-                "end_turn",
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert out == ["1. Move shared types to a common package."]
+        create.assert_called_once()
+        assert create.call_args[1]["model"] == PRIMARY_MODEL
+        assert create.call_args[1]["max_tokens"] == MAX_TOKENS
+
+    @pytest.mark.asyncio
+    async def test_primary_fails_fallback_succeeds(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Primary raises -> fallback model is tried and its text returned."""
+        create = AsyncMock(
+            side_effect=[RuntimeError("rate limited"), _response("1. Fix the import boundary.")]
+        )
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert out == ["1. Fix the import boundary."]
+        assert create.call_count == 2
+        assert create.call_args_list[0][1]["model"] == PRIMARY_MODEL
+        assert create.call_args_list[1][1]["model"] == FALLBACK_MODEL
+
+    @pytest.mark.asyncio
+    async def test_both_models_fail_returns_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both models raise -> the per-violation result is the exception, not a crash."""
+        create = AsyncMock(side_effect=RuntimeError("API down"))
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert len(out) == 1
+        assert isinstance(out[0], Exception)
+
+    @pytest.mark.asyncio
+    async def test_missing_api_key_returns_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No API key -> clear 'unavailable' text per violation, no API calls."""
+        create = AsyncMock()
+        _mock_anthropic(monkeypatch, create)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+        explainer = CloudLLMExplainer(api_key="")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert out == ["Explanation unavailable (ANTHROPIC_API_KEY not set)"]
+        create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sdk_unavailable_raises_actionable_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SDK missing -> RuntimeError pointing at the cloud extra."""
+        monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", False)
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        with pytest.raises(RuntimeError, match=r"archguard\[cloud\]"):
+            await explainer.explain_violations_concurrent(
+                result.violations, _CONTRACT, result.changed_files
             )
-            llm_result = explainer.explain(result, _CONTRACT)
 
-        assert llm_result.unavailable is False
-        assert llm_result.model_used == PRIMARY_MODEL
-        assert len(llm_result.explanations) == 1
-
-    def test_primary_fails_fallback_succeeds(self) -> None:
-        """Primary fails, fallback succeeds -> model_used=FALLBACK_MODEL."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            from archguard.utils.errors import LLMError
-
-            mock_call.side_effect = [
-                LLMError("rate limited"),
-                ("1. Fix the import boundary.", "end_turn"),
-            ]
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        assert llm_result.unavailable is False
-        assert llm_result.model_used == FALLBACK_MODEL
-
-    def test_both_models_fail(self) -> None:
-        """Both models fail -> unavailable=True, explanations=[]."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            from archguard.utils.errors import LLMError
-
-            mock_call.side_effect = LLMError("API down")
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        assert llm_result.unavailable is True
-        assert llm_result.explanations == []
-
-    def test_stop_reason_max_tokens_truncated(self) -> None:
-        """stop_reason='max_tokens' -> truncated=True, truncation note appended."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = (
-                "1. The payments module crosses the auth boundary which",
-                "max_tokens",
-            )
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        assert llm_result.truncated is True
-        assert "[Note: explanation was truncated]" in llm_result.explanations[-1]
-
-    def test_end_turn_with_period_not_truncated(self) -> None:
-        """stop_reason='end_turn', ends with '.' -> truncated=False."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = (
-                "1. Move shared auth types to a common module.",
-                "end_turn",
-            )
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        assert llm_result.truncated is False
-
-    def test_end_turn_no_terminal_punct_truncated(self) -> None:
-        """stop_reason='end_turn', ends with 'word' -> truncated=True."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = (
-                "1. Move shared auth types to a common",
-                "end_turn",
-            )
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        assert llm_result.truncated is True
-
-    def test_secrets_redacted_before_api_call(self) -> None:
-        """Violations with secrets -> secrets redacted before API call."""
+    @pytest.mark.asyncio
+    async def test_secrets_redacted_before_api_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Violations with secrets -> secrets redacted from the prompt sent to the API."""
         pat = "ghp_" + "x" * 36
         violations = [
             ViolationDetail(
@@ -163,125 +191,111 @@ class TestCloudLLMExplainer:
                 file_path="core/main.py",
             ),
         ]
+        create = AsyncMock(return_value=_response("1. Redact tokens."))
+        _mock_anthropic(monkeypatch, create)
+
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result(violations)
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = ("1. Redact tokens.", "end_turn")
-            explainer.explain(result, _CONTRACT)
-
-        # Check that the prompt passed to _call_api does NOT contain the raw PAT
-        called_prompt = mock_call.call_args[0][0]
-        assert pat not in called_prompt
-        assert "[REDACTED:GITHUB_PAT]" in called_prompt
-
-    def test_truncation_logged_to_audit(self) -> None:
-        """EVENT_TRUNCATED_EXPLANATION logged when truncated=True."""
-        mock_audit = MagicMock()
-        explainer = CloudLLMExplainer(
-            api_key="test-key",
-            audit_logger=mock_audit,
-        )
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = ("1. Fix boundary", "max_tokens")
-            explainer.explain(result, _CONTRACT)
-
-        mock_audit.log.assert_called_once()
-        assert mock_audit.log.call_args[0][0] == EVENT_TRUNCATED_EXPLANATION
-
-    def test_unavailable_does_not_raise(self) -> None:
-        """LLM unavailable -> returns result, does not raise."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        with patch.object(explainer, "_call_api") as mock_call:
-            from archguard.utils.errors import LLMError
-
-            mock_call.side_effect = LLMError("boom")
-            llm_result = explainer.explain(result, _CONTRACT)
-
-        # Should not raise
-        assert llm_result.unavailable is True
-
-    def test_batch_chunking_and_fallback(self) -> None:
-        """With 5 violations, exactly 1 API call is made. If batch fails, fallback to 5 individual calls."""
-        explainer = CloudLLMExplainer(api_key="test-key")
-
-        viols = [
-            ViolationDetail(
-                1,
-                module=f"mod{i}",
-                message=f"msg{i}",
-                commit_sha="abc",
-                file_path=f"f{i}.py",
-            )
-            for i in range(5)
-        ]
-        result = _make_result(viols)
-
-        # Scenario 1: Success
-        with patch.object(explainer, "_call_api") as mock_call:
-            mock_call.return_value = ("1. E1\n2. E2\n3. E3\n4. E4\n5. E5", "end_turn")
-            llm_result = explainer.explain(result, _CONTRACT)
-
-            assert mock_call.call_count == 1
-            assert len(llm_result.explanations) == 5
-
-        # Scenario 2: Batch fails, fallbacks to individual
-        with patch.object(explainer, "_call_api") as mock_call:
-
-            def side_effect(prompt, model):
-                if "mod0" in prompt and "mod4" in prompt:
-                    from archguard.utils.errors import LLMError
-
-                    raise LLMError("batch failed")
-                return ("1. Individual explanation.", "end_turn")
-
-            mock_call.side_effect = side_effect
-            llm_result = explainer.explain(result, _CONTRACT)
-
-            # 1 batch call * 2 models = 2 calls
-            # Then 5 individual items * 1 model each (since primary succeeds) = 5 calls
-            # Total calls = 7
-            assert mock_call.call_count == 7
-            assert len(llm_result.explanations) == 5
-
-    @pytest.mark.asyncio
-    async def test_concurrent_explainer_uses_configured_model(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Verify the model sent in API calls matches the configured FALLBACK_MODEL."""
-        monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
-        monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
-        mock_anthropic_module = MagicMock()
-        monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_anthropic_module)
-        monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", True)
-
-        explainer = CloudLLMExplainer(api_key="test-key")
-        result = _make_result()
-
-        # mock anthropic AsyncAnthropic client
-        mock_client = MagicMock()
-        mock_messages = AsyncMock()
-        mock_message_resp = MagicMock()
-        mock_message_resp.content = [MagicMock(text="response text")]
-        mock_messages.create.return_value = mock_message_resp
-        mock_client.messages = mock_messages
-
-        mock_async_client_cls = MagicMock()
-        mock_async_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_async_client_cls.return_value.__aexit__ = AsyncMock()
-
-        mock_anthropic_module.AsyncAnthropic = mock_async_client_cls
 
         await explainer.explain_violations_concurrent(
             result.violations, _CONTRACT, result.changed_files
         )
 
-        mock_messages.create.assert_called_once()
-        assert mock_messages.create.call_args[1]["model"] == "test-model-123"
+        sent_prompt = create.call_args[1]["messages"][0]["content"]
+        assert pat not in sent_prompt
+        assert "[REDACTED:GITHUB_PAT]" in sent_prompt
+
+    @pytest.mark.asyncio
+    async def test_stop_reason_max_tokens_appends_truncation_note(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """stop_reason='max_tokens' -> truncation note appended to the explanation."""
+        create = AsyncMock(
+            return_value=_response("1. The payments module crosses the", "max_tokens")
+        )
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert "[Note: explanation was truncated]" in out[0]
+
+    @pytest.mark.asyncio
+    async def test_end_turn_with_period_not_truncated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """stop_reason='end_turn' ending with '.' -> no truncation note."""
+        create = AsyncMock(return_value=_response("1. Move shared auth types to a common module."))
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert "[Note: explanation was truncated]" not in out[0]
+
+    @pytest.mark.asyncio
+    async def test_end_turn_no_terminal_punct_truncated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """stop_reason='end_turn' without terminal punctuation -> truncation note."""
+        create = AsyncMock(return_value=_response("1. Move shared auth types to a common"))
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert "[Note: explanation was truncated]" in out[0]
+
+    @pytest.mark.asyncio
+    async def test_truncation_logged_to_audit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EVENT_TRUNCATED_EXPLANATION is audit-logged when a response is truncated."""
+        create = AsyncMock(return_value=_response("1. Fix boundary", "max_tokens"))
+        _mock_anthropic(monkeypatch, create)
+
+        mock_audit = MagicMock()
+        explainer = CloudLLMExplainer(api_key="test-key", audit_logger=mock_audit)
+        result = _make_result()
+
+        await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        mock_audit.log.assert_called_once()
+        assert mock_audit.log.call_args[0][0] == EVENT_TRUNCATED_EXPLANATION
+
+    @pytest.mark.asyncio
+    async def test_concurrent_explainer_uses_configured_fallback_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the primary fails, the configured FALLBACK_MODEL is what gets called."""
+        monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
+        create = AsyncMock(
+            side_effect=[RuntimeError("primary down"), _response("response text.")]
+        )
+        _mock_anthropic(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="test-key")
+        result = _make_result()
+
+        await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert create.call_args[1]["model"] == "test-model-123"
 
     def test_missing_anthropic_error_mentions_cloud_extra(self, monkeypatch):
         import archguard.llm.cloud as cloud_module

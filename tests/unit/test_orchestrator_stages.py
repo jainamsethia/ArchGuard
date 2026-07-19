@@ -91,6 +91,9 @@ def test_finalize_result_filters_suppressed_violations(monkeypatch):
     )
 
     class DummyMetrics:
+        def __init__(self):
+            self.extra = {}
+
         def to_dict(self):
             return {}
 

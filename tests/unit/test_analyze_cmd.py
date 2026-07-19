@@ -77,6 +77,7 @@ class TestAnalyzeCommand:
         mock_result = MagicMock()
         mock_result.archdebt.composite_score = 0.30
         mock_result.archdebt.health_score = 90.0
+        mock_result.archdebt.health_grade = "A"
         mock_result.archdebt.band.value = "Healthy"
         mock_result.archdebt.should_fail_ci = False
         mock_result.archdebt.layer_scores.layer1_violation = 0.1

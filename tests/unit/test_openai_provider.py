@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 import httpx
 import pytest
 
-from archguard.llm.openai_provider import OpenAIAdvisorProvider
+from archguard.llm.openai_provider import AdvisorUnavailableError, OpenAIAdvisorProvider
 
 
 @pytest.fixture
@@ -52,17 +52,19 @@ def test_openai_provider_success(provider):
 
 
 def test_openai_provider_missing_api_key():
-    """Test behavior when API key is missing."""
+    """Missing API key -> AdvisorUnavailableError(no_api_key) for the error/retry UI."""
     empty_provider = OpenAIAdvisorProvider(api_key="")
-    recs = empty_provider.generate_recommendations("Context")
-    assert recs == []
+    with pytest.raises(AdvisorUnavailableError) as exc:
+        empty_provider.generate_recommendations("Context")
+    assert exc.value.reason == "no_api_key"
 
 
 def test_openai_provider_timeout(provider):
-    """Test handling of HTTP timeouts."""
+    """HTTP timeout -> AdvisorUnavailableError(api_error)."""
     with patch("httpx.Client.post", side_effect=httpx.TimeoutException("Timeout")):
-        recs = provider.generate_recommendations("Context")
-        assert recs == []
+        with pytest.raises(AdvisorUnavailableError) as exc:
+            provider.generate_recommendations("Context")
+    assert exc.value.reason == "api_error"
 
 
 def test_openai_provider_rate_limit(provider):
@@ -75,8 +77,10 @@ def test_openai_provider_rate_limit(provider):
         )
         mock_post.return_value = mock_resp
 
-        recs = provider.generate_recommendations("Context")
-        assert recs == []
+        with pytest.raises(AdvisorUnavailableError) as exc:
+            provider.generate_recommendations("Context")
+        assert exc.value.reason == "api_error"
+        assert "Rate limit" in exc.value.detail
 
 
 def test_openai_provider_malformed_json(provider):
