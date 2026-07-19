@@ -257,7 +257,7 @@ def _run_analysis_sync(
     try:
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS
-        from archguard.dashboard._result_schema import AnalysisResultPayload, ViolationPayload
+        from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
         
         audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
         band_val = str(result.archdebt.band.name).upper()
@@ -291,14 +291,14 @@ def _run_analysis_sync(
             violations=v_list_out,
             skipped=False,
             layer_results=[
-                {
-                    "layer": lr.layer,
-                    "name": lr.name,
-                    "score": lr.score,
-                    "violation_count": lr.violation_count,
-                    "skipped": lr.skipped,
-                    "skip_reason": lr.skip_reason,
-                }
+                LayerResultPayload(
+                    layer=lr.layer,
+                    name=lr.name,
+                    score=lr.score,
+                    violation_count=lr.violation_count,
+                    skipped=lr.skipped,
+                    skip_reason=lr.skip_reason,
+                )
                 for lr in _extract_layer_results(result)
             ]
         )

@@ -268,7 +268,7 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             if band_val in ("HEALTHY", "WATCH")
             else ("WARN" if band_val == "WARN" else "FAIL")
         )
-        from archguard.dashboard._result_schema import AnalysisResultPayload, ViolationPayload
+        from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
         v_list_out = []
         for v in result.violations:
             sev = getattr(v, "severity", "low")
@@ -291,35 +291,25 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         ls = result.layer_scores
         skipped_names = getattr(result, "skipped_layers_names", [])
         
+        layer_scores = {
+            1: ls.layer1_violation,
+            2: ls.layer2_coupling,
+            3: ls.layer3_drift,
+            4: ls.layer4_duplication,
+        }
         lr_out = []
-        # Layer 1
-        lr_out.append({
-            "layer": 1, "name": layer_names[1], "score": ls.layer1_violation,
-            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 1),
-            "skipped": "Layer 1" in skipped_names,
-            "skip_reason": getattr(result, "skip_reason", "") if "Layer 1" in skipped_names else ""
-        })
-        # Layer 2
-        lr_out.append({
-            "layer": 2, "name": layer_names[2], "score": ls.layer2_coupling,
-            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 2),
-            "skipped": "Layer 2" in skipped_names,
-            "skip_reason": getattr(result, "skip_reason", "") if "Layer 2" in skipped_names else ""
-        })
-        # Layer 3
-        lr_out.append({
-            "layer": 3, "name": layer_names[3], "score": ls.layer3_drift,
-            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 3),
-            "skipped": "Layer 3" in skipped_names,
-            "skip_reason": getattr(result, "skip_reason", "") if "Layer 3" in skipped_names else ""
-        })
-        # Layer 4
-        lr_out.append({
-            "layer": 4, "name": layer_names[4], "score": ls.layer4_duplication,
-            "violation_count": sum(1 for v in result.violations if getattr(v, "layer", 0) == 4),
-            "skipped": "Layer 4" in skipped_names,
-            "skip_reason": getattr(result, "skip_reason", "") if "Layer 4" in skipped_names else ""
-        })
+        for n in (1, 2, 3, 4):
+            skipped = f"Layer {n}" in skipped_names
+            lr_out.append(LayerResultPayload(
+                layer=n,
+                name=layer_names[n],
+                score=layer_scores[n],
+                violation_count=sum(
+                    1 for v in result.violations if getattr(v, "layer", 0) == n
+                ),
+                skipped=skipped,
+                skip_reason=getattr(result, "skip_reason", "") if skipped else "",
+            ))
 
         payload = AnalysisResultPayload(
             job_id="cli_run",
