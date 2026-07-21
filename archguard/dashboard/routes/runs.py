@@ -27,12 +27,17 @@ def get_runs(
     limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: JobIdQuery = None
 ) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
+    # When filtering by job_id, read a generous number of runs so that
+    # the filter doesn't silently lose results (the naive approach of
+    # reading only `limit` lines then applying the filter misses entries
+    # deep in the log that happen to be older than the most recent N).
+    read_limit = max(limit, 10000) if (job_id or module) else limit
+    runs = logger.read_last_n_runs(n=read_limit)
     if job_id:
         runs = [r for r in runs if r.get("job_id") == job_id]
     if module:
         runs = [r for r in runs if module in r.get("modules_analyzed", [])]
-    return {"runs": runs, "total": len(runs)}
+    return {"runs": runs[:limit], "total": len(runs[:limit])}
 
 
 @app.get("/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
@@ -42,7 +47,9 @@ def get_latest_run(job_id: JobIdQuery = None) -> Any:
     logger = AuditLogger(get_audit_path(job_id))
     if job_id:
         runs = logger.read_last_n_runs(n=100)
-        for r in runs:
+        # read_last_n_runs returns chronological order (oldest first).
+        # Iterate in reverse so we return the *newest* match for this job_id.
+        for r in reversed(runs):
             if r.get("job_id") == job_id:
                 return r
         raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
@@ -113,7 +120,8 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
 def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
     logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=100)
+    read_n = 10000 if job_id else 100
+    runs = logger.read_last_n_runs(n=read_n)
     if job_id:
         runs = [r for r in runs if r.get("job_id") == job_id]
     modules = {}
