@@ -8,6 +8,7 @@ from archguard.cli.main import app
 from archguard.config import FitnessFunctionConfig
 from archguard.fitness.result import FitnessFunctionResult
 import archguard.cli.fitness_cmd
+from tests.conftest import strip_rich
 
 runner = CliRunner()
 
@@ -59,7 +60,7 @@ def test_fitness_check_no_rules(mock_pipeline):
     set_mock_data([], [])
     result = runner.invoke(app, ["fitness", "check"])
     assert result.exit_code == 0
-    assert "No fitness_functions defined" in result.stdout
+    assert "No fitness_functions defined" in strip_rich(result.stdout)
 
 
 def test_fitness_check_all_pass(mock_pipeline):
@@ -69,8 +70,8 @@ def test_fitness_check_all_pass(mock_pipeline):
 
     result = runner.invoke(app, ["fitness", "check"])
     assert result.exit_code == 0
-    assert "PASS" in result.stdout
-    assert "1/1 functions passed" in result.stdout
+    assert "PASS" in strip_rich(result.stdout)
+    assert "1/1 functions passed" in strip_rich(result.stdout)
 
 
 def test_fitness_check_critical_fail(mock_pipeline):
@@ -84,9 +85,9 @@ def test_fitness_check_critical_fail(mock_pipeline):
 
     result = runner.invoke(app, ["fitness", "check"])
     assert result.exit_code == 1
-    assert "FAIL" in result.stdout
-    assert "rule_crit" in result.stdout
-    assert "critical" in result.stdout
+    assert "FAIL" in strip_rich(result.stdout)
+    assert "rule_crit" in strip_rich(result.stdout)
+    assert "critical" in strip_rich(result.stdout)
 
 
 def test_fitness_check_warn_fail_no_flag(mock_pipeline):
@@ -98,8 +99,8 @@ def test_fitness_check_warn_fail_no_flag(mock_pipeline):
 
     result = runner.invoke(app, ["fitness", "check"])
     assert result.exit_code == 0
-    assert "FAIL" in result.stdout
-    assert "warn" in result.stdout
+    assert "FAIL" in strip_rich(result.stdout)
+    assert "warn" in strip_rich(result.stdout)
 
 
 def test_fitness_check_warn_fail_with_flag(mock_pipeline):
@@ -111,7 +112,7 @@ def test_fitness_check_warn_fail_with_flag(mock_pipeline):
 
     result = runner.invoke(app, ["fitness", "check", "--fail-on-warn"])
     assert result.exit_code == 2
-    assert "FAIL" in result.stdout
+    assert "FAIL" in strip_rich(result.stdout)
 
 
 def test_fitness_check_json_output(mock_pipeline):
@@ -127,7 +128,7 @@ def test_fitness_check_json_output(mock_pipeline):
     assert result.exit_code == 0
 
     # Must be valid JSON
-    data = json.loads(result.stdout)
+    data = json.loads(strip_rich(result.stdout))
     assert len(data) == 1
     assert data[0]["name"] == "rule_info"
     assert data[0]["passed"] is False

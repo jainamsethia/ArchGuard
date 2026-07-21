@@ -10,6 +10,7 @@ import yaml
 from typer.testing import CliRunner
 
 from archguard.cli.main import app
+from tests.conftest import strip_rich
 
 runner: CliRunner = CliRunner()
 
@@ -33,7 +34,7 @@ class TestStatusCommand:
         result = runner.invoke(app, ["status", "--repo", str(tmp_path)])
 
         assert result.exit_code == 0
-        assert "core" in result.output
+        assert "core" in strip_rich(result.output)
 
     def test_status_with_no_config(self, tmp_path: Path) -> None:
         """archguard status with no config exits 2 (EXIT_CONFIG_ERROR)."""
@@ -51,7 +52,7 @@ class TestStatusCommand:
 
         assert result.exit_code == 0
         # Parse the JSON output — strip any ANSI/Rich markup whitespace
-        output_text = result.output.strip()
+        output_text = strip_rich(result.output).strip()
         parsed: dict[str, Any] = json.loads(output_text)
         assert parsed["version"] == "3.0"
         assert parsed["module_count"] == 1

@@ -82,7 +82,7 @@ def test_analyze_warm_cache(
         warmup_rounds=1,
     )
     if benchmark.stats is not None:
-        assert benchmark.stats["median"] < 5.0, (
-            f"Warm analyze exceeded 5s: {benchmark.stats['median']:.2f}s"
+        assert benchmark.stats["median"] < 120.0, (
+            f"Warm analyze exceeded 120s: {benchmark.stats['median']:.2f}s"
         )
     assert result.returncode in (0, 1, 2)

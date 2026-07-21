@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from archguard.cli.main import app
 from typer.testing import CliRunner
 from archguard.config import AUDIT_LOG_FILENAME
+from tests.conftest import strip_rich
 
 runner = CliRunner()
 
@@ -63,10 +64,10 @@ def test_history_trend_cmd_success(tmp_path, monkeypatch):
         app, ["history", "--format", "trend", "--audit-log", str(mock_log)]
     )
     assert result.exit_code == 0
-    assert "87.5" in result.stdout
-    assert "79.5" in result.stdout
-    assert "Trend: ↑ +17.5 points over 5 runs (improving)" in result.stdout
-    assert "Score history:" in result.stdout
+    assert "87.5" in strip_rich(result.stdout)
+    assert "79.5" in strip_rich(result.stdout)
+    assert "Trend: ↑ +17.5 points over 5 runs (improving)" in strip_rich(result.stdout)
+    assert "Score history:" in strip_rich(result.stdout)
 
 
 def test_history_cmd_json(tmp_path, monkeypatch):
@@ -92,6 +93,6 @@ def test_history_cmd_json(tmp_path, monkeypatch):
         app, ["history", "--format", "json", "--audit-log", str(mock_log)]
     )
     assert result.exit_code == 0
-    data = json.loads(result.stdout)
+    data = json.loads(strip_rich(result.stdout))
     assert len(data["runs"]) == 1
     assert data["runs"][0]["score"] == 87.5

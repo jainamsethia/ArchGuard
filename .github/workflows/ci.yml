@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: "3.11"
 
@@ -222,7 +226,7 @@ jobs:
             python -c "import archguard.dashboard.app"
           fi
           if [[ "${{ matrix.extras }}" == *"cloud"* ]]; then
-            python -c "import archguard.analysis.llm"
+            python -c "import archguard.llm.cloud"
           fi
           if [[ "${{ matrix.extras }}" == *"ml"* ]]; then
             python -c "import archguard.analysis.semantic"

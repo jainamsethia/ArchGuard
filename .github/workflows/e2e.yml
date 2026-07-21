@@ -34,7 +34,7 @@ jobs:
           ARCHGUARD_MOCK_LLM: "1"
 
       - name: Install archguard (with ML extras)
-        run: poetry install --with ml
+        run: poetry install --extras ml
 
       - name: Run archguard analyze (with ML, skip LLM)
         run: poetry run archguard analyze --dry-run --repo . --skip-explanation

@@ -3,6 +3,7 @@
 import yaml
 from archguard.cli.main import app
 from typer.testing import CliRunner
+from tests.conftest import strip_rich
 
 runner = CliRunner()
 
@@ -32,8 +33,8 @@ def test_profile_strict_vs_lenient(tmp_path, monkeypatch):
     result_lenient = runner.invoke(app, ["analyze", "--profile", "lenient"])
 
     # Strict should log a violation or fail due to high coupling and/or low score
-    assert "Applied configuration profile: strict" in result_strict.stdout
-    assert "Applied configuration profile: lenient" in result_lenient.stdout
+    assert "Applied configuration profile: strict" in strip_rich(result_strict.stdout)
+    assert "Applied configuration profile: lenient" in strip_rich(result_lenient.stdout)
 
     # Lenient should pass coupling (budget 15) vs strict failing coupling (budget 5)
     # The exit codes and scores will differ based on the fan_out violation.

@@ -8,6 +8,7 @@ import yaml
 from typer.testing import CliRunner
 
 from archguard.cli.main import app
+from tests.conftest import strip_rich
 
 runner: CliRunner = CliRunner()
 
@@ -51,7 +52,7 @@ class TestSuppressCmd:
             ],
         )
         assert result.exit_code == 0
-        assert "Suppression created" in result.output
+        assert "Suppression created" in strip_rich(result.output)
 
     def test_add_reason_too_long(self, tmp_path: Path) -> None:
         """suppress add with reason > 500 chars -> exit 2 (EXIT_CONFIG_ERROR)."""
@@ -106,7 +107,7 @@ class TestSuppressCmd:
             ["suppress", "list", "--repo", str(repo)],
         )
         assert result.exit_code == 0
-        assert "No active suppressions" in result.output
+        assert "No active suppressions" in strip_rich(result.output)
 
     def test_list_json(self, tmp_path: Path) -> None:
         """suppress list --json -> valid JSON array."""
@@ -136,7 +137,7 @@ class TestSuppressCmd:
         assert result.exit_code == 0
         import json
 
-        data = json.loads(result.output)
+        data = json.loads(strip_rich(result.output))
         assert isinstance(data, list)
         assert len(data) == 1
 
@@ -174,7 +175,7 @@ class TestSuppressCmd:
             ],
         )
         assert result.exit_code == 0
-        assert "Migrated 1" in result.output
+        assert "Migrated 1" in strip_rich(result.output)
 
     def test_orphans_none(self, tmp_path: Path) -> None:
         """suppress orphans with no orphans."""
@@ -184,7 +185,7 @@ class TestSuppressCmd:
             ["suppress", "orphans", "--repo", str(repo)],
         )
         assert result.exit_code == 0
-        assert "No orphaned suppressions found" in result.output
+        assert "No orphaned suppressions found" in strip_rich(result.output)
 
     def test_add_all_pending_valid(self, tmp_path: Path) -> None:
         """suppress add --all-pending --yes suppresses all active violations."""
@@ -223,7 +224,7 @@ class TestSuppressCmd:
         )
 
         assert result.exit_code == 0
-        assert "Suppressed Violations" in result.output
+        assert "Suppressed Violations" in strip_rich(result.output)
 
         # Verify both violations appear in the suppressions store
         from archguard.suppression.store import SuppressionStore
@@ -243,7 +244,7 @@ class TestContractCmd:
             ["contract", "list-pending", "--repo", str(repo)],
         )
         assert result.exit_code == 0
-        assert "No pending contract proposals" in result.output
+        assert "No pending contract proposals" in strip_rich(result.output)
 
     def test_reject_nonexistent(self, tmp_path: Path) -> None:
         """contract reject for nonexistent module -> exit 2 (EXIT_CONFIG_ERROR)."""
@@ -260,7 +261,7 @@ class TestContractCmd:
             ],
         )
         assert result.exit_code == 2
-        assert "No pending proposal" in result.output
+        assert "No pending proposal" in strip_rich(result.output)
 
 
 class TestSuppressionInAnalysis:

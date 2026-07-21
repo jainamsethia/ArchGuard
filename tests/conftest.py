@@ -42,3 +42,15 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure GEMINI_API_KEY and OLLAMA_HOST are not set during tests unless explicitly patched."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+def strip_rich(text: str) -> str:
+    """Strip Rich/ANSI escape sequences so test assertions work on plain text.
+
+    Rich Console instances at module level (file-scope `_console = Console()`)
+    are constructed before pytest fixtures run, so env-var monkeypatching
+    can't disable their colour output.  This helper removes ANSI escape codes
+    from captured output.
+    """
+    import re
+    _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+    return _ANSI_RE.sub('', text).replace('\x1b(B', '').replace('\x1b[m', '')
