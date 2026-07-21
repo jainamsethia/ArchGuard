@@ -40,7 +40,11 @@ def _analyze_file_imports(
             return 0, 0, []
 
         for edge in edges:
-            if edge.is_stdlib or edge.is_relative:
+            if edge.is_stdlib or edge.is_relative or edge.is_third_party:
+                # Stdlib and relative imports are always permitted.
+                # Third-party imports are not controlled by allowed_imports;
+                # the field only governs cross-module boundaries between
+                # project-declared modules (see .archguard.yml comments).
                 continue
             total_imports += 1
             root = edge.imported_module.split(".")[0]
@@ -60,7 +64,7 @@ def _analyze_file_imports(
                 continue
 
             if file_module in allowed_map and root not in allowed_map[file_module]:
-                is_self = any(
+                is_self = root == file_module or any(
                     path_belongs_to_module(root, [normalize_path(p).split("/")[0]])
                     for p in module_paths.get(file_module, [])
                 )

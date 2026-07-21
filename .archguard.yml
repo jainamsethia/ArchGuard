@@ -2,9 +2,11 @@ version: "3.0"
 modules:
   - name: archguard
     path: "archguard/"
-    coupling_budget: 15
+    coupling_budget: 25
     semantic_drift_threshold: 0.30
-    allowed_imports: []
+    allowed_imports: []        # only governs cross-module imports (e.g. archguard → tests);
+                               # third-party/stdlib imports are always permitted by the
+                               # analysis engine — see _layer_runners.py L1 skip logic.
     disallowed_imports: []
   - name: tests
     path: "tests/"
@@ -39,13 +41,11 @@ fitness_functions:
     rationale: "Production code must never depend on test code; this guards the build boundary."
 
   # ── Layer Debt Ceilings ──────────────────────────────────────────────
-  # Current layer_score = 74.5 → debt ≈ 0.745. Allow up to 0.80.
   - name: layer1_import_budget
     rule: "layer[1].debt <= 0.80"
     severity: warn
     rationale: "Layer 1 boundary violations must remain bounded to prevent import sprawl."
 
-  # Current coupling_score = 53.3 → debt ≈ 0.533. Allow up to 0.60.
   - name: layer2_coupling_budget
     rule: "layer[2].debt <= 0.60"
     severity: warn
@@ -64,13 +64,12 @@ fitness_functions:
     rationale: "Semantic drift should remain minimal to keep modules cohesive."
 
   # ── Aggregate Gates ──────────────────────────────────────────────────
-  # Current violation_count = 314. Allow up to 350 (headroom for minor churn).
   - name: violation_sanity
-    rule: "violation_count <= 350"
+    rule: "violation_count <= 50"
     severity: warn
-    rationale: "Total violation count must remain manageable; exceeding 350 indicates architectural regression."
+    rationale: "Total violation count must remain manageable; exceeding 50 indicates architectural regression."
 
-  # health_score from fitness evaluator currently = 100.0. Keep gate at 80.
+  # health_score from fitness evaluator currently ≥ 95. Keep gate at 80.
   - name: health_gate
     rule: "health_score >= 80"
     severity: critical

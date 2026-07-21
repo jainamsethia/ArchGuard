@@ -277,7 +277,7 @@ def _run_analysis_sync(
             v_list_out.append(
                 ViolationPayload(
                     file=raw_file,
-                    module=getattr(v, "module_name", None),
+                    module=getattr(v, "module", None),
                     severity=str(getattr(v, "severity", "low")),
                     message=getattr(v, "message", ""),
                     layer=str(getattr(v, "layer", "0")),
