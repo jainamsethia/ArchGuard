@@ -27,6 +27,31 @@
 | Auth endpoint resource abuse | Low | Moderate — CPU/memory exhaustion | Rate limiter (50 req/60s per IP) on login, logout, and auth/status; protects server resources even though credentials are unguessable |
 | Missing token in deployment | Medium | High — no auth | Startup warning logged; deployment configs (render.yaml, docker-compose) set `ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1` explicitly |
 
+### Decision basis (auth rate limiting)
+
+Rate limiting on auth endpoints was evaluated against operational
+resilience rather than credential protection:
+
+- **Deployment model**: ArchGuard is deployed both as a local CLI tool and
+  as an Internet-facing dashboard (Render, Railway, Docker). The auth
+  endpoints are public (no token required to reach them — they ARE the
+  login), making them a potential resource-exhaustion vector.
+- **Cost**: Trivial — 3 `dependencies=[Depends(rate_limiter)]` additions
+  reusing the existing 50 req/60s rate limiter already applied to 15+
+  data endpoints. Zero new dependencies, zero config burden.
+- **Benefit**: Each login attempt creates a session store entry kept for
+  24 h (`_SESSIONS` dict). Without rate limiting, 10 req/s × 86400 s = 864 K
+  entries ≈ 86 MB — non-trivial on a 512 MB Render instance. Rate limiting
+  caps this at 50 entries/min regardless of client behavior. Secondary
+  benefits: bounds log noise from 401 responses and prevents a single
+  misconfigured reverse-proxy health check from degrading the service.
+- **Existing protections**: 1 MB body size limit (applied before the route
+  handler), no external resource access in the auth path.
+- **Verdict**: Keep. The implementation cost is effectively zero (reuses
+  existing middleware), and the operational benefit (bounded session store
+  growth, capped log volume) is small but real for Internet-facing
+  deployments. On a pure local-CLI deployment the rate limit never fires.
+
 ### Accepted risks
 - Auth rate limiting keys on client IP (via `_real_client_ip()`), which trusts `X-Forwarded-For` only from configured proxy IPs. If `ARCHGUARD_TRUSTED_PROXY_IPS` is misconfigured, rate limiting can be bypassed by spoofing the header. This is accepted because a misconfigured deployment has larger problems (auth bypass).
 
