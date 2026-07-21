@@ -318,6 +318,14 @@ async def auth_status(request: Request) -> dict[str, bool]:
     return {"token_required": token_required, "authenticated": authenticated}
 
 
+# Catch-all for unrecognised /api/ paths — must be registered AFTER all real
+# API routes but BEFORE the static-file mount so they return a proper 404
+# instead of falling through to StaticFiles (which returns 405 for wrong
+# methods on paths it matched).
+@app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
+async def _api_404_catch_all() -> JSONResponse:
+    return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
 __all__ = ["app"]

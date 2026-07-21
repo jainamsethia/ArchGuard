@@ -7,20 +7,19 @@ client = TestClient(app)
 
 def test_advisor_session_route_removed():
     """Session-based advisor routes were removed in the API consolidation.
-    The old /api/advisor/session/{id}/message path must return 404 or 405."""
+    The old /api/advisor/session/{id}/message path must return 404."""
     headers = {"Authorization": "Bearer test_token"}
     response = client.post(
         "/api/advisor/session/999/message", json={"message": "Help me"}, headers=headers
     )
-    # Note: static file catch-all at "/" returns 405 for POST on nonexistent routes
-    assert response.status_code in (404, 405)
+    assert response.status_code == 404
 
 
 def test_advisor_session_route_removed_no_body():
-    """Session-based advisor route removed — also 404/405 without body."""
+    """Session-based advisor route removed — also 404 without body."""
     headers = {"Authorization": "Bearer test_token"}
     response = client.post("/api/advisor/session/999/message", json={}, headers=headers)
-    assert response.status_code in (404, 405)
+    assert response.status_code == 404
 
 
 def test_remediation_no_data():
@@ -32,18 +31,80 @@ def test_remediation_no_data():
     """
     headers = {"Authorization": "Bearer test_token"}
     response = client.get("/api/remediation", headers=headers)
-    assert response.status_code in (404, 405)
+    assert response.status_code == 404
 
 
-def test_deps_endpoint():
-    """GET /api/v1/deps — without a job_id the endpoint returns 400."""
+def test_deps_endpoint_requires_job_id():
+    """GET /api/v1/deps requires a job_id query parameter.
+
+    The endpoint validates job_id at two levels:
+    1. Query-parameter regex pattern (JobIdQuery) rejects malformed UUIDs.
+    2. Explicit guard: if job_id is None, returns 400 with a user-facing
+       message guiding the caller to submit a job first.
+
+    This is the intended contract — deps analysis runs against a checked-out
+    repo workspace, which is always tied to a specific analysis job.  There
+    is no meaningful "deps status" without a job context.
+    """
     headers = {"Authorization": "Bearer test_token"}
     response = client.get("/api/v1/deps", headers=headers)
-    # The /api/v1/deps endpoint requires a job_id; without one it returns 400
     assert response.status_code == 400
     data = response.json()
     assert "detail" in data
     assert "No analysis selected" in data["detail"]
+
+
+def test_deps_endpoint_success(monkeypatch):
+    """GET /api/v1/deps?job_id=<uuid> returns 200 with dependency data.
+
+    Providies a valid UUID, creates the matching workspace directory so
+    get_target_path resolves it, and mocks analyze_dependencies at the
+    subprocess level to avoid requiring pip-audit in the test environment.
+    """
+    import uuid
+    import tempfile
+    import json
+    import shutil
+    from pathlib import Path
+    from unittest.mock import patch
+
+    job_id = str(uuid.uuid4())
+    workspace = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    # Create a fake requirements.txt so _find_req_file returns something
+    (workspace / "requirements.txt").write_text("requests==2.31.0\n")
+
+    # Mock subprocess.run so _run_pip_audit returns a known JSON payload
+    fake_audit_output = json.dumps({
+        "dependencies": [
+            {"name": "requests", "version": "2.31.0", "vulns": []},
+        ]
+    })
+
+    def _fake_subprocess_run(*args, **kwargs):
+        class FakeProc:
+            stdout = fake_audit_output
+            stderr = ""
+            returncode = 0
+        return FakeProc()
+
+    monkeypatch.setattr("archguard.analysis.deps.subprocess.run", _fake_subprocess_run)
+
+    try:
+        headers = {"Authorization": "Bearer test_token"}
+        response = client.get(f"/api/v1/deps?job_id={job_id}", headers=headers)
+
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code}: {response.text[:200]}"
+        )
+        data = response.json()
+        assert "score" in data
+        assert "vulnerable_packages" in data
+        assert "scanned_packages" in data
+        assert data["scanned_packages"] == 1  # one dep in our fake output
+    finally:
+        shutil.rmtree(Path(tempfile.gettempdir()) / f"archguard-{job_id}", ignore_errors=True)
 
 
 def test_evolution_endpoint():
