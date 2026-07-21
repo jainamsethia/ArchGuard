@@ -23,11 +23,12 @@
 |--------|-----------|--------|------------|
 | Token leakage via logs | Low | High — full access | Token never logged; `content_filter.py` redacts exact token value from env vars sent to LLMs |
 | Token leakage via artifact | Low | Moderate | CI artifacts, coverage reports, test outputs don't include token values |
-| Brute-force token guessing | Very low | Moderate | `hmac.compare_digest` (constant-time comparison); no rate limit on auth endpoint itself (only on data endpoints) |
+| Brute-force token guessing | Very low | Moderate | `hmac.compare_digest` (constant-time comparison) |
+| Auth endpoint resource abuse | Low | Moderate — CPU/memory exhaustion | Rate limiter (50 req/60s per IP) on login, logout, and auth/status; protects server resources even though credentials are unguessable |
 | Missing token in deployment | Medium | High — no auth | Startup warning logged; deployment configs (render.yaml, docker-compose) set `ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1` explicitly |
 
 ### Accepted risks
-- Auth endpoint has no dedicated rate limiter. Mitigation: login requires a valid token guess; the token should be a high-entropy value (`secrets.token_hex(32)`).
+- Auth rate limiting keys on client IP (via `_real_client_ip()`), which trusts `X-Forwarded-For` only from configured proxy IPs. If `ARCHGUARD_TRUSTED_PROXY_IPS` is misconfigured, rate limiting can be bypassed by spoofing the header. This is accepted because a misconfigured deployment has larger problems (auth bypass).
 
 ---
 

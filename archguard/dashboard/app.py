@@ -13,13 +13,14 @@ from pathlib import Path
 from typing import Any, Annotated
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Query, HTTPException, Form, Response
+from fastapi import FastAPI, Request, Query, HTTPException, Form, Response, Depends
 import re as _re
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from archguard.config import AUDIT_LOG_FILENAME
+from archguard.dashboard._rate_limit import rate_limiter
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -274,8 +275,8 @@ async def serve_dashboard(request: Request) -> Response:
 from archguard.dashboard._cookie_auth import issue_session, revoke_session, COOKIE_NAME as _COOKIE_NAME  # noqa: E402
 
 
-@app.post("/api/v1/auth/login", include_in_schema=False)
-@app.post("/api/auth/login", include_in_schema=False, deprecated=True)
+@app.post("/api/v1/auth/login", include_in_schema=False, dependencies=[Depends(rate_limiter)])
+@app.post("/api/auth/login", include_in_schema=False, deprecated=True, dependencies=[Depends(rate_limiter)])
 async def login(response: Response, token: str = Form(...)) -> dict[str, bool]:
     """Exchange the dashboard token for a session cookie."""
     import os as _os
@@ -296,8 +297,8 @@ async def login(response: Response, token: str = Form(...)) -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.post("/api/v1/auth/logout", include_in_schema=False)
-@app.post("/api/auth/logout", include_in_schema=False, deprecated=True)
+@app.post("/api/v1/auth/logout", include_in_schema=False, dependencies=[Depends(rate_limiter)])
+@app.post("/api/auth/logout", include_in_schema=False, deprecated=True, dependencies=[Depends(rate_limiter)])
 async def logout(request: Request, response: Response) -> dict[str, bool]:
     """Invalidate the current session cookie."""
     cookie_value = request.cookies.get(_COOKIE_NAME, "")
@@ -307,8 +308,8 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/api/v1/auth/status", include_in_schema=False)
-@app.get("/api/auth/status", include_in_schema=False, deprecated=True)
+@app.get("/api/v1/auth/status", include_in_schema=False, dependencies=[Depends(rate_limiter)])
+@app.get("/api/auth/status", include_in_schema=False, deprecated=True, dependencies=[Depends(rate_limiter)])
 async def auth_status(request: Request) -> dict[str, bool]:
     """Return whether auth is required and whether the current request is authenticated.
 
