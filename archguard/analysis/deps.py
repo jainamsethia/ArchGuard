@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -131,8 +132,12 @@ def _parse_audit_output(
     return len(deps), vulnerable_packages
 
 
-def analyze_dependencies(repo_root: Path, timeout: int = 60) -> DependencyHealthResult:
-    """Run pip-audit to calculate Dependency Health Score."""
+def analyze_dependencies(repo_root: Path, timeout: int | None = None) -> DependencyHealthResult:
+    """Run pip-audit to calculate Dependency Health Score.
+
+    *timeout* defaults to ``ARCHGUARD_PIP_AUDIT_TIMEOUT`` env var (default 60s).
+    """
+    timeout = timeout if timeout is not None else int(os.environ.get("ARCHGUARD_PIP_AUDIT_TIMEOUT", "60"))
     found_file = _find_req_file(repo_root)
     if not found_file:
         return DependencyHealthResult(

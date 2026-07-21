@@ -68,7 +68,8 @@ async def _lifespan(app_instance: FastAPI) -> Any:
         _startup_logger.warning(
             "ARCHGUARD_DASHBOARD_TOKEN is not set. "
             "Authentication relies on IP-based allowlisting (localhost only). "
-            "Set this token for any deployment reachable from outside this machine."
+            "Generate one with: python -c \"import secrets; "
+            "print(secrets.token_hex(32))\""
         )
 
     task = None
