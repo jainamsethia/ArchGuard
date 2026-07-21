@@ -63,6 +63,13 @@ async def _lifespan(app_instance: FastAPI) -> Any:
         if not os.environ.get(var):
             _startup_logger.warning("Optional env var %s not set - %s", var, consequence)
 
+    if not os.environ.get("ARCHGUARD_DASHBOARD_TOKEN"):
+        _startup_logger.warning(
+            "ARCHGUARD_DASHBOARD_TOKEN is not set. "
+            "Authentication relies on IP-based allowlisting (localhost only). "
+            "Set this token for any deployment reachable from outside this machine."
+        )
+
     task = None
     try:
         from archguard.dashboard.workspace import cleanup_stale_workspaces
