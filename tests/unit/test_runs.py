@@ -19,7 +19,8 @@ def test_get_deps_without_job_returns_400():
 
 
 def test_runs_job_id_filter(monkeypatch):
-    import tempfile, pathlib
+    import tempfile
+    import pathlib
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import runs
 
@@ -46,7 +47,8 @@ def test_runs_job_id_filter(monkeypatch):
         assert len(res2["trend"]) == 1
 
 def test_repo_runs(monkeypatch):
-    import tempfile, pathlib
+    import tempfile
+    import pathlib
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import runs
 
@@ -56,7 +58,7 @@ def test_repo_runs(monkeypatch):
         logger = AuditLogger(log_path)
         logger.log_run('https://github.com/a/repo-a', 'job-a', timestamp='2026-01-01T00:00:00Z', module_scores={})
         logger.log_run('https://github.com/b/repo-b', 'job-b', timestamp='2026-01-02T00:00:00Z', module_scores={})
-        
+
         orig_cwd = __import__('os').getcwd()
         __import__('os').chdir(d)
         try:
@@ -65,3 +67,41 @@ def test_repo_runs(monkeypatch):
             assert res["runs"][0]["repo_url"] == "https://github.com/a/repo-a"
         finally:
             __import__('os').chdir(orig_cwd)
+
+
+def test_runs_by_job_id_returns_violations_for_compare(monkeypatch):
+    """The dashboard's compare-runs feature diffs the violation lists of two
+    runs fetched via /api/v1/runs?job_id=. This pins the contract: each run
+    returns its violations so the frontend can compute added/resolved/unchanged.
+    """
+    import tempfile
+    import pathlib
+    from archguard.audit.logger import AuditLogger
+    from archguard.dashboard.routes import runs
+
+    with tempfile.TemporaryDirectory() as d:
+        log_path = pathlib.Path(d) / "audit.jsonl"
+        logger = AuditLogger(log_path)
+
+        viol_a = [{"layer": 1, "module": "api", "file": "api/routes.py",
+                   "line": 1, "severity": "critical", "message": "bad import"}]
+        logger.log("analysis_run", job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                   timestamp="2026-01-01T00:00:00Z", violations=viol_a, score=80.0, band="WATCH")
+
+        viol_b = [{"layer": 1, "module": "api", "file": "api/routes.py",
+                   "line": 1, "severity": "critical", "message": "bad import"},
+                  {"layer": 2, "module": "core", "file": "", "line": 0,
+                   "severity": "high", "message": "fan_out=4 exceeds budget=3"}]
+        logger.log("analysis_run", job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                   timestamp="2026-01-02T00:00:00Z", violations=viol_b, score=60.0, band="WARN")
+
+        monkeypatch.setattr(runs, "get_audit_path", lambda jid: log_path)
+
+        res_a = runs.get_runs(limit=50, job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        res_b = runs.get_runs(limit=50, job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        assert len(res_a["runs"]) == 1 and len(res_b["runs"]) == 1
+        assert len(res_a["runs"][0]["violations"]) == 1
+        assert len(res_b["runs"][0]["violations"]) == 2
+        # The diff key the frontend uses (module+layer+message) is present on each.
+        for v in res_a["runs"][0]["violations"] + res_b["runs"][0]["violations"]:
+            assert {"module", "layer", "message"} <= set(v.keys())

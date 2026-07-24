@@ -10,10 +10,10 @@ from archguard.cli.analyze_cmd import AnalyzeOptions
 
 _console = Console()
 _BAND_EMOJI = {
-    "Healthy": "[OK] Healthy",
-    "Watch": "[!] Watch",
+    "Healthy": "✅ Healthy",
+    "Watch": "👁️ Watch",
     "Warn": "🔶 Warn",
-    "Critical": "[!] Critical",
+    "Critical": "🚨 Critical",
 }
 
 
@@ -94,6 +94,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     _console.print(f"Result: {ci_str}\n")
 
     if result.violations:
+        from archguard.utils.severity import Severity
         from rich.table import Table
 
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -107,7 +108,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
         sorted_violations = sorted(
             result.violations,
             key=lambda v: (
-                severity_order.get(getattr(v, "severity", "low"), 99),
+                severity_order.get(getattr(v, "severity", Severity.LOW), 99),
                 v.layer,
             ),
         )
@@ -122,9 +123,9 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
         table.add_column("Message")
 
         for v in sorted_violations:
-            sev_val = getattr(v, "severity", "low")
+            sev_val = getattr(v, "severity", Severity.LOW)
             sev_style = severity_colors.get(sev_val, "white")
-            sev_str = f"[{sev_style}]{str(sev_val).upper()}[/{sev_style}]"
+            sev_str = f"[{sev_style}]{sev_val.value.upper()}[/{sev_style}]"
             explanation = getattr(v, "explanation", "")
             msg = f"{v.message} - {v.commit_sha[:7]}"
             if explanation:
@@ -190,6 +191,7 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             {
                 "type": "layer",
                 "layer": getattr(v, "layer", 0),
+                "module": str(getattr(v, "module", "")),
                 "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
                 "message": getattr(v, "message", ""),
                 "severity": sev.value if isinstance(sev, Enum) else str(sev),
@@ -201,8 +203,9 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         band_val = str(result.archdebt.band.name).upper()
         out_band = (
             "PASS"
-            if band_val in ("HEALTHY", "WATCH")
-            else ("WARN" if band_val == "WARN" else "FAIL")
+            if band_val == "HEALTHY"
+            else ("WATCH" if band_val == "WATCH"
+            else ("WARN" if band_val == "WARN" else "FAIL"))
         )
         result_dict = {
             # composite_score: 0.0–1.0, HIGHER = WORSE (debt score)
@@ -265,8 +268,9 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         band_val = str(result.archdebt.band.name).upper()
         audit_band = (
             "PASS"
-            if band_val in ("HEALTHY", "WATCH")
-            else ("WARN" if band_val == "WARN" else "FAIL")
+            if band_val == "HEALTHY"
+            else ("WATCH" if band_val == "WATCH"
+            else ("WARN" if band_val == "WARN" else "FAIL"))
         )
         from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
         v_list_out = []

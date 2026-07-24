@@ -208,7 +208,7 @@ class OpenAIRemediationProvider(RemediationProvider):
         timeout: float = 30.0,
     ) -> None:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4-turbo")
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
         self.base_url = base_url or os.environ.get(
             "OPENAI_BASE_URL", "https://api.openai.com/v1"
         )
@@ -252,8 +252,12 @@ class OpenAIRemediationProvider(RemediationProvider):
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
             if status_code == 429:
-                logger.error("Rate limit exceeded calling OpenAI for remediation.")
-                raise RemediationUnavailableError("Rate limit exceeded calling OpenAI for remediation.")
+                retry_after = e.response.headers.get("Retry-After", "")
+                wait_msg = f" Retry after {retry_after}s." if retry_after else ""
+                logger.error("Rate limit exceeded calling OpenAI for remediation.%s", wait_msg)
+                raise RemediationUnavailableError(
+                    f"OpenAI rate limit exceeded.{wait_msg}"
+                )
             else:
                 msg = f"HTTP {status_code} calling OpenAI for remediation: {e.response.text}"
                 logger.error(msg)

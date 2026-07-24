@@ -1,26 +1,123 @@
 
 
-// Generated event listeners
+// Initialization
 document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById('gen-id-click-9273a72d').addEventListener('click', function(event) { document.getElementById('fitness-container').scrollIntoView({behavior: 'smooth'}) });
-    document.getElementById('gen-id-click-e936a072').addEventListener('click', function(event) { document.getElementById('advisor-panel').scrollIntoView({behavior: 'smooth'}) });
-    document.getElementById('gen-id-click-136b5c30').addEventListener('click', function(event) { document.getElementById('evolution-trends-grid').scrollIntoView({behavior: 'smooth'}) });
-    document.getElementById('gen-id-click-d33f8140').addEventListener('click', function(event) { switchTab('overview') });
-    document.getElementById('gen-id-click-963abe3f').addEventListener('click', function(event) { switchTab('violations') });
-    document.getElementById('gen-id-click-deps').addEventListener('click', function(event) { switchTab('dependencies') });
-    document.getElementById('start-evolution-btn').addEventListener('click', function(event) { startEvolutionAnalysis() });
-    document.getElementById('scan-deps-btn').addEventListener('click', function(event) { scanDependencies() });
-    
-    document.getElementById('repo-history-btn')?.addEventListener('click', () => {
+    initNavigation();
+    initActionButtons();
+});
+
+function initNavigation() {
+    // Quick links
+    const fitnessLink = document.getElementById('chip-fitness');
+    if (fitnessLink) fitnessLink.addEventListener('click', () => document.getElementById('fitness-container').scrollIntoView({behavior: 'smooth'}));
+
+    const advisorLink = document.getElementById('chip-advisor');
+    if (advisorLink) advisorLink.addEventListener('click', () => document.getElementById('advisor-panel').scrollIntoView({behavior: 'smooth'}));
+
+    const evolutionLink = document.getElementById('chip-evolution');
+    if (evolutionLink) evolutionLink.addEventListener('click', () => document.getElementById('evolution-trends-grid').scrollIntoView({behavior: 'smooth'}));
+
+    // Tabs
+    const overviewTab = document.getElementById('tab-overview');
+    if (overviewTab) overviewTab.addEventListener('click', () => switchTab('overview'));
+
+    const violationsTab = document.getElementById('tab-violations');
+    if (violationsTab) violationsTab.addEventListener('click', () => switchTab('violations'));
+
+    const depsTab = document.getElementById('tab-dependencies');
+    if (depsTab) depsTab.addEventListener('click', () => switchTab('dependencies'));
+
+    const suppressTab = document.getElementById('tab-suppressions');
+    if (suppressTab) suppressTab.addEventListener('click', () => {
+        switchTab('suppressions');
+        loadSuppressions();
+    });
+}
+
+function initActionButtons() {
+    const startEvo = document.getElementById('start-evolution-btn');
+    if (startEvo) startEvo.addEventListener('click', startEvolutionAnalysis);
+
+    const scanDeps = document.getElementById('scan-deps-btn');
+    if (scanDeps) scanDeps.addEventListener('click', scanDependencies);
+
+    const repoBtn = document.getElementById('repo-history-btn');
+    if (repoBtn) repoBtn.addEventListener('click', () => {
         if (window.latestRun && window.latestRun.repo_url) {
             loadRepoHistory(window.latestRun.repo_url);
         }
     });
 
-    document.getElementById('advisor-question-input').addEventListener('keydown', function(event) { if(event.key==='Enter') sendAdvisorQuestion() });
-    document.getElementById('gen-id-click-1e6913c1').addEventListener('click', function(event) { sendAdvisorQuestion() });
-    document.getElementById('remediation-btn').addEventListener('click', function(event) { generateRemediationPlan() });
-});
+    const advKey = document.getElementById('advisor-question-input');
+    if (advKey) advKey.addEventListener('keydown', (e) => { if(e.key==='Enter') sendAdvisorQuestion() });
+
+    const advBtn = document.getElementById('btn-advisor-ask');
+    if (advBtn) advBtn.addEventListener('click', sendAdvisorQuestion);
+
+    const remBtn = document.getElementById('remediation-btn');
+    if (remBtn) remBtn.addEventListener('click', generateRemediationPlan);
+
+    const violRemBtn = document.getElementById('violations-remediation-btn');
+    if (violRemBtn) violRemBtn.addEventListener('click', generateViolationsRemediation);
+
+    const riskBtn = document.getElementById('analyze-risk-btn');
+    if (riskBtn) riskBtn.addEventListener('click', analyzePRRisk);
+
+    const refreshSupBtn = document.getElementById('refresh-suppressions-btn');
+    if (refreshSupBtn) refreshSupBtn.addEventListener('click', loadSuppressions);
+
+    initCompareControls();
+
+    // Delegated removal for per-row suppression "Remove" buttons (rendered
+    // dynamically, so bind once on the static tbody).
+    const supTbody = document.querySelector('#suppressionsTable tbody');
+    if (supTbody) supTbody.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-suppression-id]');
+        if (!btn) return;
+        removeSuppression(btn.dataset.suppressionId);
+    });
+
+    // Delegated "Suppress" handler for per-violation buttons in the violations
+    // table (rows are re-rendered on every fetch / page change, so delegate).
+    const violTbody = document.querySelector('#violationsTable tbody');
+    if (violTbody) violTbody.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-suppress');
+        if (!btn || btn.disabled) return;
+        createSuppression(btn.dataset.module, btn.dataset.layer, btn.dataset.message);
+    });
+
+    // Violations toolbar: re-render (resetting to page 1) on filter/sort change.
+    const reRenderViolations = () => {
+        window.currentViolationsPage = 1;
+        if (window.latestRun) updateViolationsTable(window.latestRun);
+    };
+    ['violations-filter', 'violations-layer-filter', 'violations-sort'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', reRenderViolations);
+        if (el) el.addEventListener('change', reRenderViolations);
+    });
+
+    // Export the current run's violations as a JSON download.
+    const exportBtn = document.getElementById('violations-export-btn');
+    if (exportBtn) exportBtn.addEventListener('click', () => {
+        const vs = (window.latestRun && window.latestRun.violations) || [];
+        const payload = JSON.stringify({
+            job_id: window.latestRun?.job_id,
+            score: window.latestRun?.score,
+            band: window.latestRun?.band,
+            violations: vs,
+        }, null, 2);
+        const blob = new Blob([payload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `archguard-violations-${window.latestRun?.job_id || 'run'}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    });
+}
 
 
 // Extracted inline script
@@ -95,24 +192,28 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 if (highlightJobId) {
-                    // Try to fetch specific job if available
                     safeFetch(`/api/v1/jobs/${highlightJobId}`, null).then(job => {
                         const overview = document.getElementById('overview');
                         if (overview && !document.getElementById('job-banner')) {
                             const banner = document.createElement('div');
                             banner.id = 'job-banner';
-                            banner.className = 'glass-card';
-                            banner.style.marginBottom = '2rem';
+                            banner.className = 'glass-card job-banner';
                             banner.style.background = 'rgba(16, 185, 129, 0.2)';
                             banner.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-                            banner.style.transition = 'all 2s ease';
-                            
-                            const jobStatus = job ? (job.status === 'COMPLETED' ? 'Successful' : job.status) : 'Completed';
+
+                            const isSuccess = job && job.status === 'complete';
+                            const repoLabel = job?.github_url
+                                ? job.github_url.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
+                                : 'your repository';
+                            const heading = isSuccess
+                                ? `✓ Analysis complete for ${sanitize(repoLabel)}`
+                                : `Status: ${sanitize(job?.status || 'unknown')}`;
+
                             banner.innerHTML = `
-                                <h3 style="margin: 0; color: var(--success-color);">Analysis ${jobStatus}: ${highlightJobId}</h3>
-                                <p style="margin: 0.5rem 0 0 0;">Your results have been successfully loaded.</p>
+                                <h3>${heading}</h3>
+                                <p>Scroll down for the full breakdown.</p>
                             `;
-                            
+
                             overview.insertBefore(banner, overview.firstChild);
                             setTimeout(() => {
                                 banner.style.background = 'var(--surface-color)';
@@ -129,6 +230,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     updateViolationsTable(latestData);
                 }
                 updateTrendChart(runsData.runs);
+                populateRecentPicker(runsData.runs);
                 updateModuleChart(modulesData?.modules);
                 updateEvolutionTrends(evolutionData);
                 if (gitEvoData && gitEvoData.snapshots && gitEvoData.snapshots.length > 0) {
@@ -224,6 +326,25 @@ document.addEventListener("DOMContentLoaded", () => {
             return 'badge-low';
         }
 
+        // Build the "Location" cell for a violation. Layer 1 carries a real
+        // source line (from tree-sitter), so we show `file:line`. Layers 2, 3,
+        // and 4 are inherently module-level with no single line — we show the
+        // module name rather than fabricate a line number.
+        function violationLocationCell(v) {
+            const file = v.file;
+            const line = Number(v.line || 0);
+            if (file && line > 0) {
+                return `${sanitize(file)}:${line}`;
+            }
+            if (file) {
+                return sanitize(file);
+            }
+            if (v.module) {
+                return `${sanitize(v.module)} <span class="violation-loc-note">(module-level)</span>`;
+            }
+            return 'Global';
+        }
+
         function sanitize(str) {
             if (str === null || str === undefined) return '';
             const div = document.createElement('div');
@@ -249,13 +370,69 @@ document.addEventListener("DOMContentLoaded", () => {
             `;
         }
 
+        // In-page modal dialog (replaces native prompt/alert/confirm) so the
+        // interaction matches the dark glassmorphic system instead of a raw
+        // browser dialog. Returns a Promise<string|boolean|null>:
+        //   - confirm modal: true / false
+        //   - input modal: the entered string, or null if cancelled
+        function showModal({ title, body = '', input = null, confirmLabel = 'Confirm', cancelLabel = 'Cancel', destructive = false }) {
+            return new Promise(resolve => {
+                const overlay = document.createElement('div');
+                overlay.className = 'modal-overlay';
+                const inputHtml = input !== null
+                    ? `<input class="modal-input" id="modal-input" type="text" placeholder="${sanitize(input.placeholder || '')}" value="${sanitize(input.value || '')}"/>`
+                    : '';
+                overlay.innerHTML = `
+                    <div class="modal-card" role="dialog" aria-modal="true" aria-label="${sanitize(title)}">
+                        <h3 class="modal-title">${sanitize(title)}</h3>
+                        ${body ? `<p class="modal-body">${sanitize(body)}</p>` : ''}
+                        ${inputHtml}
+                        <div class="modal-actions">
+                            ${cancelLabel ? `<button class="btn-action" id="modal-cancel">${sanitize(cancelLabel)}</button>` : ''}
+                            <button class="btn-action" id="modal-confirm" style="${destructive ? 'border-color:var(--danger-color);color:var(--danger-color);' : ''}">${sanitize(confirmLabel)}</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(overlay);
+
+                const cleanup = (val) => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(val); };
+                const onKey = (e) => {
+                    if (e.key === 'Escape') cleanup(input !== null ? null : false);
+                    if (e.key === 'Enter' && input !== null) cleanup(document.getElementById('modal-input').value);
+                };
+                const cancelBtn = document.getElementById('modal-cancel');
+                if (cancelBtn) cancelBtn.addEventListener('click', () => cleanup(input !== null ? null : false));
+                document.getElementById('modal-confirm').addEventListener('click', () => {
+                    cleanup(input !== null ? document.getElementById('modal-input').value.trim() : true);
+                });
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(input !== null ? null : false); });
+                document.addEventListener('keydown', onKey);
+
+                const inputEl = document.getElementById('modal-input');
+                if (inputEl) inputEl.focus();
+                else document.getElementById('modal-confirm').focus();
+            });
+        }
+
         function updateFitnessPanel(latestRun) {
             const container = document.getElementById('fitness-container');
-            
+
+            // Plain-language gloss for each built-in layer, so a first-time
+            // user knows what "Layer 3" actually checks without leaving the page.
+            // NOTE: keep in sync with the static glossary <dl> in dashboard.html.
+            const LAYER_GLOSSES = {
+                1: 'Flags forbidden or unapproved cross-module imports (tree-sitter AST).',
+                2: 'Flags modules whose fan-out (unique dependencies) exceeds their coupling budget.',
+                3: 'Flags modules whose embedding centroid drifted beyond the threshold since the baseline.',
+                4: 'Flags cross-module function duplication found via vector similarity (FAISS).',
+            };
+
             let layerResultsHtml = '';
             const layerResults = latestRun.layer_results || [];
             if (layerResults.length > 0) {
                 const lrHtml = layerResults.map(lr => {
+                    const gloss = LAYER_GLOSSES[lr.layer] || '';
+                    const glossHtml = gloss ? `<div class="violation-loc-note" style="margin-top:0.25rem;">${gloss}</div>` : '';
                     if (lr.skipped) {
                         return `
                             <div class="fitness-card skipped">
@@ -263,6 +440,7 @@ document.addEventListener("DOMContentLoaded", () => {
                                     <span class="fitness-card-title">➖ Layer ${sanitize(lr.layer.toString())} (${sanitize(lr.name)})</span>
                                     <span class="badge skipped">not checked, ${sanitize(lr.skip_reason || 'optional dependency not installed')}</span>
                                 </div>
+                                ${glossHtml}
                             </div>
                         `;
                     } else {
@@ -272,14 +450,16 @@ document.addEventListener("DOMContentLoaded", () => {
                             <div class="fitness-card ${statusClass}">
                                 <div class="fitness-card-header">
                                     <span class="fitness-card-title">${icon} Layer ${sanitize(lr.layer.toString())} (${sanitize(lr.name)})</span>
-                                    <span class="badge ${statusClass}">Score: ${sanitize((lr.score * 100).toFixed(1))}</span>
+                                    <span class="badge ${statusClass}">Debt: ${sanitize((lr.score * 100).toFixed(1))}%</span>
                                 </div>
+                                ${glossHtml}
                             </div>
                         `;
                     }
                 }).join('');
                 layerResultsHtml = `
-                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Layer Results</h3>
+                    <h3 style="margin-bottom: 0.25rem; font-size: 1rem; color: var(--text-secondary);">Built-in Architecture Checks</h3>
+                    <p style="margin: 0 0 1rem 0; font-size: 0.8rem; color: var(--text-secondary);">Lower is better — 0 means no issues detected. Health Score is the inverse of the weighted ArchDebt across these layers.</p>
                     <div class="fitness-grid" style="margin-bottom: 2rem;">
                         ${lrHtml}
                     </div>
@@ -291,7 +471,10 @@ document.addEventListener("DOMContentLoaded", () => {
             let fitnessHtml = '';
 
             if (fitnessResults.length === 0) {
-                fitnessHtml = getEmptyStateHtml('📋', 'No Fitness Results', 'No fitness functions defined or executed.');
+                fitnessHtml = `
+                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Your Custom Fitness Functions</h3>
+                    ${getEmptyStateHtml('📋', 'No custom fitness functions yet', 'Add one in .archguard.yml to get automated pass/fail checks for rules specific to your architecture.')}
+                `;
             } else {
                 const html = fitnessResults.map(r => {
                     const passed = r.passed !== false;
@@ -329,7 +512,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     `;
                 }).join('');
                 fitnessHtml = `
-                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Fitness Functions</h3>
+                    <h3 style="margin-bottom: 1rem; font-size: 1rem; color: var(--text-secondary);">Your Custom Fitness Functions</h3>
                     <div class="fitness-grid">${html}</div>
                 `;
             }
@@ -337,27 +520,123 @@ document.addEventListener("DOMContentLoaded", () => {
             container.innerHTML = layerResultsHtml + fitnessHtml;
         }
 
+        window.currentViolationsPage = 1;
+        window.violationsPerPage = 20;
+
+        const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+
+        // Apply the current text filter, layer filter, and sort to a violation
+        // list. Returns a new array (does not mutate the run's data).
+        function applyViolationsView(violations) {
+            const filterEl = document.getElementById('violations-filter');
+            const layerEl = document.getElementById('violations-layer-filter');
+            const sortEl = document.getElementById('violations-sort');
+            const q = (filterEl?.value || '').trim().toLowerCase();
+            const layerFilter = layerEl?.value || '';
+            const sortBy = sortEl?.value || 'severity';
+
+            let view = violations.filter(v => {
+                if (layerFilter && String(v.layer) !== layerFilter) return false;
+                if (!q) return true;
+                const hay = `${v.file || ''} ${v.module || ''} ${v.message || ''} ${v.severity || ''}`.toLowerCase();
+                return hay.includes(q);
+            });
+
+            view = view.slice().sort((a, b) => {
+                if (sortBy === 'severity') {
+                    const ra = SEVERITY_RANK[(a.severity || 'low').toLowerCase()] ?? 9;
+                    const rb = SEVERITY_RANK[(b.severity || 'low').toLowerCase()] ?? 9;
+                    if (ra !== rb) return ra - rb;
+                }
+                if (sortBy === 'layer') {
+                    const la = Number(a.layer) || 0, lb = Number(b.layer) || 0;
+                    if (la !== lb) return la - lb;
+                }
+                if (sortBy === 'file') {
+                    return String(a.file || a.module || '').localeCompare(String(b.file || b.module || ''));
+                }
+                return 0;
+            });
+            return view;
+        }
+
         function updateViolationsTable(latestRun) {
             const tbody = document.querySelector('#violationsTable tbody');
-            const violations = latestRun.violations || [];
+            const allViolations = latestRun.violations || [];
+            const violations = applyViolationsView(allViolations);
 
-            if (violations.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="padding:0; border:none;">' + getEmptyStateHtml('✅', 'No Violations', 'No active architecture violations. Great job!') + '</td></tr>';
+            if (allViolations.length > 0 && violations.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="padding:0; border:none;">' + getEmptyStateHtml('🔍', 'No Matches', 'No violations match the current filter. Adjust the filter to see more.') + '</td></tr>';
+                const controlContainer = document.getElementById('violations-pagination');
+                if(controlContainer) controlContainer.innerHTML = '';
                 return;
             }
 
-            tbody.innerHTML = violations.slice(0, 20).map(v => `
+            if (allViolations.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="padding:0; border:none;">' + getEmptyStateHtml('✅', 'No Violations', 'No active architecture violations. Great job!') + '</td></tr>';
+                const controlContainer = document.getElementById('violations-pagination');
+                if(controlContainer) controlContainer.innerHTML = '';
+                return;
+            }
+
+            const totalPages = Math.ceil(violations.length / window.violationsPerPage);
+            if (window.currentViolationsPage > totalPages) {
+                window.currentViolationsPage = totalPages;
+            }
+
+            const startIdx = (window.currentViolationsPage - 1) * window.violationsPerPage;
+            const endIdx = startIdx + window.violationsPerPage;
+            const pageViolations = violations.slice(startIdx, endIdx);
+
+            tbody.innerHTML = pageViolations.map(v => {
+                // Only offer suppression when we have enough identity to match
+                // the violation (module + layer + message is the store's key).
+                const canSuppress = !!(v.module && v.layer && v.message);
+                const suppressAttrs = canSuppress
+                    ? `data-module="${sanitize(v.module)}" data-layer="${sanitize(v.layer)}" data-message="${sanitize(v.message)}"`
+                    : 'disabled style="opacity:0.4; cursor:not-allowed;" title="This violation has no stable module/layer key to suppress."';
+                return `
                 <tr>
                     <td>L${sanitize(v.layer || '?')}</td>
                     <td><span class="badge ${getSeverityClass(v.severity)}">${sanitize(v.severity || 'low')}</span></td>
-                    <td style="color: #cbd5e1;">${sanitize(v.file || v.module || 'Global')}</td>
+                    <td style="color: #cbd5e1; word-break: break-all;">${violationLocationCell(v)}</td>
                     <td>${sanitize(v.message || 'Unknown violation')}</td>
+                    <td><button class="btn-action btn-suppress" ${suppressAttrs} style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Suppress</button></td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
+
+            // Update pagination controls
+            let controlContainer = document.getElementById('violations-pagination');
+            if (!controlContainer) {
+                controlContainer = document.createElement('div');
+                controlContainer.id = 'violations-pagination';
+                controlContainer.style = 'display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; color: var(--text-secondary); font-size: 0.85rem;';
+                document.querySelector('#violationsTable').parentElement.appendChild(controlContainer);
+                controlContainer.addEventListener('click', (e) => {
+                    const btn = e.target.closest('[data-page]');
+                    if (!btn || btn.disabled) return;
+                    if (btn.dataset.page === 'prev') window.currentViolationsPage--;
+                    else if (btn.dataset.page === 'next') window.currentViolationsPage++;
+                    updateViolationsTable(window.latestRun);
+                });
+            }
+
+            if (violations.length > window.violationsPerPage) {
+                controlContainer.innerHTML = `
+                    <div>Showing ${startIdx + 1}-${Math.min(endIdx, violations.length)} of ${violations.length} violations</div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn-action" data-page="prev" ${window.currentViolationsPage === 1 ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>Prev</button>
+                        <button class="btn-action" data-page="next" ${window.currentViolationsPage === totalPages ? 'disabled style="opacity:0.5; cursor:not-allowed;"' : ''}>Next</button>
+                    </div>
+                `;
+            } else {
+                controlContainer.innerHTML = `<div>Showing all ${violations.length} violations</div>`;
+            }
         }
 
         function updateTrendChart(runs) {
-            if (!runs || runs.length === 0) {
+            if (!runs || runs.length < 2) {
                 const ctx = document.getElementById('trendChart');
                 if(ctx && ctx.parentElement) ctx.parentElement.innerHTML = getEmptyStateHtml('📈', 'No Trends', 'Not enough historical data to display a trend.');
                 return;
@@ -391,7 +670,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'ArchDebt Score',
+                        label: 'Health Score',
                         data: data,
                         borderColor: '#3b82f6',
                         backgroundColor: gradient,
@@ -451,7 +730,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const noteEl = document.getElementById('module-chart-note');
             if (noteEl) {
                 if (combined.length > 10) {
-                    noteEl.textContent = `Showing top 10 of ${combined.length} modules by trend magnitude.`;
+                    noteEl.textContent = `Showing top 10 of ${combined.length} modules by health score.`;
                 } else {
                     noteEl.textContent = '';
                 }
@@ -756,7 +1035,7 @@ function getEmptyStateHtml(icon, title, body) {
 
         // ─── Advisor Panel (Step 11/12 – Anthropic Streaming) ───
         async function sendAdvisorQuestion() {
-            const askBtn = document.getElementById('gen-id-click-1e6913c1');
+            const askBtn = document.getElementById('btn-advisor-ask');
             if (askBtn.disabled) return;  // already in flight -- ignore a duplicate click or Enter-key repeat
 
             const input = document.getElementById('advisor-question-input');
@@ -838,6 +1117,16 @@ function getEmptyStateHtml(icon, title, body) {
 
             try {
                 const res = await fetch(`/api/v1/remediation/plan${jobQuery}`);
+                if (!res.ok) {
+                    const text = await res.text().catch(() => '');
+                    let msg = `Error ${res.status}`;
+                    try {
+                        const body = JSON.parse(text);
+                        msg = body.detail || body.error || msg;
+                    } catch (_) {}
+                    resultsEl.innerHTML = getErrorStateHtml(msg, () => generateRemediationPlan());
+                    return;
+                }
                 const data = await res.json();
                 const tasks = data.tasks || [];
 
@@ -846,27 +1135,7 @@ function getEmptyStateHtml(icon, title, body) {
                     return;
                 }
 
-                if (tasks.length === 0) {
-                    resultsEl.innerHTML = '<div style="color: var(--success-color);">No remediation tasks needed. Architecture is healthy! 🎉</div>';
-                } else {
-                    resultsEl.innerHTML = tasks.map((t, i) => {
-                        const badgeClass = 'badge-' + (t.priority || 'medium');
-                        const criteria = (t.acceptance_criteria || []).map(c => `<li>${sanitize(c)}</li>`).join('');
-                        return `
-                            <div style="background: rgba(30,41,59,0.4); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; border-left: 4px solid ${t.priority === 'critical' ? 'var(--danger-color)' : t.priority === 'high' ? 'var(--warn-color)' : 'var(--accent-color)'};">
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-                                    <span style="font-weight: 600; color: var(--text-primary);">${sanitize(t.title)}</span>
-                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                        <span class="badge ${badgeClass}">${sanitize(t.priority)}</span>
-                                        <span style="font-size: 0.75rem; color: var(--text-secondary);">${t.effort_days || '?'}d</span>
-                                    </div>
-                                </div>
-                                <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">${sanitize(t.description)}</div>
-                                ${criteria ? `<ul style="margin: 0.25rem 0 0 1rem; padding: 0; font-size: 0.8rem; color: var(--text-secondary);">${criteria}</ul>` : ''}
-                            </div>
-                        `;
-                    }).join('');
-                }
+                renderRemediationTasks(tasks, resultsEl);
             } catch (err) {
                 console.error('Remediation error:', err);
                 resultsEl.innerHTML = getErrorStateHtml('Error generating remediation plan.', () => generateRemediationPlan());
@@ -875,10 +1144,448 @@ function getEmptyStateHtml(icon, title, body) {
                 btn.textContent = 'Generate Plan';
             }
         }
+
+        function renderRemediationTasks(tasks, targetEl) {
+            if (!tasks || tasks.length === 0) {
+                targetEl.innerHTML = '<div style="color: var(--success-color);">No remediation tasks needed. Architecture is healthy! 🎉</div>';
+                return;
+            }
+            targetEl.innerHTML = tasks.map((t, i) => {
+                const badgeClass = 'badge-' + (t.priority || 'medium');
+                const criteria = (t.acceptance_criteria || []).map(c => `<li>${sanitize(c)}</li>`).join('');
+                const borderColor = t.priority === 'critical' ? 'var(--danger-color)' : t.priority === 'high' ? 'var(--warn-color)' : 'var(--accent-color)';
+                return `
+                    <div class="remediation-card" style="border-left-color: ${borderColor};">
+                        <div class="remediation-card-head">
+                            <span class="remediation-card-title">${sanitize(t.title)}</span>
+                            <div class="remediation-card-meta">
+                                <span class="badge ${badgeClass}">${sanitize(t.priority)}</span>
+                                <span class="remediation-card-effort">${t.effort_days || '?'}d</span>
+                            </div>
+                        </div>
+                        <div class="remediation-card-desc">${sanitize(t.description)}</div>
+                        ${criteria ? `<ul class="remediation-card-criteria">${criteria}</ul>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function generateViolationsRemediation() {
+            const btn = document.getElementById('violations-remediation-btn');
+            const resultsEl = document.getElementById('violations-remediation-results');
+
+            if (!window.latestRun || !window.latestRun.violations || window.latestRun.violations.length === 0) {
+                resultsEl.innerHTML = '<div style="color: var(--text-secondary);">No violations to suggest fixes for.</div>';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation suggestions...</div>';
+
+            try {
+                const res = await fetch(`/api/v1/remediation/plan${jobQuery}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ violations: window.latestRun.violations })
+                });
+                if (!res.ok) {
+                    const text = await res.text().catch(() => '');
+                    let msg = `Error ${res.status}`;
+                    try {
+                        const body = JSON.parse(text);
+                        msg = body.detail || body.error || msg;
+                    } catch (_) {}
+                    resultsEl.innerHTML = getErrorStateHtml(msg, () => generateViolationsRemediation());
+                    return;
+                }
+                const data = await res.json();
+                const tasks = data.tasks || [];
+
+                if (data.error) {
+                    resultsEl.innerHTML = getErrorStateHtml(data.error, () => generateViolationsRemediation());
+                    return;
+                }
+
+                renderRemediationTasks(tasks, resultsEl);
+            } catch (err) {
+                console.error('Violations remediation error:', err);
+                resultsEl.innerHTML = getErrorStateHtml('Error generating remediation suggestions.', () => generateViolationsRemediation());
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Suggest fixes for these violations';
+            }
+        }
         
         async function loadRepoHistory(repoUrl) {
+            const container = document.getElementById('repo-history-container');
+            const tableEl = document.getElementById('repo-history-table');
+            if (container) container.hidden = false;
+            if (tableEl) tableEl.innerHTML = '<span class="text-helper">Loading…</span>';
             const res = await fetch(`/api/v1/repos/${encodeURIComponent(repoUrl)}/runs`);
-            if (!res.ok) return;
+            if (!res.ok) {
+                if (tableEl) tableEl.innerHTML = getErrorStateHtml(`Could not load history (HTTP ${res.status}).`, () => loadRepoHistory(repoUrl));
+                return;
+            }
             const data = await res.json();
             updateTrendChart(data.runs);  // reuse existing chart-rendering function; do not duplicate its logic
+            renderRepoHistoryTable(data.runs || [], tableEl);
         }
+
+        function renderRepoHistoryTable(runs, tableEl) {
+            if (!tableEl) return;
+            if (!runs.length) {
+                tableEl.innerHTML = getEmptyStateHtml('🕓', 'No History', 'No previous runs recorded for this repository yet.');
+                return;
+            }
+            // Newest first.
+            const sorted = [...runs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            const rows = sorted.map(r => {
+                const d = r.timestamp ? new Date(r.timestamp) : null;
+                const when = d ? d.toLocaleString() : '—';
+                const score = r.score != null ? Number(r.score).toFixed(1) : '—';
+                const band = r.band || '—';
+                const viol = r.violations ? r.violations.length : (r.total_violations ?? 0);
+                const repo = (r.repo_url || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+                const href = r.job_id ? `dashboard.html?job_id=${encodeURIComponent(r.job_id)}` : '#';
+                return `
+                    <tr data-href="${href}">
+                        <td>${sanitize(when)}</td>
+                        <td><strong>${sanitize(score)}</strong></td>
+                        <td>${sanitize(band)}</td>
+                        <td>${sanitize(String(viol))}</td>
+                        <td style="color:var(--text-secondary)">${sanitize(repo)}</td>
+                    </tr>`;
+            }).join('');
+            tableEl.innerHTML = `
+                <table class="repo-history-table">
+                    <thead><tr><th>When</th><th>Score</th><th>Band</th><th>Violations</th><th>Repo</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>`;
+            // Make rows clickable.
+            tableEl.querySelectorAll('tr[data-href]').forEach(tr => {
+                tr.addEventListener('click', () => {
+                    const href = tr.getAttribute('data-href');
+                    if (href && href !== '#') window.location.href = href;
+                });
+            });
+        }
+
+        // ─── Run comparison (Phase 6.5) ───
+        // Populate the recent-analyses pickers and let the user diff two runs.
+        function _runLabel(r) {
+            const d = r.timestamp ? new Date(r.timestamp) : null;
+            const when = d ? `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')}` : '?';
+            return `${r.score ?? '--'} (${r.band ?? '?'}) · ${when} · ${(r.repo_url||'').replace(/^https?:\/\/github\.com\//,'').replace(/\.git$/,'')}`;
+        }
+
+        function populateRecentPicker(runs) {
+            window.recentRuns = runs || [];
+            const pickers = [
+                document.getElementById('recent-analyses-picker'),
+                document.getElementById('compare-picker'),
+            ];
+            pickers.forEach(p => {
+                if (!p) return;
+                const placeholder = p.querySelector('option')?.textContent || '';
+                p.innerHTML = `<option value="">${placeholder}</option>`;
+                for (const r of window.recentRuns) {
+                    if (!r.job_id) continue;
+                    const opt = document.createElement('option');
+                    opt.value = r.job_id;
+                    opt.textContent = _runLabel(r);
+                    p.appendChild(opt);
+                }
+            });
+            // Pre-select the current highlighted run in the base picker.
+            if (highlightJobId) {
+                const base = document.getElementById('recent-analyses-picker');
+                if (base) base.value = highlightJobId;
+            }
+        }
+
+        function _violationKey(v) {
+            // Match key used by the suppression store: module + layer + message.
+            return `${v.module||''}|${v.layer||''}|${v.message||''}`;
+        }
+
+        async function _fetchRunByJobId(jobId) {
+            // /api/v1/runs?job_id=... returns all entries for that job; take the newest.
+            const res = await fetch(`/api/v1/runs?limit=50&job_id=${jobId}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            const rs = data.runs || [];
+            return rs.length ? rs[rs.length - 1] : null;
+        }
+
+        async function renderRunComparison(jobIdA, jobIdB) {
+            const panel = document.getElementById('compare-panel');
+            const results = document.getElementById('compare-results');
+            if (!jobIdA || !jobIdB || jobIdA === jobIdB) {
+                if (panel) panel.hidden = true;
+                return;
+            }
+            results.innerHTML = '<span class="text-helper">Loading comparison…</span>';
+            panel.hidden = false;
+            try {
+                const [a, b] = await Promise.all([_fetchRunByJobId(jobIdA), _fetchRunByJobId(jobIdB)]);
+                if (!a || !b) {
+                    results.innerHTML = getErrorStateHtml('Could not load both runs. Their workspace may have expired.', () => renderRunComparison(jobIdA, jobIdB));
+                    return;
+                }
+                const va = new Map((a.violations || []).map(v => [_violationKey(v), v]));
+                const vb = new Map((b.violations || []).map(v => [_violationKey(v), v]));
+                const added = [...vb.keys()].filter(k => !va.has(k)).map(k => vb.get(k));
+                const removed = [...va.keys()].filter(k => !vb.has(k)).map(k => va.get(k));
+                const persist = [...vb.keys()].filter(k => va.has(k)).map(k => vb.get(k));
+
+                const rowHtml = (tag, v) => `
+                    <div class="compare-diff-row">
+                        <span class="compare-diff-tag ${tag}">${tag === 'persist' ? 'same' : tag}</span>
+                        <span>L${sanitize(v.layer||'?')} · ${sanitize(v.severity||'low')} · ${sanitize(v.file||v.module||'Global')} · ${sanitize(v.message||'')}</span>
+                    </div>`;
+                const diffHtml = [
+                    ...added.map(v => rowHtml('added', v)),
+                    ...removed.map(v => rowHtml('removed', v)),
+                    ...persist.map(v => rowHtml('persist', v)),
+                ].join('') || '<div class="text-helper">No violations in either run.</div>';
+
+                results.innerHTML = `
+                    <p class="compare-summary">
+                        <strong>${sanitize(_runLabel(b))}</strong> vs <strong>${sanitize(_runLabel(a))}</strong> —
+                        <span style="color:var(--danger-color)">${added.length} new</span>,
+                        <span style="color:var(--success-color)">${removed.length} resolved</span>,
+                        <span>${persist.length} unchanged</span>
+                    </p>
+                    <div class="compare-diff">${diffHtml}</div>`;
+            } catch (e) {
+                results.innerHTML = getErrorStateHtml('Comparison failed: ' + e.message, () => renderRunComparison(jobIdA, jobIdB));
+            }
+        }
+
+        function initCompareControls() {
+            const toggle = document.getElementById('compare-toggle-btn');
+            const comparePicker = document.getElementById('compare-picker');
+            const basePicker = document.getElementById('recent-analyses-picker');
+            if (toggle) toggle.addEventListener('click', () => {
+                const on = !comparePicker.hidden;
+                comparePicker.hidden = on;
+                if (on) {
+                    // Hiding compare mode: clear and collapse.
+                    comparePicker.value = '';
+                    document.getElementById('compare-panel').hidden = true;
+                } else if (basePicker && !basePicker.value) {
+                    // Need a base run to compare against.
+                    basePicker.focus();
+                }
+            });
+            if (basePicker) basePicker.addEventListener('change', () => {
+                const jid = basePicker.value;
+                if (jid && jid !== highlightJobId) {
+                    window.location.href = `dashboard.html?job_id=${encodeURIComponent(jid)}`;
+                }
+            });
+            if (comparePicker) comparePicker.addEventListener('change', () => {
+                const a = basePicker?.value || highlightJobId;
+                renderRunComparison(a, comparePicker.value);
+            });
+        }
+// Suppression UI logic
+async function loadSuppressions() {
+    const tbody = document.querySelector('#suppressionsTable tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="6" class="text-helper-center">Loading...</td></tr>';
+    
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('job_id');
+        const q = jobId ? `?job_id=${jobId}` : '';
+        const res = await fetch(`/api/v1/suppressions${q}`);
+        
+        if (!res.ok) {
+            if (res.status === 404 || res.status === 410) {
+                 tbody.innerHTML = '<tr><td colspan="6" class="text-helper-center">Analysis workspace not found. Suppressions are bound to a specific working directory.</td></tr>';
+                 return;
+            }
+            throw new Error(`HTTP ${res.status}`);
+        }
+        
+        const data = await res.json();
+        const suppressions = data.suppressions || [];
+        
+        if (suppressions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:0; border:none;">' + getEmptyStateHtml('✓', 'No Suppressions', 'You have no active suppressions. Violations can be suppressed from the Violations tab.') + '</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = suppressions.map(s => {
+            const isExpired = s.expires_at && new Date(s.expires_at) < new Date();
+            const rawDateStr = s.expires_at ? new Date(s.expires_at).toLocaleDateString() : 'Never';
+            
+            return `
+            <tr style="${isExpired || !s.active ? 'opacity: 0.5' : ''}">
+                <td>${sanitize(s.module)}</td>
+                <td>L${sanitize(s.layer)}</td>
+                <td><code style="font-size: 0.8em; color: var(--text-secondary);">${sanitize(s.id).substring(0, 8)}...</code></td>
+                <td>${sanitize(s.reason)}</td>
+                <td>${isExpired ? '<span style="color:var(--danger-color)">Expired</span>' : rawDateStr}</td>
+                <td>
+                    <button class="btn-action" data-suppression-id="${sanitize(s.id)}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Remove</button>
+                </td>
+            </tr>
+        `}).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color)">Failed to load suppressions: ${e.message}</td></tr>`;
+    }
+}
+
+async function removeSuppression(id) {
+    const confirmed = await showModal({
+        title: 'Remove suppression?',
+        body: 'The violation will reappear on the next analysis.',
+        confirmLabel: 'Remove',
+        cancelLabel: 'Cancel',
+        destructive: true,
+    });
+    if (!confirmed) return;
+
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('job_id');
+        const q = jobId ? `?job_id=${jobId}` : '';
+
+        const res = await fetch(`/api/v1/suppressions${q}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suppression_id: id })
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        loadSuppressions();
+    } catch (e) {
+        await showModal({
+            title: 'Could not remove suppression',
+            body: e.message,
+            confirmLabel: 'OK',
+            cancelLabel: '',
+        });
+    }
+}
+
+async function createSuppression(module, layer, message) {
+    const reason = await showModal({
+        title: 'Suppress this violation',
+        body: `Module: ${sanitize(module)} · Layer ${sanitize(layer)} — ${sanitize(message).slice(0, 120)}`,
+        input: { placeholder: "Reason (e.g. 'False positive', 'Planned for Q3')" },
+        confirmLabel: 'Suppress',
+        cancelLabel: 'Cancel',
+    });
+    if (!reason) return;
+
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('job_id');
+        const q = jobId ? `?job_id=${jobId}` : '';
+
+        const res = await fetch(`/api/v1/suppressions${q}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                module: module,
+                layer: parseInt(layer),
+                message: message,
+                reason: reason
+            })
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        await showModal({
+            title: 'Suppression added',
+            body: 'Run analysis again to update scores.',
+            confirmLabel: 'OK',
+            cancelLabel: '',
+        });
+        loadSuppressions();
+    } catch (e) {
+        await showModal({
+            title: 'Could not create suppression',
+            body: e.message,
+            confirmLabel: 'OK',
+            cancelLabel: '',
+        });
+    }
+}
+// Module Blast Radius UI
+async function analyzePRRisk() {
+    const btn = document.getElementById('analyze-risk-btn');
+    const resultsDiv = document.getElementById('risk-results');
+
+    if (btn) btn.disabled = true;
+    if (btn) btn.textContent = 'Analyzing...';
+    resultsDiv.innerHTML = '<div class="text-helper">Computing module blast radius...</div>';
+
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const jobId = urlParams.get('job_id');
+        const q = jobId ? `?job_id=${jobId}` : '';
+        const res = await fetch(`/api/v1/risk${q}`);
+
+        if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            resultsDiv.innerHTML = getErrorStateHtml(body.detail || `HTTP ${res.status}`, () => analyzePRRisk());
+            return;
+        }
+        const data = await res.json();
+
+        const isCritical = data.level === 'critical';
+        const isHigh = data.level === 'high';
+        const levelColor = isCritical ? 'var(--danger-color)' : (isHigh ? 'var(--warn-color)' : (data.level === 'none' ? 'var(--text-secondary)' : 'var(--success-color)'));
+
+        const modules = data.modules || [];
+        const top = modules.slice(0, 15);
+
+        let html = `
+            <div style="margin-top: 1rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                    <div style="font-size: 1.25rem; font-weight: bold; color: ${levelColor};">Blast Radius: ${sanitize(data.level).toUpperCase()}</div>
+                    <div class="text-helper" style="font-size: 0.85em">Modules analyzed: ${modules.length} · Widest reach: ${data.max_downstream ?? 0} downstream</div>
+                </div>
+                <p class="section-note" style="margin-top:0.5rem">For each module, the count of other modules that transitively depend on it — i.e. how far a change to it would ripple. Hotspots (≥ ${data.threshold ?? 3}) are flagged.</p>`;
+
+        if (top.length === 0) {
+            html += getEmptyStateHtml('🧩', 'No Modules', 'No modules were found in this repository\'s contract.');
+        } else {
+            const rows = top.map(m => {
+                const isHot = m.downstream >= (data.threshold ?? 3);
+                const tag = isHot
+                    ? '<span class="badge badge-critical" style="margin-left:0.5rem;">hotspot</span>'
+                    : '';
+                const barW = data.max_downstream ? Math.round((m.downstream / data.max_downstream) * 100) : 0;
+                return `
+                    <div class="compare-diff-row">
+                        <span style="flex:1;">${sanitize(m.module)}${tag}</span>
+                        <span class="text-helper" style="min-width:2.5rem; text-align:right;">${m.downstream}</span>
+                        <span style="flex:1.5; background:rgba(255,255,255,0.05); border-radius:4px; height:6px; overflow:hidden;">
+                            <span style="display:block; height:100%; width:${barW}%; background:${isHot ? 'var(--danger-color)' : 'var(--accent-color)'};"></span>
+                        </span>
+                    </div>`;
+            }).join('');
+            html += `<div class="compare-diff" style="margin-top:0.5rem;">${rows}</div>`;
+            if (modules.length > 15) {
+                html += `<div class="text-helper" style="margin-top:0.5rem;">Showing the 15 widest-reach modules of ${modules.length}.</div>`;
+            }
+        }
+
+        html += `</div>`;
+        resultsDiv.innerHTML = html;
+
+    } catch (e) {
+        resultsDiv.innerHTML = getErrorStateHtml('Failed to compute blast radius: ' + e.message, () => analyzePRRisk());
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Analyze Blast Radius';
+        }
+    }
+}

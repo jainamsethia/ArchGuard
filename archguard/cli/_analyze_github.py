@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Any
 from archguard.analysis.layers import AnalysisResult
 from archguard.cli.analyze_cmd import AnalyzeOptions
+from archguard.utils.severity import Severity
 from rich.console import Console
 
 _console = Console()
@@ -23,7 +24,7 @@ def _post_github_annotations(
                 "layer": getattr(v, "layer", 0),
                 "file": str(getattr(v, "file_path", getattr(v, "module", ""))),
                 "message": getattr(v, "message", ""),
-                "severity": str(getattr(v, "severity", "low")),
+                "severity": getattr(v, "severity", Severity.LOW).value,
                 "suppressed": getattr(v, "suppressed", False),
                 "explanation": getattr(v, "explanation", ""),
             }

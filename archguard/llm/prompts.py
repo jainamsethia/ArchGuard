@@ -61,8 +61,10 @@ def build_violation_prompt(
         "Violations:",
     ]
 
+    from archguard.utils.severity import Severity
+
     for i, v in enumerate(violations, start=1):
-        sev_val = str(getattr(v, "severity", "low")).upper()
+        sev_val = getattr(v, "severity", Severity.LOW).value.upper()
         lines.append(
             f"{i}. [L{v.layer}] {v.module}: {v.message} "
             f"(severity: {sev_val}, commit: {v.commit_sha})"

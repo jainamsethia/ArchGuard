@@ -16,6 +16,7 @@ from rich.console import Console
 from archguard.analysis.layers import AnalysisOrchestrator
 from archguard.analysis.parser import ImportParser
 from archguard.config import AUDIT_LOG_FILENAME
+from archguard.utils.severity import Severity
 
 report_app: typer.Typer = typer.Typer(
     name="report",
@@ -224,7 +225,7 @@ def report_cmd(
             "layer": v.layer,
             "module": getattr(v, "module", ""),
             "message": getattr(v, "message", ""),
-            "severity": str(getattr(v, "severity", "low")),
+            "severity": getattr(v, "severity", Severity.LOW).value,
         }
         for v in result.violations
     ]

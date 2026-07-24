@@ -47,7 +47,14 @@
 
                 if (res.status === 429) {
                     const body = await res.json().catch(() => ({}));
-                    errorMsg.textContent = body.detail?.includes('GitHub') ? 'GitHub API rate limit exceeded. Please wait 60 seconds.' : 'Too many requests. Please wait a moment and try again.';
+                    const retryAfter = body.retry_after || parseInt(res.headers.get('Retry-After') || '0', 10);
+                    const isGitHub = body.detail?.includes('GitHub');
+                    const wait = retryAfter > 0
+                        ? ` Please wait ~${retryAfter}s and try again.`
+                        : ' Please wait a moment and try again.';
+                    errorMsg.textContent = isGitHub
+                        ? 'GitHub API rate limit exceeded.' + wait
+                        : 'Too many requests.' + wait;
                     errorMsg.classList.add('show');
                     submitBtn.disabled = false; // Allow submission anyway
                     submitBtn.textContent = 'Analyze Repository';
@@ -196,7 +203,18 @@
                     else if (payload.type === 'result' && payload.result) {
                         const r = payload.result;
                         if (r.skipped) {
-                            appendLog(`Analysis skipped: ${r.skip_reason}`, 'error');
+                            // A skipped analysis is not a failure — e.g. a repo
+                            // with no Python files. Show an explicit skipped state
+                            // rather than a misleading 0/F grade.
+                            appendLog(`Analysis skipped: ${r.skip_reason}`, 'warn');
+                            document.getElementById('res-score').textContent = '—';
+                            document.getElementById('res-violations').textContent = '0';
+                            const gradeEl = document.getElementById('res-grade');
+                            gradeEl.textContent = `Skipped: ${r.skip_reason || 'no analyzable code'}`;
+                            gradeEl.style.color = 'var(--text-secondary)';
+                            gradeEl.style.background = 'rgba(148, 163, 184, 0.15)';
+                            gradeEl.style.borderColor = 'rgba(148, 163, 184, 0.3)';
+                            resultCard.classList.add('show');
                             submitBtn.textContent = 'Analyze Repository';
                             urlInput.disabled = false;
                             isJobRunning = false;

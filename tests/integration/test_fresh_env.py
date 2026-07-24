@@ -73,7 +73,8 @@ def test_analyze_runs_without_crash(fixture_repo, tmp_path):
     data = json.loads((tmp_path / "result.json").read_text())
     assert "score" in data
     assert "band" in data
-    assert data["band"] in ("PASS", "WARN", "FAIL")
+    # WATCH is a real band (scoring.classify_band: debt between warn/2 and warn).
+    assert data["band"] in ("PASS", "WATCH", "WARN", "FAIL")
 
 
 def test_path_matching_no_false_positives(fixture_repo):

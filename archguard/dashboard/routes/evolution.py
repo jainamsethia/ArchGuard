@@ -18,11 +18,11 @@ from archguard.audit.logger import AuditLogger
 @app.get(
     "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500)) -> Any:
+def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return the complete evolution trend report."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
     tracker = EvolutionTracker(runs)
     report = tracker.generate_report()
@@ -35,11 +35,11 @@ def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500)) -> Any:
 @app.get(
     "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_history(limit: int = Query(default=50, ge=1, le=500)) -> Any:
+def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return the parsed evolution snapshots."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
     tracker = EvolutionTracker(runs)
     snapshots = [
@@ -55,11 +55,11 @@ def get_evolution_history(limit: int = Query(default=50, ge=1, le=500)) -> Any:
 @app.get(
     "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500)) -> Any:
+def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return just the calculated trends."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path())
+    logger = AuditLogger(get_audit_path(job_id))
     runs = logger.read_last_n_runs(n=limit)
     tracker = EvolutionTracker(runs)
     report = tracker.generate_report()

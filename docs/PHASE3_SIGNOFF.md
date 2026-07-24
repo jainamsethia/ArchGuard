@@ -5,6 +5,14 @@
 * Integration tests: 38 passed, 0 failed
 * Total tests: 465 passed, 0 failed
 
+> **Re-verification note (2026-07-24):** A full independent re-pass of the suite
+> found the "0 failed" claim above no longer held: `test_fresh_env` failed on a
+> newly-added `WATCH` band, and `test_cross_module_duplication_is_detected`
+> failed under full-suite ordering due to a leaked `ARCHGUARD_SKIP_ML` env var
+> in `test_analysis_pipeline.py`. Both are fixed (see CHANGELOG `[Unreleased]`),
+> and the suite is green again. Treat prior sign-off counts as point-in-time
+> claims, not durable facts.
+
 ## SECTION 1: Prerequisites (Phase 1 + 2 Regressions)
 | Gate | Check | Status |
 |---|---|---|

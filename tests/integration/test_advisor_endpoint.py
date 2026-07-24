@@ -159,11 +159,15 @@ def test_advisor_ask_stream_content_type():
 
 
 def test_advisor_ask_stream_no_key_yields_error_chunk():
-    """Without ANTHROPIC_API_KEY, the stream yields a single SSE error chunk."""
+    """Without ANTHROPIC_API_KEY, the stream yields a single SSE error chunk.
+
+    Pins the provider story: the Advisor streams via Anthropic, so the
+    missing-key message must name ANTHROPIC_API_KEY (not OPENAI_API_KEY).
+    """
     from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
-    saved = os.environ.pop("ANTHROPIC_API_KEY", None)
+    saved_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
     try:
         response = client.post(
             "/api/v1/advisor/ask",
@@ -173,11 +177,12 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
         body = response.text
         # SSE format: must contain at least one "data: " line
         assert "data: " in body
-        # The fallback message references the missing key
-        assert "ANTHROPIC_API_KEY" in body or "key" in body.lower()
+        # The fallback message must direct the user to the correct env var.
+        assert "ANTHROPIC_API_KEY" in body
+        assert "OPENAI_API_KEY" not in body
     finally:
-        if saved is not None:
-            os.environ["ANTHROPIC_API_KEY"] = saved
+        if saved_anthropic is not None:
+            os.environ["ANTHROPIC_API_KEY"] = saved_anthropic
 
 
 def test_advisor_ask_stream_empty_question_rejected():

@@ -15,20 +15,17 @@
 <body class="page-dashboard">
 
 <!-- Login overlay — shown when token is required and no valid session cookie exists -->
-<div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(10,12,18,0.97);
-     z-index:9999; flex-direction:column; align-items:center; justify-content:center; gap:1rem;">
-  <h2 style="color:var(--text-primary); margin:0;">ArchGuard — Enter Token</h2>
-  <p style="color:var(--text-secondary); margin:0; font-size:0.9rem;">
+<div id="login-overlay" class="login-overlay">
+  <h2 class="login-title">ArchGuard — Enter Token</h2>
+  <p class="login-subtitle">
     This deployment requires a dashboard token to continue.
   </p>
-  <form id="login-form" style="display:flex; flex-direction:column; gap:0.75rem; width:320px;">
-    <input id="token-input" type="password" placeholder="Dashboard token"
-           style="padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);
-                  background:rgba(255,255,255,0.05); color:var(--text-primary); font-size:1rem;"/>
+  <form id="login-form" class="login-form">
+    <input id="token-input" class="login-input" type="password" placeholder="Dashboard token"/>
     <button type="submit" class="btn-login">
       Sign In
     </button>
-    <div id="login-error" style="color:var(--danger-color,#ef4444); font-size:0.85rem; display:none;"></div>
+    <div id="login-error" class="login-error"></div>
   </form>
 </div>
 
@@ -37,16 +34,20 @@
 <div class="header">
 <div>
 <h1>ArchGuard Dashboard</h1>
-<div id="repo-header" style="color:var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.9rem; display: none;"></div>
-<div id="recent-analyses-container" style="margin-bottom: 1rem;">
-  <select id="recent-analyses-picker" style="padding: 0.4rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-primary); font-size: 0.85rem; min-width: 250px;">
+<div id="repo-header" class="repo-header"></div>
+<div id="recent-analyses-container" class="recent-analyses-bar">
+  <select id="recent-analyses-picker" class="recent-picker" aria-label="Select a recent analysis to view">
     <option value="">Recent analyses...</option>
+  </select>
+  <button type="button" class="btn-action" id="compare-toggle-btn" title="Compare two runs side-by-side">Compare runs</button>
+  <select id="compare-picker" class="recent-picker" aria-label="Select another run to compare against" hidden>
+    <option value="">Compare with…</option>
   </select>
 </div>
 <div class="chips-container">
-<span class="chip chip-pass clickable" id="gen-id-click-9273a72d">Fitness</span>
-<span class="chip chip-pass clickable" id="gen-id-click-e936a072">AI Advisor</span>
-<span class="chip chip-pass clickable" id="gen-id-click-136b5c30">Evolution</span>
+<button type="button" class="chip chip-nav" id="chip-fitness">Fitness</button>
+<button type="button" class="chip chip-nav" id="chip-advisor">AI Advisor</button>
+<button type="button" class="chip chip-nav" id="chip-evolution">Evolution</button>
 </div>
 </div>
 <div class="refresh-status">
@@ -56,31 +57,59 @@
 </div>
 <div class="metrics-grid">
 <div class="glass-card">
-<div class="metric-title">Current ArchDebt Score</div>
+<div class="metric-title tooltip-container">Health Score<span class="tooltip-text">A 0-100 score of architectural health (higher is better). It is the inverse of the ArchDebt composite: Health = (1 − ArchDebt) × 100. 100 means zero detected architectural debt. Grade bands: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, F &lt; 60.</span></div>
 <div class="metric-value" id="current-score"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
-<div class="metric-title">Health Band</div>
+<div class="metric-title tooltip-container">Health Band<span class="tooltip-text">A band (HEALTHY, WATCH, WARN, FAIL) mapped from the ArchDebt composite score (0.0-1.0, lower is better). FAIL means CI would block the change.</span></div>
 <div class="metric-value text-metric-lg" id="current-band"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
-<div class="metric-title">Active Violations</div>
+<div class="metric-title tooltip-container">Active Violations<span class="tooltip-text">Count of architecture violations found across the 4 layers: Import Boundaries, Coupling Delta, Semantic Drift, and Duplication. Suppressed violations are excluded.</span></div>
 <div class="metric-value" id="active-violations"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 </div>
+<details class="glossary">
+<summary>New here? What do these terms mean?</summary>
+<!-- NOTE: the Layer 1-4 descriptions below are mirrored by LAYER_GLOSSES in
+     dashboard.js (updateFitnessPanel). Keep both in sync if a layer's meaning
+     changes. -->
+<dl>
+<dt>Health Score (0–100, higher is better)</dt><dd>The inverse of ArchDebt: <code>Health = (1 − ArchDebt) × 100</code>. 100 means zero detected architectural debt. Grades: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, F &lt; 60.</dd>
+<dt>Health Band (HEALTHY / WATCH / WARN / FAIL)</dt><dd>Mapped from the ArchDebt composite (0.0–1.0, lower is better). FAIL means CI would block the change.</dd>
+<dt>ArchDebt composite (0.0–1.0, lower is better)</dt><dd>A weighted average of the four layer scores. Health Score is its inverse.</dd>
+<dt>Layer 1 — Import Boundaries</dt><dd>Flags forbidden or unapproved cross-module imports (tree-sitter AST). Violations point to an exact file:line.</dd>
+<dt>Layer 2 — Coupling Delta</dt><dd>Flags modules whose fan-out (unique dependencies) exceeds their coupling budget. Module-level — no single line.</dd>
+<dt>Layer 3 — Semantic Drift</dt><dd>Flags modules whose embedding centroid drifted beyond the threshold since the baseline. Requires ML extras.</dd>
+<dt>Layer 4 — Duplication</dt><dd>Flags cross-module function clones found via vector similarity (FAISS). Requires ML extras.</dd>
+<dt>Severity</dt><dd>Critical fails CI immediately; High blocks if enabled; Medium is significant tech debt; Low is a minor warning.</dd>
+<dt>Suppression</dt><dd>A deliberately ignored violation (false positive or accepted debt). Suppressed violations are excluded from the score and the Active Violations count.</dd>
+</dl>
+</details>
 <div class="tablist" role="tablist">
-<button aria-controls="overview" aria-selected="true" class="tab" id="gen-id-click-d33f8140" role="tab">Overview</button>
-<button aria-controls="violations" aria-selected="false" class="tab" id="gen-id-click-963abe3f" role="tab">Violations</button>
-<button aria-controls="dependencies" aria-selected="false" class="tab" id="gen-id-click-deps" role="tab">Dependencies</button>
+<button aria-controls="overview" aria-selected="true" class="tab" id="tab-overview" role="tab">Overview</button>
+<button aria-controls="violations" aria-selected="false" class="tab" id="tab-violations" role="tab">Violations</button>
+<button aria-controls="dependencies" aria-selected="false" class="tab" id="tab-dependencies" role="tab">Dependencies</button>
+<button aria-controls="suppressions" aria-selected="false" class="tab" id="tab-suppressions" role="tab">Suppressions</button>
 </div>
 <div class="tab-panel-main active" id="overview" role="tabpanel">
+<div class="glass-card card-section" id="compare-panel" hidden>
+<h2 class="text-section-title-flush">Run Comparison</h2>
+<p class="section-note">Diff of violations between the two selected runs. Matches by module + layer + message.</p>
+<div id="compare-results" class="text-helper">Select two runs above to compare.</div>
+</div>
 <div class="glass-card card-section">
-<div class="row-between" style="margin-bottom: 1rem;">
-<h2 class="text-section-title-flush" style="margin: 0;">Overall Trend</h2>
+<div class="row-between margin-bottom">
+<h2 class="text-section-title-flush margin-reset">Overall Trend</h2>
 <button class="btn-action" id="repo-history-btn">Load Repository History</button>
 </div>
 <div class="chart-wrapper">
 <canvas id="trendChart"></canvas>
+</div>
+<div id="repo-history-container" class="repo-history" hidden>
+<h3 class="text-section-title-flush margin-reset">Repository Run History</h3>
+<p class="section-note">All ArchGuard runs recorded for this repository. Click a run to open it.</p>
+<div id="repo-history-table" class="text-helper">Loading…</div>
 </div>
 </div>
 <div class="glass-card card-section">
@@ -91,35 +120,37 @@
 </div>
 <!-- Moved Phase 3 Content into Overview -->
 <h2 class="text-section-title">Evolution Trends</h2>
+<p class="section-note">Based on your last N ArchGuard analysis runs for this repository.</p>
 <div class="metrics-grid" id="evolution-trends-grid">
 <div class="glass-card">
-<div class="metric-title">Health Trend</div>
+<div class="metric-title tooltip-container">Health Trend<span class="tooltip-text">Direction of the Health Score (0-100, higher is better) across recent runs for this repository.</span></div>
 <div class="metric-value text-metric-md" id="trend-health-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-health-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title">Debt Trend</div>
+<div class="metric-title tooltip-container">Debt Trend<span class="tooltip-text">Direction of the ArchDebt composite (0.0-1.0, lower is better) across recent runs. This is the inverse of Health Score.</span></div>
 <div class="metric-value text-metric-md" id="trend-debt-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-debt-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title">Violations Trend</div>
+<div class="metric-title tooltip-container">Violations Trend<span class="tooltip-text">Direction of the total violation count across recent runs. Falling is good.</span></div>
 <div class="metric-value text-metric-md" id="trend-violation-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-violation-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title">Fitness Trend</div>
+<div class="metric-title tooltip-container">Fitness Trend<span class="tooltip-text">Direction of the custom fitness-function pass rate. Fitness functions are your own pass/fail rules defined in .archguard.yml.</span></div>
 <div class="metric-value text-metric-md" id="trend-fitness-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-fitness-status">--</div>
 </div>
 </div>
 <h2 class="text-section-title">Historical Evolution Analysis</h2>
+<p class="section-note">Based on actual git commit history &mdash; click Analyze to compute (heavier, on-demand).</p>
 <div class="glass-card card-section">
 <div class="row-between">
 <div>
 <div class="metric-title">Debt Velocity</div>
-<div class="metric-value text-metric-lg" id="debt_velocity"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
-<div class="text-label-muted" id="trend_direction"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
+<div class="metric-value text-metric-lg" id="debt_velocity">—</div>
+<div class="text-label-muted" id="trend_direction">Not yet analyzed</div>
 </div>
 <div class="align-right">
 <div class="metric-title card-section-half">Commits Analyzed: <span id="evo-commits-count">0</span></div>
@@ -161,14 +192,23 @@
 <h2 class="text-section-title">AI Advisor</h2>
 <div class="row-gap">
 <input class="input-text" id="advisor-question-input" placeholder="Ask an architecture question..." type="text"/>
-<button class="btn-action-lg" id="gen-id-click-1e6913c1">Ask</button>
+<button class="btn-action-lg" id="btn-advisor-ask">Ask</button>
 </div>
 <div class="prose-response" id="advisor-response">
                     Ask a question about your architecture to get AI-driven advice.
                 </div>
-                <p style="margin-top: 0.5rem; font-size: 0.75rem; color: #94a3b8;">AI-generated advice — verify before acting.</p>
+                <p class="helper-note">AI-generated advice — verify before acting.</p>
 </div>
 <!-- Remediation Panel (Step 17) -->
+<div class="glass-card card-section" id="risk-panel">
+<div class="row-between">
+<h2 class="text-section-title-flush">Module Blast Radius</h2>
+<button class="btn-action" id="analyze-risk-btn">Analyze Blast Radius</button>
+</div>
+<div class="text-helper">For each module, how many other modules transitively depend on it — the reach of a change to that module. Computed from the dependency graph of the analyzed repository.</div>
+<div id="risk-results"></div>
+</div>
+
 <div class="glass-card card-section" id="remediation-panel">
 <div class="row-between">
 <h2 class="text-section-title-flush">Remediation Plan</h2>
@@ -182,24 +222,46 @@
 <div class="tab-panel-main" id="violations" role="tabpanel">
 <div class="glass-card card-section">
 <h2 class="text-section-title">Recent Violations</h2>
+<div id="violations-remediation" class="margin-bottom">
+<button class="btn-action" id="violations-remediation-btn">Suggest fixes for these violations</button>
+<div id="violations-remediation-results" class="text-helper margin-top-sm"></div>
+</div>
+<div class="violations-toolbar">
+<input class="input-text" id="violations-filter" type="search" placeholder="Filter by file, module, or message…" aria-label="Filter violations by text"/>
+<select id="violations-layer-filter" class="input-select" aria-label="Filter violations by layer">
+<option value="">All layers</option>
+<option value="1">Layer 1: Import Boundaries</option>
+<option value="2">Layer 2: Coupling Delta</option>
+<option value="3">Layer 3: Semantic Drift</option>
+<option value="4">Layer 4: Duplication</option>
+</select>
+<select id="violations-sort" class="input-select" aria-label="Sort violations">
+<option value="severity">Sort by severity</option>
+<option value="layer">Sort by layer</option>
+<option value="file">Sort by location</option>
+</select>
+<button class="btn-action" id="violations-export-btn" title="Download the current run's violations as JSON">Export JSON</button>
+</div>
 <div class="table-container">
 <table id="violationsTable">
 <thead>
 <tr>
-<th>Layer</th>
-<th>Severity</th>
-<th>Module</th>
+<th>Layer <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
+<th>Severity <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Critical: Fails CI immediately.<br>High: Blocks if enabled.<br>Medium: Significant tech debt.<br>Low: Minor warning.</span></span></th>
+<th>Location <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1 violations point to an exact file:line.<br>Layers 2, 3, 4 are module-level checks with no single line — the module name is shown instead.</span></span></th>
 <th>Message</th>
+<th>Action</th>
 </tr>
 </thead>
 <tbody>
-<tr><td class="text-helper-center" colspan="4">Loading...</td></tr>
+<tr><td class="text-helper-center" colspan="5">Loading...</td></tr>
 </tbody>
 </table>
 </div>
 </div>
 <div class="glass-card card-section">
 <h2 class="text-section-title">Modules</h2>
+<p class="section-note">Per-module health score (0–100, higher is better) from the latest analysis, ranked highest first.</p>
 <div class="chart-wrapper">
 <canvas id="moduleChart"></canvas>
 <p id="module-chart-note" class="chart-note"></p>
@@ -209,16 +271,43 @@
 <div class="tab-panel-main" id="dependencies" role="tabpanel">
 <div class="glass-card card-section">
   <h2 class="text-section-title">Dependency Graph</h2>
-  <p style="color:var(--text-secondary); font-size:0.875rem; margin-bottom:1rem;">
+  <p class="text-caption-muted">
     Module-level import dependency graph. Node size represents coupling score.
   </p>
-  <div id="dep-graph-container"
-       style="width:100%; height:480px; background:rgba(255,255,255,0.02);
-              border-radius:8px; border:1px solid var(--border-color);">
+  <div id="dep-graph-container" class="dep-graph-canvas">
   </div>
 </div>
 </div>
 </div>
+<div class="tab-panel-main" id="suppressions" role="tabpanel">
+<div class="glass-card card-section">
+<div class="row-between">
+<h2 class="text-section-title">Active Suppressions</h2>
+<button class="btn-action" id="refresh-suppressions-btn">Refresh</button>
+</div>
+<p class="text-caption-muted">
+    Violations matching these rules are ignored during analysis and do not impact the health score.
+</p>
+<div class="table-container">
+<table id="suppressionsTable">
+<thead>
+<tr>
+<th>Module</th>
+<th>Layer <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
+<th>Hash ID</th>
+<th>Reason</th>
+<th>Expires</th>
+<th>Actions</th>
+</tr>
+</thead>
+<tbody>
+<tr><td class="text-helper-center" colspan="6">Loading...</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+
 <script src="/dashboard.js"></script>
 </body>
 </html>

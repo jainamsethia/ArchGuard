@@ -174,6 +174,33 @@ class TestOrphans:
         assert inactive[0].id == s.id
 
 
+class TestDelete:
+    def test_delete_removes_matching_record(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        s = store.add("payments", 1, "bad import", "tech debt")
+        store.add("billing", 2, "coupling", "reason2")
+
+        removed = store.delete(s.id)
+
+        assert removed is True
+        remaining = store.list_all(include_inactive=True)
+        assert len(remaining) == 1
+        assert remaining[0].module == "billing"
+
+    def test_delete_returns_false_when_missing(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        store.add("payments", 1, "bad import", "tech debt")
+
+        removed = store.delete("nonexistent-id")
+
+        assert removed is False
+        assert len(store.list_all(include_inactive=True)) == 1
+
+    def test_delete_returns_false_when_no_store_file(self, tmp_path: Path) -> None:
+        store = _make_store(tmp_path)
+        assert store.delete("any-id") is False
+
+
 class TestMigrate:
     def test_migrate_updates_module_and_hash(
         self,

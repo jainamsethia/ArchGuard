@@ -87,7 +87,7 @@ def _get_affected_modules(
     result: dict[str, list[Path]] = {}
 
     def _resolve_module_name(fpath: Path) -> str:
-        rel = fpath.relative_to(repo_root)
+        rel = _repo_relative(fpath)
         parts = list(rel.with_suffix("").parts)
         if parts and parts[0] == "src":
             parts = parts[1:]
@@ -95,15 +95,41 @@ def _get_affected_modules(
             parts = parts[:-1]
         return ".".join(parts)
 
+    def _repo_relative(fpath: Path) -> Path:
+        """Return *fpath* as a path relative to repo_root.
+
+        Handles absolute paths, CWD-relative paths, and paths that are already
+        relative to repo_root. This is essential: the module-prefix match in the
+        loop below keys on a repo-root-relative string, and a CWD-relative path
+        (e.g. ``tests/.../module_a/a.py``) would otherwise never match a module
+        path like ``module_a/`` — silently leaving ``affected`` empty and
+        starving Layers 3 & 4 of input.
+
+        Among plausible interpretations we pick the one yielding the SHORTEST
+        repo-relative path: ``Path.relative_to`` does pure prefix matching, so a
+        doubled path can spuriously "succeed" while still being wrong.
+        """
+        root_resolved = repo_root.resolve()
+        if fpath.is_absolute():
+            return fpath.relative_to(root_resolved)
+        # Relative: could be relative-to-CWD or relative-to-repo_root. Try both
+        # and keep the shortest non-empty repo-relative result.
+        candidates = [fpath, repo_root / fpath]
+        best: Path | None = None
+        for candidate in candidates:
+            try:
+                rel = candidate.resolve().relative_to(root_resolved)
+            except ValueError:
+                continue
+            if best is None or len(rel.parts) < len(best.parts):
+                best = rel
+        if best is not None:
+            return best
+        return Path(str(fpath))
+
     for fpath in changed_files:
-        rel = (
-            str(fpath.relative_to(repo_root)).replace("\\", "/")
-            if fpath.is_absolute()
-            else str(fpath).replace("\\", "/")
-        )
-        dotted_module = _resolve_module_name(
-            fpath if fpath.is_absolute() else repo_root / fpath
-        )
+        rel = str(_repo_relative(fpath)).replace("\\", "/")
+        dotted_module = _resolve_module_name(fpath)
 
         for mod in modules_cfg:
             mod_name: str = mod["name"]

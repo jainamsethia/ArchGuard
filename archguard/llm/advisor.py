@@ -34,12 +34,15 @@ def _mock_advisor_response(question: str) -> str:
 class ArchitectureAdvisor:
     """Core service for analyzing ArchGuard results and generating recommendations."""
 
-    def __init__(self, provider: AdvisorProvider) -> None:
+    def __init__(self, provider: AdvisorProvider | None = None) -> None:
+        # provider is required only for the non-streaming analyze() path; the
+        # streaming ask_stream() path talks to Anthropic directly and never
+        # touches it, so it may be None when only streaming is used.
         self.provider = provider
 
     def analyze(self, runs: list[dict[str, Any]]) -> list[Recommendation]:
         """Analyze historical runs and generate prioritized recommendations."""
-        if not runs:
+        if not runs or not self.provider:
             return []
 
         latest_run = runs[-1]

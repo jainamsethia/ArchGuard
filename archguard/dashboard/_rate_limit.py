@@ -20,7 +20,7 @@ RATE_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
     maxsize=10_000, ttl=RATE_LIMIT_WINDOW * 2
 )
 
-_LLM_MAX = 10
+_LLM_MAX = 30
 _LLM_LIMITS: RateLimitCache[str, deque[float]] = RateLimitCache(
     maxsize=10_000, ttl=RATE_LIMIT_WINDOW * 2
 )

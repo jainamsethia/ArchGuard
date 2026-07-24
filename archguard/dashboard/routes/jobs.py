@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -16,7 +17,7 @@ from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
 from dataclasses import asdict
 from fastapi import BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import asyncio
 import json
 
@@ -115,7 +116,11 @@ def _make_public_github_headers() -> dict[str, str]:
 
 
 class GitHubRateLimitError(Exception):
-    pass
+    """Carries the GitHub rate-limit reset epoch (unix seconds) if available."""
+
+    def __init__(self, message: str, reset_epoch: float | None = None) -> None:
+        super().__init__(message)
+        self.reset_epoch = reset_epoch
 
 
 def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
@@ -143,9 +148,17 @@ def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
 
     if resp.status_code == 403:
         remaining = resp.headers.get("X-RateLimit-Remaining", "unknown")
+        reset_epoch: float | None = None
+        reset_header = resp.headers.get("X-RateLimit-Reset")
+        if reset_header:
+            try:
+                reset_epoch = float(reset_header)
+            except ValueError:
+                reset_epoch = None
         raise GitHubRateLimitError(
             f"GitHub API rate limit exceeded (remaining: {remaining}). "
-            "Set the GITHUB_TOKEN environment variable to increase limits to 5000 req/hr."
+            "Set the GITHUB_TOKEN environment variable to increase limits to 5000 req/hr.",
+            reset_epoch=reset_epoch,
         )
 
     if resp.status_code != 200:
@@ -175,7 +188,7 @@ def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
     summary="Validate a GitHub URL and return repository metadata",
     deprecated=True,
 )
-async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
+async def validate_repo_url(request: RepoURLRequest) -> Any:
     """Parse and validate a GitHub repository URL.
 
     Returns repository metadata if the repo exists and is public.
@@ -193,7 +206,16 @@ async def validate_repo_url(request: RepoURLRequest) -> RepoMetadata:
             None, fetch_repo_metadata_public, owner, repo_name
         )
     except GitHubRateLimitError as exc:
-        raise HTTPException(status_code=429, detail=str(exc))
+        # Surface the GitHub rate-limit reset so the UI can tell the user how
+        # long to wait, rather than a hardcoded "60 seconds" guess.
+        reset = exc.reset_epoch if getattr(exc, "reset_epoch", None) else None
+        retry_after = max(1, int(reset - time.time())) if reset else 60
+        resp = JSONResponse(
+            status_code=429,
+            content={"detail": str(exc), "retry_after": retry_after},
+        )
+        resp.headers["Retry-After"] = str(retry_after)
+        return resp
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:

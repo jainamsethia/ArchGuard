@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 class ViolationPayload(BaseModel):
     file: str | None = None
+    line: int | None = 0
     module: str | None = None
     severity: str
     message: str

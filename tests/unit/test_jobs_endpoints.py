@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from archguard.dashboard.app import app
 
@@ -115,3 +115,46 @@ def test_submit_job_github_rate_limited_still_queues(client):
 
     assert resp.status_code == 202
     assert "job_id" in resp.json()
+
+
+def test_validate_repo_url_rate_limited_returns_retry_after(client):
+    """POST /api/v1/jobs/validate surfaces GitHub's rate-limit reset as a
+    Retry-After header and body field, so the UI can show a real wait time
+    instead of a hardcoded guess. Pins the P0 429-handling fix.
+    """
+    from archguard.dashboard.routes.jobs import GitHubRateLimitError
+    import time
+
+    reset_epoch = time.time() + 90
+    with patch(
+        "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
+        side_effect=GitHubRateLimitError("rate limited", reset_epoch=reset_epoch),
+    ):
+        resp = client.post(
+            "/api/v1/jobs/validate",
+            json={"github_url": "https://github.com/pallets/flask"},
+        )
+
+    assert resp.status_code == 429
+    body = resp.json()
+    assert "retry_after" in body
+    assert int(resp.headers["Retry-After"]) == body["retry_after"]
+    # ~90s, allow a little wall-clock slack.
+    assert 60 <= body["retry_after"] <= 90
+
+
+def test_validate_repo_url_rate_limited_no_reset_falls_back(client):
+    """Without a reset epoch, a sane default Retry-After is still returned."""
+    from archguard.dashboard.routes.jobs import GitHubRateLimitError
+
+    with patch(
+        "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
+        side_effect=GitHubRateLimitError("rate limited"),
+    ):
+        resp = client.post(
+            "/api/v1/jobs/validate",
+            json={"github_url": "https://github.com/pallets/flask"},
+        )
+
+    assert resp.status_code == 429
+    assert int(resp.headers["Retry-After"]) == 60

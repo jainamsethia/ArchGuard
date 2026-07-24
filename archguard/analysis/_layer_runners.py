@@ -58,6 +58,7 @@ def _analyze_file_imports(
                         message=f"Imports `{edge.imported_module}` (disallowed)",
                         commit_sha=commit_sha[:7],
                         file_path=rel,
+                        line=edge.line,
                         severity=Severity.CRITICAL,
                     )
                 )
@@ -77,6 +78,7 @@ def _analyze_file_imports(
                             message=f"Imports `{edge.imported_module}` (not in allowed_imports)",
                             commit_sha=commit_sha[:7],
                             file_path=rel,
+                            line=edge.line,
                             severity=Severity.CRITICAL,
                         )
                     )
@@ -267,12 +269,29 @@ def _run_layer4(
     skip_reason = ""
 
     for mod_name, files in affected.items():
-        rel_files = [
-            str(f.relative_to(repo_root)).replace("\\", "/")
-            if f.is_absolute()
-            else str(f).replace("\\", "/")
-            for f in files
-        ]
+        # Compute repo-root-relative paths. Layer 3 keys its cached embeddings
+        # by repo-root-relative file path, so the file set passed here MUST use
+        # the same form or _build_faiss_index's membership check finds nothing
+        # (every module gets an empty embedding set -> no duplication matches).
+        root_resolved = repo_root.resolve()
+        rel_files = []
+        for f in files:
+            if f.is_absolute():
+                rel_files.append(str(f.relative_to(root_resolved)).replace("\\", "/"))
+                continue
+            # Relative: resolve against CWD, fall back to repo-root re-rooting.
+            resolved = False
+            for candidate in (f, repo_root / f):
+                try:
+                    rel_files.append(
+                        str(candidate.resolve().relative_to(root_resolved)).replace("\\", "/")
+                    )
+                    resolved = True
+                    break
+                except ValueError:
+                    continue
+            if not resolved:
+                rel_files.append(str(f).replace("\\", "/"))
         try:
             from archguard.analysis.layers import _get_module_paths
             mod_paths = next(
@@ -287,13 +306,13 @@ def _run_layer4(
             elif result.aggregate_score > 0.0 and not result.skipped:
                 # Collect file information from the matches
                 match_details = []
-                for m in result.matches[:3]:  # limit to top 3 to avoid huge messages
+                for m in result.matches[:8]:  # limit to top 8 to avoid huge messages
                     src_file = m.source_function.split("::")[0]
                     tgt_file = m.matched_function.split("::")[0]
                     match_details.append(f"{src_file} <-> {tgt_file}")
 
                 details_str = ", ".join(match_details)
-                if len(result.matches) > 3:
+                if len(result.matches) > 8:
                     details_str += "..."
 
                 threshold = thresholds.get(mod_name, 0.5)

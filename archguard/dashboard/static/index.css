@@ -36,6 +36,7 @@
 .text-helper        { color: var(--text-secondary); padding: 0.5rem; }
 .text-helper-center { text-align: center; color: var(--text-secondary); }
 .text-placeholder   { color: var(--text-secondary); padding: 1rem; text-align: center; }
+.violation-loc-note { color: var(--text-secondary); font-size: 0.75rem; font-style: italic; }
 
 /* Layout */
 .card-section       { margin-bottom: 2rem; }
@@ -46,6 +47,88 @@
 
 /* Form controls */
 .input-text         { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1rem; color: var(--text-primary); font-size: 0.95rem; outline: none; }
+.input-select       { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; color: var(--text-primary); font-size: 0.85rem; outline: none; font-family: inherit; }
+.violations-toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+.violations-toolbar .input-text { flex: 1 1 220px; }
+.glossary            { background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
+.glossary summary    { cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; }
+.glossary dl         { margin: 0.75rem 0 0; }
+.glossary dt         { font-weight: 600; color: var(--text-primary); font-size: 0.85rem; margin-top: 0.5rem; }
+.glossary dd         { margin: 0.15rem 0 0 0; color: var(--text-secondary); font-size: 0.82rem; line-height: 1.45; }
+.glossary code       { background: rgba(255,255,255,0.06); padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.8rem; }
+
+/* Login overlay (shared by index.html and dashboard.html) */
+.login-overlay        { display: none; position: fixed; inset: 0; background: rgba(10,12,18,0.97); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; }
+.login-overlay-shown  { display: flex; }
+.login-title          { color: var(--text-primary); margin: 0; }
+.login-subtitle       { color: var(--text-secondary); margin: 0; font-size: 0.9rem; }
+.login-form           { display: flex; flex-direction: column; gap: 0.75rem; width: 320px; }
+.login-input          { padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.05); color: var(--text-primary); font-size: 1rem; font-family: inherit; }
+.login-error          { color: var(--danger-color, #ef4444); font-size: 0.85rem; display: none; }
+.login-error-shown    { display: block; }
+
+/* Small reusable text utilities */
+.repo-header          { color: var(--text-secondary); margin-bottom: 0.5rem; font-size: 0.9rem; display: none; }
+.section-note         { margin: -0.5rem 0 1rem 0; font-size: 0.8rem; color: var(--text-secondary); }
+.helper-note          { margin-top: 0.5rem; font-size: 0.75rem; color: #94a3b8; }
+.margin-bottom        { margin-bottom: 1rem; }
+.margin-top-sm        { margin-top: 0.75rem; }
+.margin-reset         { margin: 0; }
+
+/* Dependency graph canvas */
+.dep-graph-canvas     { width: 100%; height: 480px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid var(--border-color); }
+
+/* Inline-tooltip hint glyph (the "(?)" marker on table headers) */
+.tooltip-hint         { font-size: 0.7em; }
+
+/* Recent-analyses picker */
+.recent-picker        { padding: 0.4rem; border-radius: 4px; border: 1px solid var(--border-color); background: var(--surface-color); color: var(--text-primary); font-size: 0.85rem; min-width: 250px; font-family: inherit; }
+.recent-analyses-bar  { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+
+/* Run-comparison diff list */
+.compare-diff          { margin-top: 0.5rem; }
+.compare-diff-row     { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; }
+.compare-diff-tag     { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 0.1rem 0.4rem; border-radius: 4px; flex-shrink: 0; }
+.compare-diff-tag.added   { background: rgba(239,68,68,0.2); color: var(--danger-color); }
+.compare-diff-tag.removed { background: rgba(16,185,129,0.2); color: var(--success-color); }
+.compare-diff-tag.persist { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
+.compare-summary      { font-size: 0.8rem; color: var(--text-secondary); margin: 0.5rem 0; }
+
+/* Repository run-history table */
+.repo-history         { margin-top: 1.5rem; }
+.repo-history-table   { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+.repo-history-table th, .repo-history-table td { padding: 0.4rem 0.6rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem; }
+.repo-history-table th { color: var(--text-secondary); font-weight: 600; }
+.repo-history-table tr { cursor: pointer; }
+.repo-history-table tr:hover td { background: rgba(255,255,255,0.04); }
+
+
+
+/* Remediation task cards (rendered by dashboard.js) */
+.remediation-card     { background: rgba(30,41,59,0.4); border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; border-left: 4px solid var(--accent-color); }
+.remediation-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; }
+.remediation-card-title { font-weight: 600; color: var(--text-primary); }
+.remediation-card-meta { display: flex; gap: 0.5rem; align-items: center; }
+.remediation-card-effort { font-size: 0.75rem; color: var(--text-secondary); }
+.remediation-card-desc { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.remediation-card-criteria { margin: 0.25rem 0 0 1rem; padding: 0; font-size: 0.8rem; color: var(--text-secondary); }
+
+/* Job-completion banner (background/border are set dynamically per status) */
+.job-banner           { margin-bottom: 2rem; transition: all 2s ease; }
+
+/* In-page modal dialog (replaces native prompt/alert/confirm) */
+.modal-overlay        { position: fixed; inset: 0; background: rgba(10,12,18,0.75); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+.modal-card           { width: 100%; max-width: 460px; background: var(--surface-color); backdrop-filter: blur(12px); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.modal-title          { margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--text-primary); }
+.modal-body           { font-size: 0.9rem; color: var(--text-secondary); margin: 0 0 1rem 0; line-height: 1.5; }
+.modal-input          { width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.65rem 0.9rem; color: var(--text-primary); font-size: 0.9rem; font-family: inherit; outline: none; margin-bottom: 1rem; }
+.modal-input:focus    { border-color: var(--accent-color); }
+.modal-actions        { display: flex; justify-content: flex-end; gap: 0.5rem; }
+.job-banner h3         { margin: 0; color: var(--success-color); }
+.job-banner p          { margin: 0.5rem 0 0 0; }
+
+
+
 
 /* Buttons */
 .btn-action,
@@ -755,9 +838,15 @@ body.page-dashboard {
             font-size: 0.75rem;
             font-weight: 600;
             text-transform: uppercase;
+            font-family: inherit;
+            cursor: pointer;
         }
+        .chip-nav { cursor: pointer; }
+        .chip-nav:hover { background-color: rgba(148, 163, 184, 0.25); }
+        .chip-nav:focus-visible { outline: 2px solid var(--accent-color, #60a5fa); outline-offset: 2px; }
         
         .chip-pass { background-color: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .chip-nav { background-color: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
 
         /* Skeleton shimmer loading state */
         @keyframes shimmer {
@@ -781,4 +870,81 @@ body.page-dashboard {
         }
 
 .error-state .empty-icon { color: var(--danger-color); }
-.error-state .btn-action { margin-top: 12px; }
+.error-state .btn-action { margin-top: 12px; }/* --- Dashboard Semantic Styles --- */
+
+.section-margin-bottom { margin-bottom: 2rem; }
+.section-margin-top { margin-top: 1rem; }
+.row-margin-bottom { margin-bottom: 1rem; }
+
+.text-subtitle-muted {
+    color: var(--text-secondary);
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.text-caption-muted {
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+}
+
+.login-overlay-container {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 12, 18, 0.97);
+    z-index: 9999;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.login-form-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 320px;
+}
+
+.banner-success {
+    background: rgba(16, 185, 129, 0.2);
+    border-color: rgba(16, 185, 129, 0.4);
+    margin-bottom: 2rem;
+    transition: all 2s ease;
+}
+
+.banner-success h3 {
+    margin: 0;
+    color: var(--success-color);
+}
+/* Tooltips for Clarity */
+.tooltip-container {
+    position: relative;
+    display: inline-block;
+    cursor: help;
+}
+.tooltip-container .tooltip-text {
+    visibility: hidden;
+    width: 250px;
+    background-color: var(--surface-color);
+    color: var(--text-primary);
+    text-align: left;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.75rem;
+    position: absolute;
+    z-index: 10;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -125px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    font-size: 0.8rem;
+    font-weight: normal;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+}
+.tooltip-container:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+}

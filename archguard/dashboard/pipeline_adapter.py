@@ -263,22 +263,28 @@ def _run_analysis_sync(
         band_val = str(result.archdebt.band.name).upper()
         audit_band = (
             "PASS"
-            if band_val in ("HEALTHY", "WATCH")
-            else ("WARN" if band_val == "WARN" else "FAIL")
+            if band_val == "HEALTHY"
+            else ("WATCH" if band_val == "WATCH"
+            else ("WARN" if band_val == "WARN" else "FAIL"))
         )
         
         v_list_out = []
         for v in result.violations:
             raw_file = getattr(v, "file_path", "") or None
             line = getattr(v, "line", 0)
-            if raw_file and line > 0:
-                raw_file = f"{raw_file}:{line}"
+
+            # Don't destructively append line to the file string, pass it down as line instead
+            # if raw_file and line > 0:
+            #     raw_file = f"{raw_file}:{line}"
+
+            from archguard.utils.severity import Severity
 
             v_list_out.append(
                 ViolationPayload(
                     file=raw_file,
+                    line=line,
                     module=getattr(v, "module", None),
-                    severity=str(getattr(v, "severity", "low")),
+                    severity=getattr(v, "severity", Severity.LOW).value,
                     message=getattr(v, "message", ""),
                     layer=str(getattr(v, "layer", "0")),
                 )

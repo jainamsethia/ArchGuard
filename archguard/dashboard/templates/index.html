@@ -10,20 +10,17 @@
 <body class="page-index">
 
 <!-- Login overlay — shown when token is required and no valid session cookie exists -->
-<div id="login-overlay" style="display:none; position:fixed; inset:0; background:rgba(10,12,18,0.97);
-     z-index:9999; flex-direction:column; align-items:center; justify-content:center; gap:1rem;">
-  <h2 style="color:var(--text-primary); margin:0;">ArchGuard — Enter Token</h2>
-  <p style="color:var(--text-secondary); margin:0; font-size:0.9rem;">
+<div id="login-overlay" class="login-overlay">
+  <h2 class="login-title">ArchGuard — Enter Token</h2>
+  <p class="login-subtitle">
     This deployment requires a dashboard token to continue.
   </p>
-  <form id="login-form" style="display:flex; flex-direction:column; gap:0.75rem; width:320px;">
-    <input id="token-input" type="password" placeholder="Dashboard token"
-           style="padding:0.75rem 1rem; border-radius:8px; border:1px solid var(--border-color);
-                  background:rgba(255,255,255,0.05); color:var(--text-primary); font-size:1rem;"/>
+  <form id="login-form" class="login-form">
+    <input id="token-input" class="login-input" type="password" placeholder="Dashboard token"/>
     <button type="submit" class="btn-login">
       Sign In
     </button>
-    <div id="login-error" style="color:var(--danger-color,#ef4444); font-size:0.85rem; display:none;"></div>
+    <div id="login-error" class="login-error"></div>
   </form>
 </div>
 
@@ -49,7 +46,7 @@
                             <span>★ <span id="preview-stars">0</span></span>
                         </div>
                     </div>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--success-color)"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--success-color)"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                 </div>
 
                 <button type="submit" id="btn-submit" class="btn-submit">Analyze Repository</button>

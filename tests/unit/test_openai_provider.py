@@ -80,7 +80,7 @@ def test_openai_provider_rate_limit(provider):
         with pytest.raises(AdvisorUnavailableError) as exc:
             provider.generate_recommendations("Context")
         assert exc.value.reason == "api_error"
-        assert "Rate limit" in exc.value.detail
+        assert "rate limit" in exc.value.detail.lower()
 
 
 def test_openai_provider_malformed_json(provider):

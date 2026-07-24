@@ -1,3 +1,46 @@
+## [Unreleased] - 2026-07-24
+
+### Full re-verification audit (startup-grade dashboard upgrade)
+- **PR Risk → Module Blast Radius**: the `/api/v1/risk` route passed every `.py`
+  file in the repo as "changed files", producing a meaningless whole-repo risk.
+  Relabeled the dashboard panel to "Module Blast Radius" and rewrote the route
+  to report each module's transitive downstream dependents from the dependency
+  graph (a real, honest metric with no PR-diff dependency). New response schema
+  (`level`, `modules`, `hotspots`, `threshold`, `max_downstream`); frontend
+  updated to consume it. Covered by `test_blast_radius_route.py`.
+- **AI Advisor provider mismatch**: the streaming Advisor calls Anthropic
+  directly (needs `ANTHROPIC_API_KEY`), but the startup warning, error microcopy,
+  README, and `.env.example` all said `OPENAI_API_KEY` — so the panel looked
+  dead to anyone following the docs. Corrected all four to reference
+  `ANTHROPIC_API_KEY`; `OPENAI_API_KEY` now correctly documented as the
+  Remediation Plan key. Removed the dead `OpenAIAdvisorProvider()` instantiation;
+  made `ArchitectureAdvisor.provider` optional (streaming path doesn't use it).
+  Pinned by a tightened advisor missing-key test.
+- **WATCH band**: `scoring.classify_band` emits a real `WATCH` band; updated the
+  stale `test_fresh_env` assertion that rejected it.
+- **Test isolation**: `test_analysis_pipeline.py` set `ARCHGUARD_SKIP_ML=1` via
+  `os.environ` without cleanup, leaking across the session and silently skipping
+  Layer 4 for every later test (causing an order-dependent failure of the
+  cross-module duplication test in the full suite). Switched to
+  `monkeypatch.setenv` (auto-reverts). `_run` helper in `test_fixture_correctness`
+  now copies fixtures to a throwaway dir so the source fixture is never mutated.
+- **429 Retry-After**: the validate endpoint now surfaces GitHub's
+  `X-RateLimit-Reset` as a `Retry-After` header + body field; the frontend reads
+  it instead of a hardcoded "60 seconds".
+- **Suppression UX**: replaced native `prompt`/`alert`/`confirm` dialogs with a
+  styled in-page modal reusing the glassmorphic system.
+- **auth.js**: wrapped the auth-status fetch in try/catch so a network/CSP
+  failure in a token-required deployment shows the login overlay with a message
+  instead of leaving the page blank.
+- **risk.py / suppression.py**: hardened 500 responses to not leak internals.
+- **Polish**: consistent `_BAND_EMOJI` scheme; fixed module-chart label/tooltip
+  mismatch ("trend magnitude" → "health score"); gloss sync comments between
+  the HTML glossary and the JS `LAYER_GLOSSES`.
+
+### Test suite
+- Full suite now green: previously 2 failing (`test_fresh_env`,
+  `test_cross_module_duplication_is_detected` under full-suite ordering), now 0.
+
 ## [1.0.0] - 2026-07-08
 
 ### Audit Report Fixes (All 29 Resolved)

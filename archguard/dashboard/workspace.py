@@ -64,6 +64,30 @@ async def temp_workspace(
             logger.info("Workspace %s kept alive for analysis context", workspace_dir)
 
 
+def _find_git() -> str | None:
+    """Find a working git executable, preferring x64 over ARM64 on Windows.
+
+    On Windows, ``shutil.which(\"git\")`` can return the ARM64 (clangarm64) binary
+    which crashes with STATUS_DLL_INIT_FAILED on x64 hardware.  This checks the
+    standard x64 paths first before falling back to ``PATH`` lookup.
+    """
+    # Preferred x64/mingw64 paths (Windows)
+    preferred = [
+        r"C:\Program Files\Git\bin\git.exe",
+        r"C:\Program Files\Git\mingw64\bin\git.exe",
+        r"C:\Program Files\Git\cmd\git.exe",
+    ]
+    for p in preferred:
+        if os.path.isfile(p):
+            return p
+    # Fall back to PATH lookup (may pick ARM64; better than nothing)
+    found = shutil.which("git")
+    if found and "clangarm64" not in found:
+        return found
+    # Last resort: try PATH even if it's ARM64
+    return found
+
+
 async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
     """Perform a shallow git clone.
 
@@ -75,8 +99,17 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
         TimeoutError: if clone exceeds CLONE_TIMEOUT_SECONDS
         RuntimeError: if git exits with non-zero status
     """
+    import os
+    import subprocess
+
+    # On Windows, find git -- prefer x64/mingw64 over ARM64 (clangarm64)
+    git_exe = _find_git()
+    if not git_exe:
+        raise RuntimeError("git executable not found in PATH")
+    git_exe = os.path.abspath(git_exe)
+
     cmd: list[str] = [
-        "git", "clone",
+        git_exe, "clone",
         "--depth", "1",
         "--single-branch",
         "--no-tags",
@@ -89,7 +122,24 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
 
     cmd.extend([clone_url, str(dest)])
 
-    import subprocess
+    # Build env with Git's DLL directories in PATH (fixes Windows DLL loading)
+    proc_env = os.environ.copy()
+    git_bin_dir = os.path.dirname(git_exe)
+    # Git for Windows keeps DLLs in its own bin dir and ../mingw64/bin
+    # (C:\Program Files\Git\bin\git.exe is a wrapper; real DLLs are in mingw64\bin)
+    git_base = os.path.dirname(git_bin_dir)
+    git_mingw_dir = os.path.join(git_base, "mingw64", "bin")
+    git_usr_dir = os.path.join(git_base, "usr", "bin")
+    existing_path = proc_env.get("PATH", "")
+    # Prepend git dirs so their DLLs are found first
+    extra_dirs = [git_bin_dir]
+    for d in (git_mingw_dir, git_usr_dir):
+        if os.path.isdir(d):
+            extra_dirs.append(d)
+    proc_env["PATH"] = os.pathsep.join(extra_dirs + [existing_path])
+
+    logger.info("Cloning with git=%s PATH prefix=%s", git_exe, extra_dirs)
+
     loop = asyncio.get_running_loop()
 
     def _do_clone() -> None:
@@ -98,7 +148,8 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
                 cmd,
                 capture_output=True,
                 timeout=float(CLONE_TIMEOUT_SECONDS),
-                check=False
+                check=False,
+                env=proc_env,
             )
         except subprocess.TimeoutExpired:
             raise TimeoutError(

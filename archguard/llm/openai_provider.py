@@ -54,7 +54,7 @@ class OpenAIAdvisorProvider(AdvisorProvider):
         timeout: float = 30.0,
     ) -> None:
         self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4-turbo")
+        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
         self.base_url = base_url or os.environ.get(
             "OPENAI_BASE_URL", "https://api.openai.com/v1"
         )
@@ -117,8 +117,13 @@ class OpenAIAdvisorProvider(AdvisorProvider):
             raise AdvisorUnavailableError("api_error", detail="Timeout occurred while calling OpenAI API.")
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                logger.error("Rate limit exceeded while calling OpenAI API.")
-                raise AdvisorUnavailableError("api_error", detail="Rate limit exceeded while calling OpenAI API.")
+                retry_after = e.response.headers.get("Retry-After", "")
+                wait_msg = f" Retry after {retry_after}s." if retry_after else ""
+                logger.error("Rate limit exceeded while calling OpenAI API.%s", wait_msg)
+                raise AdvisorUnavailableError(
+                    "api_error",
+                    detail=f"OpenAI rate limit exceeded.{wait_msg}",
+                )
             else:
                 logger.error(
                     f"HTTP error {e.response.status_code} calling OpenAI API: {e.response.text}"

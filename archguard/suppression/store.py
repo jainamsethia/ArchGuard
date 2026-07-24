@@ -203,6 +203,26 @@ class SuppressionStore:
 
         return count
 
+    def delete(self, suppression_id: str) -> bool:
+        """Permanently remove a suppression record by id.
+
+        Rewrites the JSONL excluding the matching id, under the file lock and
+        with cache invalidation consistent with :meth:`mark_orphans`. Returns
+        True if a record was removed, False if no record matched.
+        """
+        if not self._path.exists():
+            return False
+
+        removed = False
+        with file_lock(self._lock_path):
+            self._force_reload()
+            all_sups = self._read_all_raw()
+            remaining = [sup for sup in all_sups if sup.id != suppression_id]
+            if len(remaining) != len(all_sups):
+                removed = True
+                self._write_all_raw(remaining)
+        return removed
+
     def migrate_module(self, old_name: str, new_name: str) -> int:
         """Rewrite JSONL updating module field and recalculating violation_hash."""
         if not self._path.exists():

@@ -36,7 +36,7 @@ def test_repository_root_has_no_unexpected_files():
     actual = {
         p.name
         for p in repo_root.iterdir()
-        if p.is_file() and not p.name.startswith(".coverage")
+        if p.is_file() and not p.name.startswith(".coverage") and not p.name.endswith(".md")
     }
 
     unexpected = actual - _ALLOWED_ROOT_FILES

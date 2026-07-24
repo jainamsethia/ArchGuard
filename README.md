@@ -122,7 +122,7 @@ ArchGuard integrates multiple intelligent components to actively evaluate and gu
 Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
 
 ### AI Advisor
-An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Supports streaming responses via the OpenAI SDK.
+An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Streams responses via the Anthropic Claude API (requires `ANTHROPIC_API_KEY`).
 
 ### Architecture Evolution Tracking
 Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
@@ -317,11 +317,11 @@ See `.env.example` for a copy-pasteable template. Full reference:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | _(none)_ | Claude API key for LLM violation explanations. Omit to skip explanations. |
-| `ARCHGUARD_PRIMARY_MODEL` | `claude-sonnet-4-20250514` | Primary Claude model for explanations. |
+| `ANTHROPIC_API_KEY` | _(none)_ | Claude API key. Powers LLM violation explanations **and** the dashboard's AI Advisor panel. Omit to skip both. |
+| `ARCHGUARD_PRIMARY_MODEL` | `claude-sonnet-4-20250514` | Primary Claude model for explanations and Advisor responses. |
 | `ARCHGUARD_FALLBACK_MODEL` | `claude-haiku-4-5-20251001` | Fallback Claude model used on rate-limit/timeout. |
-| `OPENAI_API_KEY` | _(none)_ | **Required** for the dashboard's AI Advisor panel — a separate provider from the Anthropic key above. |
-| `OPENAI_MODEL` | `gpt-4-turbo` | Model used for Advisor sessions. |
+| `OPENAI_API_KEY` | _(none)_ | Used by the **Remediation Plan** generator (`archguard/llm/remediation.py`). The AI Advisor does not use this key — it streams via the Anthropic key above. |
+| `OPENAI_MODEL` | `gpt-4-turbo` | Model used for remediation-plan generation. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for OpenAI compatible endpoints. |
 | `OLLAMA_MODEL` | `llama3` | Local-model name (implemented but not yet reachable from the CLI — see FAQ). |
 | `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. When `ARCHGUARD_DASHBOARD_TOKEN` is set, visiting the dashboard URL in a browser displays a one-time token-entry form. After entering the token, a 24-hour session cookie is issued and the dashboard is fully functional. The session TTL is configurable via `ARCHGUARD_SESSION_COOKIE_TTL` (seconds; default 86400). API and CLI clients continue to use `Authorization: Bearer <token>` as before. |

@@ -1,1 +1,1 @@
-"""ArchGuard Dashboard package."""
+# Fixing standard init for dashboard

@@ -57,7 +57,7 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
     recommended = {
-        "ANTHROPIC_API_KEY": "L4 LLM explanations will be skipped",
+        "ANTHROPIC_API_KEY": "L4 LLM explanations and the AI Advisor will be disabled",
         "GITHUB_TOKEN": "GitHub API limited to 60 req/hr (unauthenticated)",
     }
     for var, consequence in recommended.items():
@@ -251,7 +251,7 @@ def get_audit_path(job_id: str | None = None) -> Path:
 # All new routes MUST use the /api/v1/ prefix.
 # Existing /api/ routes are maintained for backward compatibility.
 # A future migration to /api/v1/ for all routes will include redirect aliases.
-from archguard.dashboard.routes import advisor, evolution, jobs, remediation, runs  # noqa: E402, F401
+from archguard.dashboard.routes import advisor, evolution, jobs, remediation, runs, suppression, risk  # noqa: E402, F401
 
 from fastapi.templating import Jinja2Templates  # noqa: E402
 

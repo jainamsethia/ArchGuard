@@ -1,5 +1,4 @@
 import pytest
-import os
 from pathlib import Path
 import shutil
 
@@ -17,10 +16,10 @@ def temp_project(tmp_path: Path):
     return project_dir
 
 
-def test_layer1_detects_boundary_violation(temp_project):
+def test_layer1_detects_boundary_violation(temp_project, monkeypatch):
     """L1 must detect forbidden imports in the fixture project."""
-    os.environ["ARCHGUARD_TEST_MODE"] = "1"
-    os.environ["ARCHGUARD_SKIP_ML"] = "1"
+    monkeypatch.setenv("ARCHGUARD_TEST_MODE", "1")
+    monkeypatch.setenv("ARCHGUARD_SKIP_ML", "1")
 
     orchestrator = AnalysisOrchestrator(repo_root=temp_project)
 
@@ -34,10 +33,10 @@ def test_layer1_detects_boundary_violation(temp_project):
     )
 
 
-def test_health_score_semantics_are_consistent(temp_project):
+def test_health_score_semantics_are_consistent(temp_project, monkeypatch):
     """health_score must be the inverse of composite_score, 0-100."""
-    os.environ["ARCHGUARD_TEST_MODE"] = "1"
-    os.environ["ARCHGUARD_SKIP_ML"] = "1"
+    monkeypatch.setenv("ARCHGUARD_TEST_MODE", "1")
+    monkeypatch.setenv("ARCHGUARD_SKIP_ML", "1")
 
     orchestrator = AnalysisOrchestrator(repo_root=temp_project)
     changed_files = [temp_project / "api" / "routes.py"]
@@ -62,10 +61,10 @@ def test_layer4_violations_can_be_suppressed(tmp_path, temp_project):
     assert store.is_suppressed("api", 4, "Duplicate function body") is True
 
 
-def test_suppressed_violation_absent_from_analysis(temp_project):
+def test_suppressed_violation_absent_from_analysis(temp_project, monkeypatch):
     """A suppressed violation must not appear in analysis results."""
-    os.environ["ARCHGUARD_TEST_MODE"] = "1"
-    os.environ["ARCHGUARD_SKIP_ML"] = "1"
+    monkeypatch.setenv("ARCHGUARD_TEST_MODE", "1")
+    monkeypatch.setenv("ARCHGUARD_SKIP_ML", "1")
 
     orchestrator = AnalysisOrchestrator(repo_root=temp_project)
     changed_files = [temp_project / "api" / "routes.py"]
@@ -103,10 +102,10 @@ def test_suppressed_violation_absent_from_analysis(temp_project):
     )
 
 
-def test_analysis_is_deterministic(temp_project):
+def test_analysis_is_deterministic(temp_project, monkeypatch):
     """The same codebase must produce the same score on repeated runs."""
-    os.environ["ARCHGUARD_TEST_MODE"] = "1"
-    os.environ["ARCHGUARD_SKIP_ML"] = "1"
+    monkeypatch.setenv("ARCHGUARD_TEST_MODE", "1")
+    monkeypatch.setenv("ARCHGUARD_SKIP_ML", "1")
 
     orchestrator1 = AnalysisOrchestrator(repo_root=temp_project)
     changed_files = [temp_project / "api" / "routes.py"]
@@ -119,15 +118,15 @@ def test_analysis_is_deterministic(temp_project):
     assert len(result1.violations) == len(result2.violations)
 
 
-def test_incremental_analysis_does_not_crash(temp_project):
+def test_incremental_analysis_does_not_crash(temp_project, monkeypatch):
     """Incremental analysis must not crash when cache exists."""
-    os.environ["ARCHGUARD_TEST_MODE"] = "1"
-    os.environ["ARCHGUARD_SKIP_ML"] = "1"
+    monkeypatch.setenv("ARCHGUARD_TEST_MODE", "1")
+    monkeypatch.setenv("ARCHGUARD_SKIP_ML", "1")
 
     # Write initial cache manually if needed or just run normally and test that the second run passes
     orchestrator1 = AnalysisOrchestrator(repo_root=temp_project)
     changed_files = [temp_project / "api" / "routes.py"]
-    result1 = orchestrator1.run(changed_files=changed_files, commit_sha="testsha6")
+    orchestrator1.run(changed_files=changed_files, commit_sha="testsha6")
 
     # The actual incremental checking is done in `_analyze_core.py` by fetching previous results from the DB and filtering.
     # We can just verify `orchestrator.run` doesn't crash when `incremental=True` logic would be used by `_analyze_core`.

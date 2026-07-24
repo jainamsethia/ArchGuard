@@ -13,12 +13,11 @@ from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import _llm_rate_limit
 
 from archguard.audit.logger import AuditLogger
-from archguard.llm.openai_provider import OpenAIAdvisorProvider
 from archguard.llm.advisor import ArchitectureAdvisor
 
 def _message_for_reason(reason: str) -> str:
     if reason == "no_api_key":
-        return "AI Advisor is not configured. Please set OPENAI_API_KEY."
+        return "AI Advisor is not configured. Please set ANTHROPIC_API_KEY."
     elif reason == "api_error":
         return "AI Advisor is temporarily unavailable due to an API error."
     return f"AI Advisor is unavailable: {reason}"
@@ -124,9 +123,9 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
     else:
         prompt_context = context
 
-    advisor = ArchitectureAdvisor(provider=OpenAIAdvisorProvider())
-    # ask_stream() does not use self.provider - it talks to Anthropic directly.
-    # We provide a dummy/real provider to satisfy __init__ validation.
+    # The Advisor streams via Anthropic (ask_stream); the OpenAI provider is not
+    # needed for this endpoint and may be omitted.
+    advisor = ArchitectureAdvisor()
 
     def _sse_generator() -> Generator[str, None, None]:
         try:
