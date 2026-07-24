@@ -122,23 +122,14 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
 
     cmd.extend([clone_url, str(dest)])
 
-    # Build env with Git's DLL directories in PATH (fixes Windows DLL loading)
-    proc_env = os.environ.copy()
-    git_bin_dir = os.path.dirname(git_exe)
-    # Git for Windows keeps DLLs in its own bin dir and ../mingw64/bin
-    # (C:\Program Files\Git\bin\git.exe is a wrapper; real DLLs are in mingw64\bin)
-    git_base = os.path.dirname(git_bin_dir)
-    git_mingw_dir = os.path.join(git_base, "mingw64", "bin")
-    git_usr_dir = os.path.join(git_base, "usr", "bin")
-    existing_path = proc_env.get("PATH", "")
-    # Prepend git dirs so their DLLs are found first
-    extra_dirs = [git_bin_dir]
-    for d in (git_mingw_dir, git_usr_dir):
-        if os.path.isdir(d):
-            extra_dirs.append(d)
-    proc_env["PATH"] = os.pathsep.join(extra_dirs + [existing_path])
+    # We do NOT manipulate PATH to guess DLL locations here.
+    # Passing env=None relies on the OS and the wrapper's own internal
+    # resolution (which correctly locates msys-2.0.dll etc.).
+    # Modifying PATH manually causes git clone failures (exit 3221225794)
+    # on non-standard installations (like MSYS2 or ARM64 Git) by breaking
+    # DLL search order.
 
-    logger.info("Cloning with git=%s PATH prefix=%s", git_exe, extra_dirs)
+    logger.info("Cloning with git=%s", git_exe)
 
     loop = asyncio.get_running_loop()
 
@@ -149,7 +140,7 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
                 capture_output=True,
                 timeout=float(CLONE_TIMEOUT_SECONDS),
                 check=False,
-                env=proc_env,
+                env=None,
             )
         except subprocess.TimeoutExpired:
             raise TimeoutError(
