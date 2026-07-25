@@ -237,10 +237,19 @@ def get_target_path(job_id: str | None = None) -> Path:
             raise HTTPException(status_code=400, detail="Invalid job_id")
         if path.exists():
             return path
+        # Workspace expired — raise 410 instead of silently falling back to cwd
+        raise HTTPException(
+            status_code=410,
+            detail="Analysis workspace expired. Results are available from the audit log.",
+        )
     return Path.cwd()
 
 def get_audit_path(job_id: str | None = None) -> Path:
-    target = get_target_path(job_id)
+    try:
+        target = get_target_path(job_id)
+    except HTTPException:
+        # Workspace expired — audit data was merged into the global log
+        return Path.cwd() / AUDIT_LOG_FILENAME
     audit_file = target / AUDIT_LOG_FILENAME
     if job_id and not audit_file.exists():
         return Path.cwd() / AUDIT_LOG_FILENAME

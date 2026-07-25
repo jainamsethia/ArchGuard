@@ -45,7 +45,7 @@ class AnalysisJobResult:
     composite_score: float          # 0.0–1.0 raw arch debt (lower = better)
     layer_results: list[LayerResult] = field(default_factory=list)
     total_violations: int = 0
-    modules_analyzed: int = 0
+    modules_analyzed: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
     contract_auto_generated: bool = False
     skipped: bool = False
@@ -185,7 +185,7 @@ async def run_analysis_on_repo(
         composite_score=result.archdebt.composite_score,
         layer_results=layer_results,
         total_violations=total_violations,
-        modules_analyzed=result.modules_analyzed,
+        modules_analyzed=[],  # populated in audit log; kept for API compat
         duration_seconds=elapsed,
         contract_auto_generated=contract_auto_generated,
         skipped=result.skipped,
@@ -258,7 +258,12 @@ def _run_analysis_sync(
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS
         from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
-        
+        from archguard.contract.loader import load_contract
+        from archguard.analysis._orchestrator_utils import _get_module_paths
+        from archguard.analysis.parser import ImportParser
+        from archguard.analysis.coupling import _assign_file_to_module
+        from archguard.utils.paths import path_belongs_to_module
+
         audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
         band_val = str(result.archdebt.band.name).upper()
         audit_band = (
@@ -267,18 +272,15 @@ def _run_analysis_sync(
             else ("WATCH" if band_val == "WATCH"
             else ("WARN" if band_val == "WARN" else "FAIL"))
         )
-        
+
         v_list_out = []
         for v in result.violations:
             raw_file = getattr(v, "file_path", "") or None
             line = getattr(v, "line", 0)
 
-            # Don't destructively append line to the file string, pass it down as line instead
-            # if raw_file and line > 0:
-            #     raw_file = f"{raw_file}:{line}"
-
             from archguard.utils.severity import Severity
 
+            scope = "file" if raw_file else "module"
             v_list_out.append(
                 ViolationPayload(
                     file=raw_file,
@@ -287,9 +289,83 @@ def _run_analysis_sync(
                     severity=getattr(v, "severity", Severity.LOW).value,
                     message=getattr(v, "message", ""),
                     layer=str(getattr(v, "layer", "0")),
+                    scope=scope,
                 )
             )
-            
+
+        # -- Compute module_scores from violations --
+        severity_weights = {"critical": 10, "high": 5, "medium": 2, "low": 1}
+        module_penalty: dict[str, float] = {}
+        for vp in v_list_out:
+            mod = vp.module or "unknown"
+            module_penalty[mod] = module_penalty.get(mod, 0) + severity_weights.get(vp.severity, 1)
+
+        # Load contract for module list and dependency graph
+        contract_dict: dict[str, Any] = {}
+        modules_analyzed_list: list[str] = []
+        dep_graph: dict[str, list[str]] = {}
+        import_edges_list: list[dict[str, str]] = []
+
+        try:
+            contract_dict = load_contract(repo_path)
+            modules_cfg = contract_dict.get("modules", [])
+            module_names = [m["name"] for m in modules_cfg]
+            modules_analyzed_list = module_names
+            module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
+
+            # Per-module health: 100 - penalty, clamped to [0, 100]
+            module_scores: dict[str, float] = {}
+            for name in module_names:
+                penalty = module_penalty.get(name, 0)
+                module_scores[name] = round(max(0.0, min(100.0, 100.0 - penalty * 3)), 1)
+
+            # Dependency graph via FitnessFunctionEvaluator
+            try:
+                from archguard.fitness.evaluator import FitnessFunctionEvaluator
+                evaluator = FitnessFunctionEvaluator(repo_path, contract_dict)
+                dep_set = evaluator._get_module_dependencies()
+                dep_graph = {k: list(v) for k, v in dep_set.items()}
+                for name in module_paths:
+                    dep_graph.setdefault(name, [])
+            except Exception as dep_exc:
+                logger.warning("Failed to compute dependency graph: %s", dep_exc)
+
+            # Import edges
+            try:
+                parser = ImportParser()
+                parse_result = parser.parse_repo(repo_path, module_paths, allow_partial=True)
+                seen_edges: set[tuple[str, str]] = set()
+                for e in parse_result.edges:
+                    if e.is_stdlib or e.is_relative:
+                        continue
+                    importer = _assign_file_to_module(e.source_file, module_paths)
+                    if not importer:
+                        continue
+                    import_as_path = e.imported_module.replace(".", "/")
+                    imported = None
+                    for tp_name, t_paths in module_paths.items():
+                        targets_us = any(
+                            path_belongs_to_module(import_as_path, [tp])
+                            or path_belongs_to_module(tp, [import_as_path])
+                            for tp in t_paths
+                        )
+                        if targets_us:
+                            imported = tp_name
+                            break
+                    if not imported:
+                        imported = e.imported_module.split(".")[0]
+                    if importer != imported:
+                        k = (importer, imported)
+                        if k not in seen_edges:
+                            seen_edges.add(k)
+                            import_edges_list.append({"from": importer, "to": imported})
+            except Exception as edge_exc:
+                logger.warning("Failed to compute import edges: %s", edge_exc)
+
+        except Exception as contract_exc:
+            logger.warning("Failed to load contract for derived artifacts: %s", contract_exc)
+            module_scores = {}
+
         payload = AnalysisResultPayload(
             job_id=job_id,
             score=result.archdebt.health_score,
@@ -306,7 +382,12 @@ def _run_analysis_sync(
                     skip_reason=lr.skip_reason,
                 )
                 for lr in _extract_layer_results(result)
-            ]
+            ],
+            module_scores=module_scores,
+            modules_analyzed=modules_analyzed_list,
+            dependency_graph=dep_graph,
+            import_edges=import_edges_list,
+            contract=contract_dict,
         )
             
         audit.log(

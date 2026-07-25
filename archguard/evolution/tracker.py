@@ -81,7 +81,7 @@ class EvolutionTracker:
             name=name,
             current_value=current,
             previous_value=None,
-            classification=TrendClassification.STABLE,
+            classification=TrendClassification.INSUFFICIENT,
             delta=None
         )
         

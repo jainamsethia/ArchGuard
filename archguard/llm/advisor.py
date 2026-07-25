@@ -176,5 +176,6 @@ class ArchitectureAdvisor:
                     yield text
         except ImportError:
             yield "Anthropic SDK not installed. Run: pip install anthropic"
-        except Exception as exc:
-            yield f"Streaming error: {exc}"
+        except Exception:
+            logging.getLogger(__name__).exception("Advisor streaming error")
+            yield "An internal error occurred while generating advice. Check server logs for details."

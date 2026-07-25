@@ -1,11 +1,14 @@
 from typing import Any
 from collections import deque
 from fastapi import Depends, HTTPException
-from pathlib import Path
+import logging
 
-from archguard.dashboard.app import app, get_target_path, JobIdQuery
+from archguard.dashboard.app import app, get_target_path, get_audit_path, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
+from archguard.audit.logger import AuditLogger
+
+_logger = logging.getLogger(__name__)
 
 # How many transitive dependents a module must have to count as a blast-radius
 # "hotspot". Tunable — surfaces the modules whose changes ripple furthest.
@@ -49,69 +52,88 @@ def get_pr_risk(job_id: JobIdQuery = None) -> Any:
     therefore be affected by a change to it). It does NOT require a PR diff —
     the dashboard analyzes a checked-out repo, not a pull request.
     """
-    target = get_target_path(job_id)
-    if target == Path.cwd():
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot run blast-radius analysis without a specific repository context.",
-        )
+    # Try persisted dependency graph from audit log first
+    dependency_graph: dict[str, list[str]] | None = None
+    module_names: list[str] | None = None
+    if job_id:
+        logger = AuditLogger(get_audit_path(job_id))
+        runs = logger.read_last_n_runs(n=100)
+        for r in reversed(runs):
+            if r.get("job_id") == job_id and r.get("dependency_graph"):
+                dependency_graph = r["dependency_graph"]
+                module_names = r.get("modules_analyzed", list(dependency_graph.keys()))
+                break
 
-    try:
-        from archguard.fitness.evaluator import FitnessFunctionEvaluator
-        from archguard.analysis._orchestrator_utils import _get_module_paths
-        from archguard.contract.loader import load_contract
+    if dependency_graph is None:
+        # Fall back to live computation from filesystem
+        try:
+            target = get_target_path(job_id)
+        except HTTPException:
+            raise HTTPException(
+                status_code=410,
+                detail="Analysis workspace expired. Re-run the analysis to see blast radius data.",
+            )
+        if not job_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot run blast-radius analysis without a specific repository context.",
+            )
 
-        contract = load_contract(target)
-        module_paths = {
-            m["name"]: _get_module_paths(m) for m in contract.get("modules", [])
-        }
+        try:
+            from archguard.fitness.evaluator import FitnessFunctionEvaluator
+            from archguard.analysis._orchestrator_utils import _get_module_paths
+            from archguard.contract.loader import load_contract
 
-        evaluator = FitnessFunctionEvaluator(target, contract)
-        dep_set = evaluator._get_module_dependencies()
-        dependency_graph = {k: list(v) for k, v in dep_set.items()}
+            contract = load_contract(target)
+            module_paths = {
+                m["name"]: _get_module_paths(m) for m in contract.get("modules", [])
+            }
+            module_names = list(module_paths.keys())
 
-        # Ensure every declared module appears in the graph even if it has no
-        # outgoing edges (so an isolated module still shows blast-radius 0).
-        for name in module_paths:
+            evaluator = FitnessFunctionEvaluator(target, contract)
+            dep_set = evaluator._get_module_dependencies()
+            dependency_graph = {k: list(v) for k, v in dep_set.items()}
+            for name in module_paths:
+                dependency_graph.setdefault(name, [])
+        except HTTPException:
+            raise
+        except Exception as e:
+            _logger.warning("blast-radius analysis failed: %s", e)
+            raise HTTPException(
+                status_code=500,
+                detail="Could not compute module blast radius. The repository may lack a valid contract or dependency graph.",
+            )
+
+    # Ensure every declared module appears in the graph
+    if module_names:
+        for name in module_names:
             dependency_graph.setdefault(name, [])
 
-        downstream = _downstream_counts(dependency_graph)
+    downstream = _downstream_counts(dependency_graph)
 
-        modules = [
-            {"module": name, "downstream": downstream.get(name, 0)}
-            for name in module_paths
-        ]
-        modules.sort(key=lambda m: m["downstream"], reverse=True)
+    modules: list[dict[str, Any]] = [
+        {"module": name, "downstream": downstream.get(name, 0)}
+        for name in (module_names or dependency_graph.keys())
+    ]
+    modules.sort(key=lambda m: m["downstream"], reverse=True)
 
-        hotspots = [m for m in modules if m["downstream"] >= _HOTSPOT_THRESHOLD]
-        # The highest blast radius drives the overall severity band.
-        max_downstream = modules[0]["downstream"] if modules else 0
-        if max_downstream == 0:
-            level = "none"
-        elif max_downstream >= 10:
-            level = "critical"
-        elif max_downstream >= 5:
-            level = "high"
-        elif max_downstream >= _HOTSPOT_THRESHOLD:
-            level = "medium"
-        else:
-            level = "low"
+    hotspots = [m for m in modules if m["downstream"] >= _HOTSPOT_THRESHOLD]
+    max_downstream: int = modules[0]["downstream"] if modules else 0
+    if max_downstream == 0:
+        level = "none"
+    elif max_downstream >= 10:
+        level = "critical"
+    elif max_downstream >= 5:
+        level = "high"
+    elif max_downstream >= _HOTSPOT_THRESHOLD:
+        level = "medium"
+    else:
+        level = "low"
 
-        return {
-            "level": level,
-            "modules": modules,
-            "hotspots": hotspots,
-            "threshold": _HOTSPOT_THRESHOLD,
-            "max_downstream": max_downstream,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Don't leak internals; surface a clear, user-facing message.
-        import logging
-
-        logging.getLogger(__name__).warning("blast-radius analysis failed: %s", e)
-        raise HTTPException(
-            status_code=500,
-            detail="Could not compute module blast radius. The repository may lack a valid contract or dependency graph.",
-        )
+    return {
+        "level": level,
+        "modules": modules,
+        "hotspots": hotspots,
+        "threshold": _HOTSPOT_THRESHOLD,
+        "max_downstream": max_downstream,
+    }

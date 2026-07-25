@@ -148,9 +148,12 @@ def _compute_fan_outs(
     from archguard.analysis.coupling import compute_fan_out
 
     parser = ImportParser()
-    # Use individual files as module paths for fan-out computation
+    # Derive directory-level paths from file lists — path_belongs_to_module
+    # treats paths as directory prefixes (appends "/"), so individual files
+    # like "src/app.py" would never match "src/app.py/".
     temp_module_paths: dict[str, list[str]] = {
-        name: files for name, files in communities.items()
+        name: list({str(Path(f).parent) for f in files} or {name})
+        for name, files in communities.items()
     }
 
     edges = []

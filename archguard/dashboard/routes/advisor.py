@@ -134,7 +134,7 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
                 yield f"data: {chunk}\n\n"
         except Exception as exc:  # pragma: no cover
             logging.warning("advisor_ask_stream error: %s", exc)
-            yield f"data: [error] {exc}\n\n"
+            yield "data: An internal error occurred while streaming. Check server logs for details.\n\n"
 
     return StreamingResponse(
         _sse_generator(),

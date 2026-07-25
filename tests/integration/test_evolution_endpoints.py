@@ -80,5 +80,6 @@ def test_start_evolution_error_handling():
         assert response.status_code == 200
         data = response.json()
         assert "error" in data
-        assert data["error"] == "Tracker error"
+        assert data["error"] == "analysis_failed"
+        assert "message" in data
         assert data["commits_analyzed"] == 0

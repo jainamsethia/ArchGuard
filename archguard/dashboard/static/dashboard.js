@@ -801,16 +801,18 @@ function initActionButtons() {
                     valEl.textContent = trend.current_value.toFixed(2);
                 }
 
-                const cls = trend.classification; // 'improving', 'stable', 'declining'
+                const cls = trend.classification;
                 let icon = '';
                 let color = 'var(--text-secondary)';
-                
+
                 if (cls === 'improving') {
                     icon = '↑ Improving';
                     color = 'var(--success-color)';
                 } else if (cls === 'declining') {
                     icon = '↓ Declining';
                     color = 'var(--danger-color)';
+                } else if (cls === 'insufficient') {
+                    icon = 'N/A — Insufficient data';
                 } else {
                     icon = '→ Stable';
                 }
@@ -1222,7 +1224,7 @@ function getEmptyStateHtml(icon, title, body) {
             const tableEl = document.getElementById('repo-history-table');
             if (container) container.hidden = false;
             if (tableEl) tableEl.innerHTML = '<span class="text-helper">Loading…</span>';
-            const res = await fetch(`/api/v1/repos/${encodeURIComponent(repoUrl)}/runs`);
+            const res = await fetch(`/api/v1/repos/${repoUrl.split('/').map(encodeURIComponent).join('/')}/runs`);
             if (!res.ok) {
                 if (tableEl) tableEl.innerHTML = getErrorStateHtml(`Could not load history (HTTP ${res.status}).`, () => loadRepoHistory(repoUrl));
                 return;
@@ -1367,6 +1369,11 @@ function getEmptyStateHtml(icon, title, body) {
             const toggle = document.getElementById('compare-toggle-btn');
             const comparePicker = document.getElementById('compare-picker');
             const basePicker = document.getElementById('recent-analyses-picker');
+            // Disable compare when fewer than 2 runs are available
+            if (toggle && basePicker && basePicker.options.length < 2) {
+                toggle.disabled = true;
+                toggle.title = 'Need at least 2 analyses to compare';
+            }
             if (toggle) toggle.addEventListener('click', () => {
                 const on = !comparePicker.hidden;
                 comparePicker.hidden = on;

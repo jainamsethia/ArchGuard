@@ -244,7 +244,7 @@ class OpenAIRemediationProvider(RemediationProvider):
             response.raise_for_status()
             data = response.json()
             raw_content = data["choices"][0]["message"]["content"]
-            return self._parse(raw_content)
+            return _parse_remediation_response(raw_content)
 
         except httpx.TimeoutException:
             logger.error("Timeout calling OpenAI for remediation.")
@@ -259,74 +259,160 @@ class OpenAIRemediationProvider(RemediationProvider):
                     f"OpenAI rate limit exceeded.{wait_msg}"
                 )
             else:
-                msg = f"HTTP {status_code} calling OpenAI for remediation: {e.response.text}"
-                logger.error(msg)
-                raise RemediationUnavailableError(msg)
+                logger.error("HTTP %d calling OpenAI for remediation: %s", status_code, e.response.text)
+                raise RemediationUnavailableError(
+                    "The remediation service returned an error. Check server logs for details."
+                )
         except httpx.RequestError as e:
-            msg = f"Network error calling OpenAI for remediation: {e}"
-            logger.error(msg)
-            raise RemediationUnavailableError(msg)
+            logger.error("Network error calling OpenAI for remediation: %s", e)
+            raise RemediationUnavailableError(
+                "Could not reach the remediation service. Check your network and API configuration."
+            )
         except (KeyError, IndexError) as e:
-            msg = f"Malformed OpenAI response for remediation: {e}"
-            logger.error(msg)
-            raise RemediationUnavailableError(msg)
-
-    def _parse(self, raw: str) -> list[RemediationTask]:
-        if not raw.strip():
-            return []
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as e:
-            msg = f"Failed to JSON-decode remediation response: {e}"
-            logger.error(msg)
-            raise RemediationUnavailableError(msg)
-
-        tasks_data = data.get("tasks", [])
-        if not isinstance(tasks_data, list):
-            msg = "Remediation response 'tasks' is not a list."
-            logger.error(msg)
-            raise RemediationUnavailableError(msg)
-
-        result: list[RemediationTask] = []
-        for item in tasks_data:
-            if not isinstance(item, dict):
-                continue
-
-            title = item.get("title")
-            description = item.get("description")
-            priority = str(item.get("priority", "medium")).lower()
-            effort_days = item.get("effort_days")
-            acceptance_criteria = item.get("acceptance_criteria", [])
-
-            if not (title and description):
-                logger.warning(
-                    "Skipping remediation task missing title/description: %s", item
-                )
-                continue
-
-            if priority not in VALID_PRIORITIES:
-                priority = "medium"
-
-            try:
-                effort_days = max(1, int(effort_days or 0))
-            except (TypeError, ValueError):
-                effort_days = 1
-
-            if not isinstance(acceptance_criteria, list):
-                acceptance_criteria = []
-            acceptance_criteria = [str(c) for c in acceptance_criteria if c]
-
-            result.append(
-                RemediationTask(
-                    title=str(title),
-                    description=str(description),
-                    priority=priority,
-                    effort_days=effort_days,
-                    acceptance_criteria=acceptance_criteria,
-                )
+            logger.error("Malformed OpenAI response for remediation: %s", e)
+            raise RemediationUnavailableError(
+                "Received an unexpected response from the remediation service."
             )
 
-        return result
+
+# ---------------------------------------------------------------------------
+# Anthropic Remediation Provider
+# ---------------------------------------------------------------------------
+
+
+class AnthropicRemediationProvider(RemediationProvider):
+    """Calls Anthropic Claude to generate structured remediation tasks."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self.model = model or os.environ.get(
+            "ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514"
+        )
+        self.timeout = timeout
+
+    def generate_tasks(self, context: str) -> list[RemediationTask]:
+        if not self.api_key:
+            raise RemediationUnavailableError("ANTHROPIC_API_KEY is not configured")
+
+        if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+            return []
+
+        try:
+            import anthropic
+        except ImportError:
+            raise RemediationUnavailableError(
+                "Anthropic SDK not installed. Run: pip install anthropic"
+            )
+
+        try:
+            client = anthropic.Anthropic(
+                api_key=self.api_key,
+                timeout=self.timeout,
+            )
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=2048,
+                system=_REMEDIATION_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": context}],
+            )
+            from anthropic.types import TextBlock
+            text_blocks = [b for b in response.content if isinstance(b, TextBlock)]
+            if not text_blocks:
+                raise RemediationUnavailableError("No text content in Anthropic response.")
+            raw_content = text_blocks[0].text
+            return _parse_remediation_response(raw_content)
+
+        except anthropic.AuthenticationError:
+            raise RemediationUnavailableError(
+                "Anthropic API key is invalid or expired."
+            )
+        except anthropic.RateLimitError:
+            logger.error("Anthropic rate limit exceeded for remediation.")
+            raise RemediationUnavailableError("Anthropic rate limit exceeded.")
+        except anthropic.APIConnectionError as e:
+            logger.error("Anthropic connection error: %s", e)
+            raise RemediationUnavailableError(
+                "Could not connect to Anthropic API."
+            )
+        except (KeyError, IndexError) as e:
+            logger.error("Malformed Anthropic response: %s", e)
+            raise RemediationUnavailableError(
+                "Received an unexpected response from Anthropic."
+            )
+        except Exception as e:
+            logger.error("Anthropic remediation error: %s", e)
+            raise RemediationUnavailableError(
+                "An error occurred generating remediation tasks."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Shared response parser
+# ---------------------------------------------------------------------------
+
+
+def _parse_remediation_response(raw: str) -> list[RemediationTask]:
+    """Parse the JSON response from either provider into RemediationTask list."""
+    if not raw.strip():
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        msg = f"Failed to JSON-decode remediation response: {e}"
+        logger.error(msg)
+        raise RemediationUnavailableError(msg)
+
+    tasks_data = data.get("tasks", [])
+    if not isinstance(tasks_data, list):
+        msg = "Remediation response 'tasks' is not a list."
+        logger.error(msg)
+        raise RemediationUnavailableError(msg)
+
+    result: list[RemediationTask] = []
+    for item in tasks_data:
+        if not isinstance(item, dict):
+            continue
+
+        title = item.get("title")
+        description = item.get("description")
+        priority = str(item.get("priority", "medium")).lower()
+        effort_days = item.get("effort_days")
+        acceptance_criteria = item.get("acceptance_criteria", [])
+
+        if not (title and description):
+            logger.warning(
+                "Skipping remediation task missing title/description: %s", item
+            )
+            continue
+
+        if priority not in VALID_PRIORITIES:
+            priority = "medium"
+
+        try:
+            effort_days = max(1, int(effort_days or 0))
+        except (TypeError, ValueError):
+            effort_days = 1
+
+        if not isinstance(acceptance_criteria, list):
+            acceptance_criteria = []
+        acceptance_criteria = [str(c) for c in acceptance_criteria if c]
+
+        result.append(
+            RemediationTask(
+                title=str(title),
+                description=str(description),
+                priority=priority,
+                effort_days=effort_days,
+                acceptance_criteria=acceptance_criteria,
+            )
+        )
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +460,15 @@ async def generate_remediation_plan(
     findings: dict[str, Any] = {"violations": violation_dicts}
 
     try:
-        provider = OpenAIRemediationProvider()
+        # Try Anthropic first (same key as AI Advisor), fall back to OpenAI
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            provider: RemediationProvider = AnthropicRemediationProvider()
+        elif os.environ.get("OPENAI_API_KEY"):
+            provider = OpenAIRemediationProvider()
+        else:
+            raise RemediationUnavailableError(
+                "No AI provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+            )
         engine = RemediationEngine(provider)
         plan = engine.plan(findings)
         tasks = [

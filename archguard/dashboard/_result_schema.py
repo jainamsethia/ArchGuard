@@ -1,5 +1,6 @@
 """Single source of truth for analysis-result JSON shape, used by both
 pipeline_adapter.py (live tracking) and audit/logger.py (persisted history)."""
+from typing import Any
 from pydantic import BaseModel, Field
 
 class ViolationPayload(BaseModel):
@@ -9,6 +10,7 @@ class ViolationPayload(BaseModel):
     severity: str
     message: str
     layer: str
+    scope: str = "file"
 
 class LayerResultPayload(BaseModel):
     layer: int
@@ -25,3 +27,8 @@ class AnalysisResultPayload(BaseModel):
     violations: list[ViolationPayload]
     skipped: bool = False
     layer_results: list[LayerResultPayload] = Field(default_factory=list)
+    module_scores: dict[str, float] = Field(default_factory=dict)
+    modules_analyzed: list[str] = Field(default_factory=list)
+    dependency_graph: dict[str, list[str]] = Field(default_factory=dict)
+    import_edges: list[dict[str, str]] = Field(default_factory=list)
+    contract: dict[str, Any] = Field(default_factory=dict)

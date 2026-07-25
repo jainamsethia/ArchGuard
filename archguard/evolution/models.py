@@ -9,6 +9,7 @@ class TrendClassification(str, Enum):
     IMPROVING = "improving"
     STABLE = "stable"
     DECLINING = "declining"
+    INSUFFICIENT = "insufficient"
 
 
 class MetricTrend(BaseModel):

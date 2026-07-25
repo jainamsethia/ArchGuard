@@ -3,7 +3,6 @@
 import logging
 import threading
 from typing import Any
-from pathlib import Path
 from pydantic import BaseModel, Field
 from fastapi import Depends, Query, HTTPException
 from archguard.dashboard.app import app, get_audit_path, JobIdQuery
@@ -100,9 +99,25 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
     from archguard.dashboard.app import get_target_path
 
-    target = get_target_path(job_id)
-    if job_id and target == Path.cwd():
-        raise HTTPException(status_code=410, detail="Analysis workspace no longer available")
+    try:
+        target = get_target_path(job_id)
+    except HTTPException:
+        return {
+            "error": "workspace_expired",
+            "message": "Analysis workspace expired. Re-run the analysis to examine git history.",
+            "snapshots": [],
+            "commits_analyzed": 0,
+        }
+
+    # Detect shallow clone — git history features are meaningless with --depth=1
+    shallow_marker = target / ".git" / "shallow"
+    if shallow_marker.exists():
+        return {
+            "error": "shallow_clone",
+            "message": "This repository was analyzed with a shallow clone. Git-history trends require full history.",
+            "snapshots": [],
+            "commits_analyzed": 0,
+        }
 
     try:
         tracker = ArchitectureEvolutionTracker(target)
@@ -133,7 +148,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
         return result
     except Exception as exc:
         logging.error("Evolution analysis failed: %s", exc)
-        return {"error": str(exc), "snapshots": [], "commits_analyzed": 0}
+        return {"error": "analysis_failed", "message": "Could not analyze git history.", "snapshots": [], "commits_analyzed": 0}
 
 
 @app.get(

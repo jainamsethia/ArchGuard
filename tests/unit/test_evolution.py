@@ -9,10 +9,10 @@ def test_empty_history():
     report = tracker.generate_report()
 
     assert len(report.snapshots) == 0
-    assert report.health_trend.classification == TrendClassification.STABLE
+    assert report.health_trend.classification == TrendClassification.INSUFFICIENT
     assert report.health_trend.current_value == 0.0
-    assert report.violation_trend.classification == TrendClassification.STABLE
-    assert report.debt_trend.classification == TrendClassification.STABLE
+    assert report.violation_trend.classification == TrendClassification.INSUFFICIENT
+    assert report.debt_trend.classification == TrendClassification.INSUFFICIENT
     assert report.fitness_trend is None
 
 
@@ -30,14 +30,14 @@ def test_single_snapshot():
     report = tracker.generate_report()
 
     assert len(report.snapshots) == 1
-    assert report.health_trend.classification == TrendClassification.STABLE
+    assert report.health_trend.classification == TrendClassification.INSUFFICIENT
     assert report.health_trend.current_value == 85.0
     assert report.violation_trend.current_value == 2.0
     assert report.debt_trend.current_value == pytest.approx(0.15)
 
     assert report.fitness_trend is not None
     assert report.fitness_trend.current_value == 0.5
-    assert report.fitness_trend.classification == TrendClassification.STABLE
+    assert report.fitness_trend.classification == TrendClassification.INSUFFICIENT
 
 
 def test_multiple_snapshots_improving():

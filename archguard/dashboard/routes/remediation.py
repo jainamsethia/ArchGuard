@@ -47,14 +47,16 @@ async def remediation_plan(body: RemediationRequest) -> Any:
     if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
         return _mock_remediation_response(body.violations)
 
-    from archguard.llm.remediation import generate_remediation_plan
+    from archguard.llm.remediation import generate_remediation_plan, RemediationUnavailableError
 
     try:
         result = await generate_remediation_plan(body.violations)
         return result
+    except RemediationUnavailableError as exc:
+        return {"tasks": [], "error": str(exc)}
     except Exception as exc:
         logging.warning("Remediation endpoint error: %s", exc)
-        return {"tasks": [], "error": str(exc)}
+        return {"tasks": [], "error": "An unexpected error occurred generating the remediation plan."}
 
 
 @app.get(
@@ -75,7 +77,7 @@ async def remediation_plan_from_audit(
     if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
         return _mock_remediation_response(f"Audit job_id={job_id}")
 
-    from archguard.llm.remediation import generate_remediation_plan
+    from archguard.llm.remediation import generate_remediation_plan, RemediationUnavailableError
 
     audit = AuditLogger(get_audit_path(job_id))
     if job_id:
@@ -91,6 +93,8 @@ async def remediation_plan_from_audit(
     try:
         result = await generate_remediation_plan(violations)
         return result
+    except RemediationUnavailableError as exc:
+        return {"tasks": [], "error": str(exc)}
     except Exception as exc:
         logging.warning("Remediation endpoint error: %s", exc)
-        return {"tasks": [], "error": str(exc)}
+        return {"tasks": [], "error": "An unexpected error occurred generating the remediation plan."}

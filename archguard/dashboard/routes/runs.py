@@ -1,4 +1,5 @@
 """Run-history, module-list, trend, and dependency-graph read endpoints."""
+import logging
 from pathlib import Path
 from typing import Any
 from fastapi import Path as FastAPIPath, Depends, Query, HTTPException
@@ -7,6 +8,8 @@ from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
 from archguard.config import AUDIT_LOG_FILENAME
+
+_logger = logging.getLogger(__name__)
 
 @app.get("/api/v1/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
 @app.get("/api/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
@@ -61,26 +64,47 @@ class ParsedEdge:
         self.importer_module = importer
         self.imported_module = imported
 
+def _edges_from_audit(job_id: str | None) -> list[ParsedEdge] | None:
+    """Try to read pre-computed import_edges from the audit log. Returns None if unavailable."""
+    if not job_id:
+        return None
+    logger = AuditLogger(get_audit_path(job_id))
+    runs = logger.read_last_n_runs(n=100)
+    for r in reversed(runs):
+        if r.get("job_id") == job_id and r.get("import_edges"):
+            return [
+                ParsedEdge(e["from"], e["to"])
+                for e in r["import_edges"]
+                if isinstance(e, dict) and "from" in e and "to" in e
+            ]
+    return None
+
 def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
+    # Prefer pre-computed edges from audit log (survive workspace deletion)
+    cached = _edges_from_audit(job_id)
+    if cached is not None:
+        return cached
+
     from archguard.analysis.parser import ImportParser
     from archguard.dashboard.app import get_target_path
     from archguard.contract.loader import load_contract
     from archguard.analysis._orchestrator_utils import _get_module_paths
     from archguard.analysis.coupling import _assign_file_to_module
     from archguard.utils.paths import path_belongs_to_module
-    
-    target = get_target_path(job_id)
-    if job_id and target == Path.cwd():
+
+    try:
+        target = get_target_path(job_id)
+    except HTTPException:
         return []
-        
+
     try:
         contract = load_contract(target)
         modules_cfg = contract.get("modules", [])
         module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
-        
+
         parser = ImportParser()
         parse_result = parser.parse_repo(target, module_paths, allow_partial=True)
-        
+
         edges_out = []
         seen = set()
         for e in parse_result.edges:
@@ -89,7 +113,7 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
             importer = _assign_file_to_module(e.source_file, module_paths)
             if not importer:
                 continue
-                
+
             import_as_path = e.imported_module.replace(".", "/")
             imported = None
             for tp_name, t_paths in module_paths.items():
@@ -101,18 +125,19 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
                 if targets_us:
                     imported = tp_name
                     break
-                    
+
             if not imported:
                 imported = e.imported_module.split(".")[0]
-                
+
             if importer != imported:
                 k = (importer, imported)
                 if k not in seen:
                     seen.add(k)
                     edges_out.append(ParsedEdge(importer, imported))
-                    
+
         return edges_out
-    except Exception:
+    except Exception as exc:
+        _logger.warning("get_import_edges failed for job_id=%s: %s", job_id, exc)
         return []
 
 @app.get("/api/v1/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
@@ -167,12 +192,16 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
     from archguard.analysis.deps import analyze_dependencies
     from archguard.dashboard.app import get_target_path
 
-    target = get_target_path(job_id)
     if not job_id:
         raise HTTPException(status_code=400, detail="No analysis selected. Submit a job first.")
-    
-    if target == Path.cwd():
-        raise HTTPException(status_code=410, detail="Analysis workspace no longer available")
+
+    try:
+        target = get_target_path(job_id)
+    except HTTPException:
+        raise HTTPException(
+            status_code=410,
+            detail="Analysis workspace expired. Re-run the analysis to scan dependencies.",
+        )
 
     try:
         result = analyze_dependencies(target)
@@ -194,11 +223,12 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
             "error": result.error,
         }
     except Exception as e:
+        _logger.warning("Dependency analysis failed for job_id=%s: %s", job_id, e)
         return {
             "score": 0.0,
             "vulnerable_packages": [],
             "scanned_packages": 0,
             "skipped": True,
-            "skip_reason": "Exception during analysis",
-            "error": str(e),
+            "skip_reason": "Dependency scan could not complete",
+            "error": None,
         }

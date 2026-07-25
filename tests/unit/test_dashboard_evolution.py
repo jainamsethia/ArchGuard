@@ -92,4 +92,4 @@ def test_api_evolution_empty(mock_audit_logger_empty, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert len(data["snapshots"]) == 0
-    assert data["health_trend"]["classification"] == "stable"
+    assert data["health_trend"]["classification"] == "insufficient"

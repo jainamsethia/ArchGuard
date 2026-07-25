@@ -1,3 +1,44 @@
+## [Unreleased] - 2026-07-25
+
+### Root-cause fix & hardening pass
+- **RC1 — Workspace ephemerality**: Derived artifacts (dependency graph, import
+  edges, contract, module scores) are now persisted in the audit log before the
+  ephemeral clone is deleted. Modules, Blast Radius, and Dependency Graph tabs
+  now read from audit and survive workspace cleanup. `get_target_path()` raises
+  410 instead of silently falling back to `Path.cwd()` when a workspace expires.
+- **RC3 — Missing module_scores**: Added `module_scores`, `modules_analyzed`,
+  `dependency_graph`, `import_edges`, and `contract` fields to
+  `AnalysisResultPayload`. The Modules tab now shows real per-module health
+  scores. The run filter by module now matches against an actual list of names.
+- **RC4 — Fan-out computation**: `_compute_fan_outs()` passed individual file
+  paths as module paths, but `path_belongs_to_module()` requires directory
+  prefixes. Every module measured `fan_out=0`, got `budget=3`, and any real
+  fan-out (8-17) hit the 100% debt clamp. Fixed by deriving unique parent
+  directories from file lists.
+- **RC2 — Unified AI providers**: Added `AnthropicRemediationProvider` so
+  `ANTHROPIC_API_KEY` alone enables all AI features (Advisor, Remediation,
+  Explanations). OpenAI provider kept as fallback for `OPENAI_BASE_URL` users.
+  Updated `.env.example` to document the unified key and correct `gpt-4o`
+  default.
+- **RC5 — Shallow clone detection**: Evolution/git-history endpoint now detects
+  `--depth=1` clones and returns a clear message instead of producing empty or
+  misleading data.
+- **RC6 — Violation scope**: Added `scope` field ("file" / "module") to
+  `ViolationPayload` so the frontend can distinguish file-level from
+  module-level violations.
+- **RC7 — UX fixes**: Compare controls disabled when < 2 runs. Run History URL
+  encoding fixed (`encodeURIComponent` was encoding slashes, breaking FastAPI's
+  `{repo_url:path}` matcher). Trend cards show "N/A — Insufficient data"
+  instead of "→ Stable" for single-run analyses (new `INSUFFICIENT`
+  classification in `TrendClassification`).
+- **Durable suppressions**: Suppression storage moved from inside the ephemeral
+  clone to a per-job file under `.archguard-cache/`, surviving workspace
+  deletion.
+- **Error handling**: Removed silent `except Exception: return []` in
+  `get_import_edges`; now logs the exception. Advisor and remediation endpoints
+  no longer leak raw SDK exceptions to the UI. Evolution endpoint returns
+  structured error objects instead of raw `str(exc)`.
+
 ## [Unreleased] - 2026-07-24
 
 ### Full re-verification audit (startup-grade dashboard upgrade)

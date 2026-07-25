@@ -219,7 +219,8 @@ async def validate_repo_url(request: RepoURLRequest) -> Any:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
+        logger.error("GitHub API error fetching repo metadata: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not reach GitHub API. Check your network connection.")
 
     return RepoMetadata(
         owner=owner,
@@ -289,7 +290,8 @@ async def submit_analysis_job(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=f"GitHub API error: {exc}")
+        logger.error("GitHub API error fetching repo metadata: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not reach GitHub API. Check your network connection.")
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)
