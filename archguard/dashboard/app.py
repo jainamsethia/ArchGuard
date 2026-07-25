@@ -8,6 +8,8 @@ import time
 import importlib.metadata
 import secrets
 import uuid
+from dotenv import load_dotenv
+load_dotenv()
 from archguard.dashboard._auth import _real_client_ip
 from pathlib import Path
 from typing import Any, Annotated

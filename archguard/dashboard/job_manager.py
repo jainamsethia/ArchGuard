@@ -130,7 +130,7 @@ class JobManager:
                 _owner, _repo_name = parse_github_url(job.github_url)
                 clone_url = build_safe_clone_url(_owner, _repo_name)
 
-                async with temp_workspace(clone_url, job_id=job.id, keep_alive=False) as repo_path:
+                async with temp_workspace(clone_url, job_id=job.id, keep_alive=True) as repo_path:
                     # -- Analysis phase ---------------------------------
                     job.status = JobStatus.ANALYSING
                     await send_progress("Repository cloned. Starting analysis...")
