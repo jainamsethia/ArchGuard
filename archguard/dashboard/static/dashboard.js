@@ -943,7 +943,7 @@ function getEmptyStateHtml(icon, title, body) {
                 const data = await res.json();
                 
                 if (data.error) {
-                    document.getElementById('trend_direction').textContent = data.error;
+                    document.getElementById('trend_direction').textContent = data.message || data.error;
                 } else {
                     _applyGitEvolutionData(data);
                 }
