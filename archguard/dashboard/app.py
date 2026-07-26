@@ -74,6 +74,15 @@ async def _lifespan(app_instance: FastAPI) -> Any:
             "print(secrets.token_hex(32))\""
         )
 
+    proxy_ips = os.environ.get("ARCHGUARD_TRUSTED_PROXY_IPS", "").strip()
+    if not proxy_ips:
+        _startup_logger.warning(
+            "ARCHGUARD_TRUSTED_PROXY_IPS is not set. If running behind a proxy "
+            "(like Railway or Render), rate limiting will be broken because all "
+            "users will share the proxy's IP. Set to '*' to trust all X-Forwarded-For "
+            "headers, or a specific CIDR."
+        )
+
     task = None
     try:
         from archguard.dashboard.workspace import cleanup_stale_workspaces

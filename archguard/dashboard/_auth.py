@@ -12,7 +12,7 @@ _ALWAYS_TRUSTED_HOSTS = frozenset(
 )
 
 
-def _get_trusted_proxy_ips() -> frozenset[str]:
+def _get_trusted_proxy_ips() -> frozenset[str] | str:
     """Parse ARCHGUARD_TRUSTED_PROXY_IPS into a frozenset of IP strings.
 
     Accepts a comma-separated list of IPv4 or IPv6 addresses/CIDR ranges.
@@ -21,6 +21,8 @@ def _get_trusted_proxy_ips() -> frozenset[str]:
     Example: ARCHGUARD_TRUSTED_PROXY_IPS=10.0.0.1,172.16.0.0/12
     """
     raw = os.environ.get("ARCHGUARD_TRUSTED_PROXY_IPS", "").strip()
+    if raw == "*":
+        return "*"
     if not raw:
         return frozenset()
     trusted: set[str] = set()
@@ -52,21 +54,41 @@ def _real_client_ip(request: Request) -> str:
     trusted_proxies = _get_trusted_proxy_ips()
 
     if not trusted_proxies:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            logging.warning(
+                "Ignored X-Forwarded-For %r from %s because ARCHGUARD_TRUSTED_PROXY_IPS is not configured.",
+                forwarded, direct_ip
+            )
         return direct_ip
 
     # Check whether the direct connection is from a trusted proxy
-    try:
-        direct_addr = ipaddress.ip_address(direct_ip)
-        for entry in trusted_proxies:
-            network = ipaddress.ip_network(entry, strict=False)
-            if direct_addr in network:
-                # Trust X-Forwarded-For; take the leftmost (real client) IP
-                forwarded_for = request.headers.get("X-Forwarded-For", "")
-                if forwarded_for:
-                    real_ip = forwarded_for.split(",")[0].strip()
-                    return real_ip
-    except ValueError:
-        pass  # malformed direct IP; fall through
+    is_trusted = False
+    if trusted_proxies == "*":
+        is_trusted = True
+    else:
+        try:
+            direct_addr = ipaddress.ip_address(direct_ip)
+            for entry in trusted_proxies:
+                network = ipaddress.ip_network(entry, strict=False)
+                if direct_addr in network:
+                    is_trusted = True
+                    break
+        except ValueError:
+            pass  # malformed direct IP; fall through
+
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    if is_trusted:
+        if forwarded_for:
+            # Trust X-Forwarded-For; take the leftmost (real client) IP
+            real_ip = forwarded_for.split(",")[0].strip()
+            if real_ip:
+                return real_ip
+    elif forwarded_for:
+         logging.warning(
+             "Ignored X-Forwarded-For %r from untrusted proxy %s.",
+             forwarded_for, direct_ip
+         )
 
     return direct_ip
 
