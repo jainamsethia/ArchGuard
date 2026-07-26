@@ -128,14 +128,34 @@ _MAX_BODY = 1 * 1024 * 1024  # 1 MB - sufficient for all documented payloads
 
 @app.middleware("http")
 async def _limit_body_size(request: Request, call_next: Any) -> Any:
-    """Reject requests whose Content-Length exceeds 1 MB before parsing."""
+    """Reject requests whose Content-Length or actual body size exceeds 1 MB."""
     content_length = request.headers.get("content-length")
     if content_length and int(content_length) > _MAX_BODY:
         return JSONResponse(
             status_code=413,
             content={"error": "Request body too large (max 1 MB)"},
         )
-    return await call_next(request)
+    
+    receive = request._receive
+    body_size = 0
+
+    async def wrapped_receive():
+        nonlocal body_size
+        message = await receive()
+        if message["type"] == "http.request":
+            body_size += len(message.get("body", b""))
+            if body_size > _MAX_BODY:
+                raise HTTPException(status_code=413, detail="Request body too large (max 1 MB)")
+        return message
+
+    request._receive = wrapped_receive
+
+    try:
+        return await call_next(request)
+    except HTTPException as e:
+        if e.status_code == 413:
+            return JSONResponse(status_code=413, content={"error": e.detail})
+        raise
 
 # Reusable validated job_id type for all route query parameters.
 # UUIDs are 36 chars; allow up to 64 for flexibility. Only hex + hyphens.
