@@ -87,11 +87,6 @@ ArchGuard runs a 4-layer analysis pipeline on every PR:
 
 Results posted as a PR comment with an ArchDebt score and LLM-generated explanation.
 
-## Live Demo
-- [Demo Repository](https://github.com/jainam-b/archguard-demo) — See ArchGuard running on a realistic Python codebase
-- [Sample PR with violations](https://github.com/jainam-b/archguard-demo/pulls) — Example of a failing ArchGuard check
-- [Sample PR that passes](https://github.com/jainam-b/archguard-demo/pulls) — Example of a clean PR
-- [Live Dashboard](https://archguard-demo.up.railway.app) — Sample ArchDebt report with trend chart
 
 ## Screenshots
 
