@@ -33,7 +33,6 @@ class AdvisorAskRequest(BaseModel):
     """Payload for the streaming advisor ask endpoint."""
 
     question: str = Field(..., max_length=2000, description="Architectural question (max 2000 chars)")
-    context: str = Field("", max_length=10000, description="Optional context from analysis results (max 10000 chars)")
 
 
 # -----------------------------------------------------------------------------
@@ -76,17 +75,14 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
     from archguard.config import AUDIT_LOG_FILENAME
     from pathlib import Path
 
-    context = body.context or ""
-    
     audit = AuditLogger(Path.cwd() / AUDIT_LOG_FILENAME)
     latest = audit.read_last_run() if not job_id else next(
         (r for r in audit.read_last_n_runs(n=100) if r.get("job_id") == job_id), None
     )
     if latest and latest.get("violations"):
-        real_context = _build_context_from_violations(latest["violations"][:10])
-        prompt_context = f"{real_context}\n\n{context}"  # server-grounded con
+        prompt_context = _build_context_from_violations(latest["violations"][:10])
     else:
-        prompt_context = context
+        prompt_context = ""
 
     # The Advisor streams via Anthropic (ask_stream); the OpenAI provider is not
     # needed for this endpoint and may be omitted.

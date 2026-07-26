@@ -1050,17 +1050,11 @@ function getEmptyStateHtml(icon, title, body) {
             input.disabled = true;
             askBtn.disabled = true;
 
-            let contextStr = "No context data available.";
-            if (window.latestRun) {
-                const run = window.latestRun;
-                contextStr = `Fallback context - Score: ${run.score || 0}, Violations: ${run.violations?.length || 0}`;
-            }
-
             try {
                 const res = await fetch(`/api/v1/advisor/ask${jobQuery}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question, context: contextStr })
+                    body: JSON.stringify({ question })
                 });
 
                 if (!res.ok) {
