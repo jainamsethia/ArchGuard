@@ -192,23 +192,31 @@ def get_module_trends(
 def get_deps(job_id: JobIdQuery = None) -> Any:
     """Run dependency analysis and return the result."""
     from archguard.analysis.deps import analyze_dependencies
-    from archguard.dashboard.app import get_target_path
+    from archguard.dashboard.app import get_target_path, get_audit_path
+    import json
 
     if not job_id:
         raise HTTPException(status_code=400, detail="No analysis selected. Submit a job first.")
 
+    audit_file = get_audit_path(job_id)
+    logger_instance = AuditLogger(audit_file)
+    runs = logger_instance.read_last_n_runs(n=100)
+    for r in reversed(runs):
+        if r.get("job_id") == job_id and "dependency_health" in r:
+            return r["dependency_health"]
+
     try:
         target = get_target_path(job_id)
     except HTTPException:
-        raise HTTPException(
-            status_code=410,
-            detail="Analysis workspace expired. Re-run the analysis to scan dependencies.",
-        )
+        return {
+            "skipped": True,
+            "skip_reason": "Analysis workspace expired. Re-run the analysis to scan dependencies."
+        }
 
     try:
         result = analyze_dependencies(target)
 
-        return {
+        output = {
             "score": result.score,
             "vulnerable_packages": [
                 {
@@ -224,6 +232,24 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
             "skip_reason": result.skip_reason,
             "error": result.error,
         }
+
+        if audit_file.exists():
+            try:
+                lines = audit_file.read_text(encoding="utf-8").splitlines()
+                for i in range(len(lines) - 1, -1, -1):
+                    if not lines[i].strip():
+                        continue
+                    entry = json.loads(lines[i])
+                    if entry.get("job_id") == job_id and entry.get("event") == "analysis_complete":
+                        entry["dependency_health"] = output
+                        lines[i] = json.dumps(entry)
+                        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                        break
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to persist dependency scan: %s", e)
+
+        return output
     except Exception as e:
         _logger.warning("Dependency analysis failed for job_id=%s: %s", job_id, e)
         return {
