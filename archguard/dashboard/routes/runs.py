@@ -144,6 +144,8 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
 @app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
+    if not job_id:
+        return {"empty": True, "modules": {}, "edges": []}
     logger = AuditLogger(get_audit_path(job_id))
     read_n = 10000 if job_id else 100
     runs = logger.read_last_n_runs(n=read_n)
