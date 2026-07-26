@@ -913,14 +913,14 @@ function getEmptyStateHtml(icon, title, body) {
 
         window.addEventListener('load', () => {
             const hash = window.location.hash.substring(1);
-            if (['overview', 'violations', 'dependencies'].includes(hash)) {
+            if (['overview', 'violations', 'dependencies', 'suppressions'].includes(hash)) {
                 switchTab(hash);
             }
         });
-        
+
         window.addEventListener('hashchange', () => {
             const hash = window.location.hash.substring(1);
-            if (['overview', 'violations', 'dependencies'].includes(hash)) {
+            if (['overview', 'violations', 'dependencies', 'suppressions'].includes(hash)) {
                 switchTab(hash);
             } else if (!hash) {
                 switchTab('overview');
