@@ -222,6 +222,12 @@
                             return;
                         }
                         document.getElementById('res-score').textContent = r.health_score != null ? parseFloat(r.health_score).toFixed(1) : '--';
+
+                        const fallbackWarning = document.getElementById('res-fallback-warning');
+                        if (fallbackWarning) {
+                            fallbackWarning.style.display = r.fallback_directory_heuristic ? 'block' : 'none';
+                        }
+
                         document.getElementById('res-violations').textContent = r.total_violations || '0';
                         const grade = r.health_grade || '--';
                         const gradeEl = document.getElementById('res-grade');

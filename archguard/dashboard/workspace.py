@@ -110,7 +110,7 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
 
     cmd: list[str] = [
         git_exe, "clone",
-        "--depth", "1",
+        "--filter=blob:none",
         "--single-branch",
         "--no-tags",
         "--quiet",

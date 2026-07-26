@@ -169,5 +169,5 @@ def _phase3_communities(
         "seed": seed,
         "num_communities": len(communities),
         "communities": communities,
-        "coherence_warnings": [],
+        "coherence_warnings": [], "fallback_used": commit_count < min_history or not communities or len(communities) < 2,
     }

@@ -48,6 +48,7 @@ class AnalysisJobResult:
     modules_analyzed: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
     contract_auto_generated: bool = False
+    fallback_directory_heuristic: bool = False
     skipped: bool = False
     skip_reason: str = ""
     error: str | None = None
@@ -101,17 +102,31 @@ async def run_analysis_on_repo(
 
     start = time.monotonic()
     contract_auto_generated = False
+    fallback_heuristic = False
 
     # -- Step 1: Auto-generate contract if absent -------------------------
     archguard_yml = repo_path / ".archguard.yml"
     if not archguard_yml.exists():
-        await _emit("No .archguard.yml found - generating contract from directory structure...")
+        await _emit("No .archguard.yml found - generating contract...")
         try:
             await asyncio.get_running_loop().run_in_executor(
                 None, _generate_contract_sync, repo_path
             )
             contract_auto_generated = True
-            await _emit("Contract auto-generated from directory structure.")
+
+            import yaml
+            if archguard_yml.exists():
+                with open(archguard_yml, "r", encoding="utf-8") as f:
+                    try:
+                        yml_content = yaml.safe_load(f)
+                        if isinstance(yml_content, dict):
+                            gen_by = yml_content.get("generated_by", "")
+                            if "fallback" in str(gen_by):
+                                fallback_heuristic = True
+                    except Exception:
+                        pass
+
+            await _emit("Contract auto-generated.")
         except Exception as exc:
             logger.warning("[job %s] Contract auto-generation failed: %s", job_id, exc)
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
@@ -134,6 +149,7 @@ async def run_analysis_on_repo(
             skip_reason="No Python files found in repository",
             duration_seconds=elapsed,
             contract_auto_generated=contract_auto_generated,
+            fallback_directory_heuristic=fallback_heuristic,
         )
 
     await _emit(f"Found {len(py_files)} Python files. Starting 4-layer analysis...")
@@ -164,6 +180,7 @@ async def run_analysis_on_repo(
             composite_score=1.0,
             duration_seconds=elapsed,
             contract_auto_generated=contract_auto_generated,
+            fallback_directory_heuristic=fallback_heuristic,
             error=err_str,
         )
 
@@ -188,6 +205,7 @@ async def run_analysis_on_repo(
         modules_analyzed=[],  # populated in audit log; kept for API compat
         duration_seconds=elapsed,
         contract_auto_generated=contract_auto_generated,
+        fallback_directory_heuristic=fallback_heuristic,
         skipped=result.skipped,
         skip_reason=result.skip_reason,
     )

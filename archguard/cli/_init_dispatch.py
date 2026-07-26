@@ -248,6 +248,7 @@ def _run_init_cli(
                 output=output,
                 llm_init=llm_init,
                 ctx=ctx,
+                fallback_used=phase3_data.get("fallback_used", False),
             )
 
             save_checkpoint(

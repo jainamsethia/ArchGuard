@@ -238,6 +238,7 @@ def _generate_and_write_contract(
     output: Path,
     llm_init: bool,
     ctx: typer.Context,
+    fallback_used: bool = False,
 ) -> int:
     """Generates YAML contract, optionally using LLM, and writes it to output path.
     Returns number of modules written.
@@ -261,7 +262,7 @@ def _generate_and_write_contract(
         "version": "3.0",
         "model_weights_version": _model_weights_version(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "generated_by": "archguard init",
+        "generated_by": "archguard init (directory heuristic fallback)" if fallback_used else "archguard init",
         "modules": louvain_modules,
         "fail_threshold": 0.75,
         "warn_threshold": 0.50,
