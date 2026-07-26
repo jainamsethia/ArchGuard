@@ -182,9 +182,12 @@ class JobManager:
 
             except Exception as exc:
                 job.status = JobStatus.FAILED
-                job.error = str(exc)
+                err_msg = str(exc)
+                if "git clone failed" in err_msg.lower() or getattr(exc, "returncode", None) is not None:
+                    err_msg = "Repository cloning failed. Ensure the URL is correct, public, and reachable."
+                job.error = err_msg
                 job.completed_at = datetime.now(timezone.utc)
-                logger.exception("[job %s] Unexpected failure", job.id)
+                logger.exception("[job %s] Unexpected failure (orig: %s)", job.id, str(exc))
 
 
 # Module-level singleton - imported by routes
