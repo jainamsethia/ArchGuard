@@ -277,7 +277,7 @@ function initActionButtons() {
             const nodes = Object.entries(modules).map(([name, score]) => ({
                 id: name,
                 label: name.split('.').pop(),
-                title: `${name}\nScore: ${score}`,
+                title: `${sanitize(name)}\nScore: ${sanitize(String(score))}`,
                 value: Math.max(10, (score || 0) * 2),
                 color: score > 70 ? '#34d399' : score > 40 ? '#f59e0b' : '#ef4444',
             }));
