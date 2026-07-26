@@ -140,7 +140,8 @@
                 appendLog('Establishing secure stream connection...', 'system');
 
                 // Connect to SSE stream
-                const evtSource = new EventSource(`/api/v1/jobs/${jobId}/stream`);
+                const streamUrl = data.stream_url || `/api/v1/jobs/${jobId}/stream`;
+                const evtSource = new EventSource(streamUrl);
 
                 let seenMessages = 0;
                 let pollingFallback = null;
