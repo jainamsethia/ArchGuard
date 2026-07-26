@@ -133,7 +133,6 @@ uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 --workers 2
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ARCHGUARD_SESSION_COOKIE_TTL` | Login session duration (seconds) | `86400` (24h) |
-| `ARCHGUARD_SESSION_TTL` | AI Advisor conversation memory duration (seconds) | `3600` (1h) |
 
 ---
 

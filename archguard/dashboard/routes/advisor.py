@@ -29,41 +29,6 @@ MAX_HISTORY_TURNS = 20  # cap on conversation turns serialised into each LLM pro
 # -----------------------------------------------------------------------------
 
 
-class AdvisorMessageRequest(BaseModel):
-    """Payload for a follow-up question in an existing advisor session."""
-
-    message: str = Field(..., max_length=2000, description="Follow-up message (max 2000 chars)")
-
-
-class AdvisorRecommendationOut(BaseModel):
-    title: str
-    description: str
-    severity: str
-    expected_impact: str
-    priority_score: int
-
-
-class AdvisorSessionResponse(BaseModel):
-    session_id: str
-    created_at: str
-    recommendations: list[AdvisorRecommendationOut]
-    message: str
-
-
-class AdvisorMessageResponse(BaseModel):
-    session_id: str
-    role: str  # "assistant"
-    content: str
-    history: list[dict[str, str]]
-
-
-class AdvisorSessionHistoryResponse(BaseModel):
-    session_id: str
-    created_at: str
-    history: list[dict[str, str]]
-    recommendations: list[AdvisorRecommendationOut]
-
-
 class AdvisorAskRequest(BaseModel):
     """Payload for the streaming advisor ask endpoint."""
 

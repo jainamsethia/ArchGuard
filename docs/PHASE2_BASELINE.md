@@ -83,7 +83,6 @@ INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)
 | `OLLAMA_BASE_URL` | `llm/local.py` | `http://localhost:11434` | Optional | ❌ **Missing** |
 | `ARCHGUARD_DASHBOARD_TOKEN` | `dashboard/_state.py` | None (no auth) | Optional | ✅ Yes |
 | `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `dashboard/_state.py`, `cli/dashboard_cmd.py` | `""` (deny) | Optional | ✅ Yes |
-| `ARCHGUARD_SESSION_TTL` | `dashboard/_state.py` | `3600` | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_SECRET` | `audit/logger.py` | None | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_STRICT` | `audit/logger.py` | `""` (off) | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_MAX_ENTRIES` | `config.py` | `1000` | Optional | ✅ Yes |
