@@ -114,6 +114,64 @@ def test_trusted_proxy_ip_forwards_real_client_correctly() -> None:
         del os.environ["ARCHGUARD_TRUSTED_PROXY_IPS"]
 
 
+def test_trusted_proxy_wildcard_cannot_spoof_localhost_for_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trusted proxy config must not turn X-Forwarded-For into an auth bypass.
+
+    render.yaml deploys ARCHGUARD_TRUSTED_PROXY_IPS="*". Under that config a
+    remote client sending "X-Forwarded-For: 127.0.0.1" previously resolved to
+    127.0.0.1 in check_token's no-token IP fallback and was granted localhost
+    trust. The auth decision must use the direct peer address only.
+    """
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "*")
+
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    from archguard.dashboard._auth import _real_client_ip, check_token
+
+    scope = {
+        "type": "http",
+        "client": ("203.0.113.9", 12345),
+        "headers": [(b"x-forwarded-for", b"127.0.0.1")],
+        "query_string": b"",
+    }
+    request = Request(scope)
+
+    with pytest.raises(HTTPException) as exc:
+        check_token(request, credentials=None)
+    assert exc.value.status_code == 401
+
+    # Rate limiting still gets the per-visitor IP from the trusted header --
+    # only the auth trust decision ignores it.
+    assert _real_client_ip(request) == "127.0.0.1"
+
+
+def test_genuine_localhost_still_trusted_under_wildcard_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bypass fix must not lock out real local users."""
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "*")
+
+    from starlette.requests import Request
+
+    from archguard.dashboard._auth import check_token
+
+    for host in ("127.0.0.1", "::1"):
+        request = Request({
+            "type": "http",
+            "client": (host, 12345),
+            "headers": [],
+            "query_string": b"",
+        })
+        check_token(request, credentials=None)  # must not raise
+
+
 def test_hmac_compare_digest_used_for_token_check(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

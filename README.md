@@ -2,14 +2,16 @@
 > **Architectural drift detection for Python CI pipelines**
 > Catches import boundary violations, coupling degradation, and semantic drift before they reach main.
 
-[![CI](https://github.com/jainam-b/archguard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainam-b/archguard/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/jainam-b/archguard/graph/badge.svg)](https://codecov.io/gh/jainam-b/archguard) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainam-b/archguard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
+[![CI](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainamsethia/ArchGuard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
-**[📺 Live Demo](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
+**[📸 Screenshots](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
 
 ## Deploy
 
 ### One-click deploy to Railway
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/archguard)
+Create a new Railway project from this repo (Railway dashboard → **New Project** →
+**Deploy from GitHub repo**); `railway.toml` in the repo root supplies the build and
+healthcheck config.
 
 **Required environment variables to set in Railway dashboard:**
 - `ANTHROPIC_API_KEY` — for L4 LLM explanations (optional but recommended)
@@ -20,7 +22,7 @@
 - `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set via the Railway dashboard or CLI).
 
 ### Deploy to Render
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/your-org/archguard)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jainamsethia/ArchGuard)
 
 Set the same environment variables in the Render dashboard under **Environment**. Note that `ARCHGUARD_TRUSTED_PROXY_IPS` is already configured directly in `render.yaml` with the appropriate CIDR range.
 
@@ -279,7 +281,7 @@ AG-->>Action: Exit 1 if score > fail_threshold
     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 - name: Run ArchGuard
-  uses: your-org/archguard@v1
+  uses: jainamsethia/ArchGuard/action@v1
   with:
     pr-number: ${{ github.event.pull_request.number }}
     skip-explanation: 'false'   # Set 'true' to skip LLM calls (faster, free)

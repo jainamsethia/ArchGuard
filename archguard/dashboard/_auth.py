@@ -41,6 +41,17 @@ def _get_trusted_proxy_ips() -> frozenset[str] | str:
     return frozenset(trusted)
 
 
+def _direct_client_ip(request: Request) -> str:
+    """Return the IP of the peer actually connected to us, ignoring headers.
+
+    Used for trust decisions that mean "this connection came from this
+    machine". X-Forwarded-For must never influence those: a forwarded request
+    did not originate locally by definition, so honouring the header there
+    would let any client claim to be loopback.
+    """
+    return request.client.host if request.client else "unknown"
+
+
 def _real_client_ip(request: Request) -> str:
     """Return the real client IP, trusting X-Forwarded-For from known proxy IPs.
 
@@ -132,8 +143,11 @@ def check_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # No token configured - fall back to IP-based check
-    client_host = _real_client_ip(request)
+    # No token configured - fall back to IP-based check.
+    # Deliberately the DIRECT peer address, not the X-Forwarded-For-derived one:
+    # with a trusted proxy configured (or "*"), a remote client could otherwise
+    # send "X-Forwarded-For: 127.0.0.1" and be granted localhost trust.
+    client_host = _direct_client_ip(request)
     if client_host in _ALWAYS_TRUSTED_HOSTS:
         return  # localhost always trusted
     try:
@@ -154,7 +168,8 @@ def check_token(
             ),
         )
     logging.warning(
-        "Dashboard accessed from %s without token authentication! "
-        "Set ARCHGUARD_DASHBOARD_TOKEN to secure this instance.",
+        "Dashboard accessed from %s (forwarded-for: %s) without token "
+        "authentication! Set ARCHGUARD_DASHBOARD_TOKEN to secure this instance.",
         client_host,
+        _real_client_ip(request),
     )

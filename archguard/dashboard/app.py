@@ -1,5 +1,9 @@
 """ArchGuard dashboard FastAPI application."""
 
+# ruff: noqa: E402 - load_dotenv() must run before any archguard import: several
+# modules (archguard.config, _cookie_auth) read os.environ at import time, so
+# hoisting these imports above it would silently ignore the operator's .env.
+
 import sys
 import asyncio
 import os
@@ -9,7 +13,9 @@ import importlib.metadata
 import secrets
 import uuid
 from dotenv import load_dotenv
+
 load_dotenv()
+
 from archguard.dashboard._auth import _real_client_ip
 from pathlib import Path
 from typing import Any, Annotated
@@ -43,7 +49,13 @@ async def _periodic_workspace_cleanup() -> None:
     while True:
         await _asyncio.sleep(900)  # 15 minutes
         try:
-            removed = await cleanup_stale_workspaces(max_age_seconds=900)
+            # Workspaces of jobs still held in memory are exempt: a user may be
+            # reading results from one long after its clone finished.
+            from archguard.dashboard.job_manager import job_manager
+            active = {j.id for j in job_manager.list_jobs()}
+            removed = await cleanup_stale_workspaces(
+                max_age_seconds=900, active_job_ids=active
+            )
             if removed:
                 _startup_logger.info(
                     "Periodic cleanup: removed %d stale workspace(s)", removed
@@ -136,26 +148,36 @@ async def _limit_body_size(request: Request, call_next: Any) -> Any:
             content={"error": "Request body too large (max 1 MB)"},
         )
     
+    # A lying or absent Content-Length must not get a free pass, so also cap at
+    # read time. Stop feeding the body and flag it once the cap is crossed: the
+    # route's own body parsing turns the truncated stream into its own error
+    # (422/400), which would otherwise mask the real reason, so the flag is
+    # re-checked after call_next and wins over whatever the route returned.
     receive = request._receive
-    body_size = 0
+    state = {"size": 0, "exceeded": False}
 
-    async def wrapped_receive():
-        nonlocal body_size
+    async def wrapped_receive() -> Any:
         message = await receive()
         if message["type"] == "http.request":
-            body_size += len(message.get("body", b""))
-            if body_size > _MAX_BODY:
-                raise HTTPException(status_code=413, detail="Request body too large (max 1 MB)")
+            state["size"] += len(message.get("body", b""))
+            if state["size"] > _MAX_BODY:
+                state["exceeded"] = True
+                return {"type": "http.disconnect"}
         return message
 
     request._receive = wrapped_receive
 
+    _too_large = JSONResponse(
+        status_code=413,
+        content={"error": "Request body too large (max 1 MB)"},
+    )
     try:
-        return await call_next(request)
-    except HTTPException as e:
-        if e.status_code == 413:
-            return JSONResponse(status_code=413, content={"error": e.detail})
+        response = await call_next(request)
+    except Exception:
+        if state["exceeded"]:
+            return _too_large
         raise
+    return _too_large if state["exceeded"] else response
 
 # Reusable validated job_id type for all route query parameters.
 # UUIDs are 36 chars; allow up to 64 for flexibility. Only hex + hyphens.

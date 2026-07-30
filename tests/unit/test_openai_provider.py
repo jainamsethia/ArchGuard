@@ -51,8 +51,12 @@ def test_openai_provider_success(provider):
         assert recs[0].priority_score == 85
 
 
-def test_openai_provider_missing_api_key():
+def test_openai_provider_missing_api_key(monkeypatch):
     """Missing API key -> AdvisorUnavailableError(no_api_key) for the error/retry UI."""
+    # The provider falls back to OPENAI_API_KEY when passed an empty key, and
+    # importing the dashboard app calls load_dotenv(), so a developer's real .env
+    # would otherwise leak in and turn this into an api_error.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     empty_provider = OpenAIAdvisorProvider(api_key="")
     with pytest.raises(AdvisorUnavailableError) as exc:
         empty_provider.generate_recommendations("Context")

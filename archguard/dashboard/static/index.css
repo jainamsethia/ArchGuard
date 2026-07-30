@@ -527,6 +527,36 @@ body.page-index {
             margin-bottom: 2rem;
         }
 
+        /* An empty state inside a table cell inherits the table's scroll width,
+           so on narrow screens its text is clipped instead of wrapping. When a
+           row is just an empty state there are no columns to preserve, so let
+           the table collapse to the container width for that case. */
+        .table-container table:has(.empty-state) {
+            display: block;
+        }
+
+        .table-container table:has(.empty-state) thead {
+            display: none;
+        }
+
+        .table-container table:has(.empty-state) tbody,
+        .table-container table:has(.empty-state) tr,
+        .table-container table:has(.empty-state) td {
+            display: block;
+            width: auto;
+            box-sizing: border-box;
+        }
+
+        .table-container .empty-state {
+            box-sizing: border-box;
+            padding: 3rem 1.5rem;
+        }
+
+        .table-container .empty-title,
+        .table-container .empty-body {
+            overflow-wrap: anywhere;
+        }
+
         .btn-primary {
             display: inline-block;
             background: var(--accent-color);

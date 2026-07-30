@@ -28,10 +28,7 @@ function initNavigation() {
     if (depsTab) depsTab.addEventListener('click', () => switchTab('dependencies'));
 
     const suppressTab = document.getElementById('tab-suppressions');
-    if (suppressTab) suppressTab.addEventListener('click', () => {
-        switchTab('suppressions');
-        loadSuppressions();
-    });
+    if (suppressTab) suppressTab.addEventListener('click', () => switchTab('suppressions'));
 }
 
 function initActionButtons() {
@@ -906,8 +903,13 @@ function getEmptyStateHtml(icon, title, body) {
             
             history.pushState({}, '', window.location.search + `#${name}`);
             
+            // Lazy-load each tab's data here, not in the click handler: tabs are
+            // also opened by URL hash on load and by hashchange, and those paths
+            // would otherwise leave the panel stuck on its "Loading..." row.
             if (name === 'dependencies') {
                 initDependencyGraph();
+            } else if (name === 'suppressions') {
+                loadSuppressions();
             }
         }
 

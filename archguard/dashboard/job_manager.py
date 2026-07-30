@@ -95,6 +95,13 @@ class JobManager:
                 oldest_id = evictable[0]
                 del self._jobs[oldest_id]
                 logger.debug("Evicted old job %s", oldest_id)
+                # Immediately reclaim disk space
+                import tempfile
+                import shutil
+                from pathlib import Path
+                workspace_dir = Path(tempfile.gettempdir()) / f"archguard-{oldest_id}"
+                if workspace_dir.exists():
+                    shutil.rmtree(workspace_dir, ignore_errors=True)
             else:
                 logger.debug("All jobs are active; skipping eviction this cycle rather than killing a live job")
         return job

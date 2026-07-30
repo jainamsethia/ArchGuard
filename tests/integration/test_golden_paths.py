@@ -131,8 +131,10 @@ def test_dashboard_login_then_data_retrieval_golden_path(tmp_path, monkeypatch):
     assert latest_resp.status_code == 200
     assert latest_resp.json()["score"] == 88.5
 
-    # Step 5: Get modules
-    modules_resp = dashboard_client.get("/api/v1/modules", cookies=cookies)
+    # Step 5: Get modules (job-scoped, like every real UI fetch)
+    modules_resp = dashboard_client.get(
+        "/api/v1/modules", params={"job_id": job_id}, cookies=cookies,
+    )
     assert modules_resp.status_code == 200
     mod_data = modules_resp.json()
     assert "core" in mod_data["modules"]

@@ -69,6 +69,60 @@ def test_cleanup_handles_empty_temp_dir():
     assert isinstance(removed, int)
 
 
+def test_cleanup_exempts_active_jobs_on_noatime_filesystem():
+    """A workspace whose job is still in memory survives the periodic sweep.
+
+    Both timestamps are frozen in the past to emulate a ``noatime``/``relatime``
+    mount, where no amount of reading advances the times. Liveness must come
+    from the job manager, not the filesystem, or a user reading results gets
+    their workspace deleted mid-session.
+    """
+    import shutil
+
+    tmp = Path(tempfile.gettempdir())
+    live_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    orphan_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    live = tmp / f"archguard-{live_id}"
+    orphan = tmp / f"archguard-{orphan_id}"
+
+    try:
+        ancient = time.time() - 1200  # 20 min, older than the 15 min sweep
+        for d in (live, orphan):
+            (d / "repo").mkdir(parents=True, exist_ok=True)
+            os.utime(d, (ancient, ancient))
+
+        removed = asyncio.run(
+            cleanup_stale_workspaces(
+                max_age_seconds=900, active_job_ids={live_id}
+            )
+        )
+
+        assert live.exists(), "workspace of a live job must not be reaped"
+        assert not orphan.exists(), "genuinely orphaned workspace must be reclaimed"
+        assert removed >= 1
+    finally:
+        for d in (live, orphan):
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def test_cleanup_without_active_ids_still_reaps_everything_stale():
+    """The startup sweep passes no active IDs: after a crash nothing is live."""
+    import shutil
+
+    tmp = Path(tempfile.gettempdir())
+    d = tmp / "archguard-eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    try:
+        (d / "repo").mkdir(parents=True, exist_ok=True)
+        ancient = time.time() - 1200
+        os.utime(d, (ancient, ancient))
+
+        asyncio.run(cleanup_stale_workspaces(max_age_seconds=900))
+
+        assert not d.exists()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # ── get_target_path ─────────────────────────────────────────────────────────
 
 

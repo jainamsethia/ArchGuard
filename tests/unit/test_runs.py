@@ -18,6 +18,51 @@ def test_get_deps_without_job_returns_400():
     assert exc.value.status_code == 400
 
 
+def test_get_deps_survives_workspace_expiry_via_audit_log(monkeypatch, tmp_path):
+    """Simulated expiry: the on-disk clone is gone, but a previous scan was
+    persisted to the audit log, so the panel degrades to that instead of 410 --
+    the same persisted-fallback contract Modules/Blast Radius/Dep Graph use."""
+    from archguard.audit.logger import AuditLogger
+
+    job_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    log_path = tmp_path / "audit.jsonl"
+    persisted = {
+        "score": 91.0,
+        "vulnerable_packages": [],
+        "scanned_packages": 42,
+        "skipped": False,
+        "skip_reason": None,
+        "error": None,
+    }
+    AuditLogger(log_path).log(
+        runs._DEPS_EVENT, job_id=job_id, dependency_health=persisted,
+    )
+    monkeypatch.setattr(runs, "get_audit_path", lambda jid: log_path)
+
+    # No workspace on disk for this job_id -- get_target_path would raise 410.
+    result = runs.get_deps(job_id=job_id)
+    assert result["scanned_packages"] == 42
+    assert result["score"] == 91.0
+    assert result["skipped"] is False
+
+
+def test_persisted_deps_does_not_pollute_run_history(tmp_path):
+    """A persisted dependency scan must not surface as an analysis run: doing so
+    would inject a scoreless entry into run history, trends and compare-runs."""
+    from archguard.audit.logger import AuditLogger
+
+    job_id = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    log_path = tmp_path / "audit.jsonl"
+    logger = AuditLogger(log_path)
+    logger.log("analysis_run", job_id=job_id, timestamp="2026-01-01T00:00:00Z",
+               score=80.0, module_scores={"core": 80.0})
+    logger.log(runs._DEPS_EVENT, job_id=job_id,
+               dependency_health={"score": 91.0, "scanned_packages": 42})
+
+    assert len(logger.read_last_n_runs(n=100)) == 1
+    assert runs._persisted_deps(log_path, job_id)["scanned_packages"] == 42
+
+
 def test_runs_job_id_filter(monkeypatch):
     import tempfile
     import pathlib

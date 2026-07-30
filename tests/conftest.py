@@ -43,6 +43,25 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
+
+@pytest.fixture(autouse=True)
+def restore_semantic_model_cache() -> Any:
+    """Undo any test's mutation of the process-global embedding-model cache.
+
+    ``semantic._GLOBAL_MODEL_CACHE`` lives for the whole process. Tests that
+    mock ``SentenceTransformer`` write a MagicMock into it and only clear it
+    *before* use, so the mock outlives the test; a later real-model test then
+    embeds through the mock, gets nothing back, and fails for a reason that has
+    nothing to do with the code under test. Snapshot and restore rather than
+    clear, so a genuinely loaded model stays cached for the rest of the run.
+    """
+    from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE
+
+    snapshot = dict(_GLOBAL_MODEL_CACHE)
+    yield
+    _GLOBAL_MODEL_CACHE.clear()
+    _GLOBAL_MODEL_CACHE.update(snapshot)
+
 def strip_rich(text: str) -> str:
     """Strip Rich/ANSI escape sequences so test assertions work on plain text.
 

@@ -258,7 +258,7 @@ def _generate_and_write_contract(
             }
         )
 
-    louvain_contract = {
+    louvain_contract: dict[str, object] = {
         "version": "3.0",
         "model_weights_version": _model_weights_version(),
         "generated_at": datetime.now(timezone.utc).isoformat(),

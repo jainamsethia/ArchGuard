@@ -103,3 +103,8 @@ fitness.json
 scratch/
 node_modules/
 test-results/
+
+# Local agent/tool state and working notes (never part of a release)
+.claude/
+ARCHGUARD_AUDIT_FIX_PROMPT.md
+archguard_website_framework_v7_combined.md

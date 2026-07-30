@@ -10,6 +10,7 @@ _ALLOWED_ROOT_FILES = {
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "Dockerfile",
+    "LICENSE",
     "Makefile",
     "README.md",
     "SECURITY.md",

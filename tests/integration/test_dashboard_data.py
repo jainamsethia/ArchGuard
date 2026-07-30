@@ -120,8 +120,10 @@ def test_modules_empty_when_no_audit_log(monkeypatch, tmp_path):
     assert data["modules"] == {}
 
 
-def test_modules_aggregates_scores(monkeypatch, tmp_path):
-    """GET /api/v1/modules aggregates module scores from all runs."""
+def test_modules_without_job_id_returns_honest_empty_state(monkeypatch, tmp_path):
+    """No job_id means no repository context, so /modules must not serve the
+    server's own cwd audit log as if it were the visitor's analysis. Mirrors
+    /api/v1/runs/latest, which already returns {"empty": true} here."""
     monkeypatch.chdir(tmp_path)
     _populate_audit_log(tmp_path, [
         {
@@ -129,13 +131,32 @@ def test_modules_aggregates_scores(monkeypatch, tmp_path):
             "score": 85.0, "band": "PASS",
             "module_scores": {"archguard": 90.0, "tests": 80.0},
         },
+    ])
+    response = client.get("/api/v1/modules", headers=_headers())
+    assert response.status_code == 200
+    data = response.json()
+    assert data["empty"] is True
+    assert data["modules"] == {}
+    assert data["edges"] == []
+
+
+def test_modules_aggregates_scores(monkeypatch, tmp_path):
+    """GET /api/v1/modules aggregates module scores across a job's runs."""
+    monkeypatch.chdir(tmp_path)
+    job_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    _populate_audit_log(tmp_path, [
         {
-            "event": "analysis_run",
+            "event": "analysis_run", "job_id": job_id,
+            "score": 85.0, "band": "PASS",
+            "module_scores": {"archguard": 90.0, "tests": 80.0},
+        },
+        {
+            "event": "analysis_run", "job_id": job_id,
             "score": 88.0, "band": "PASS",
             "module_scores": {"archguard": 92.0},
         },
     ])
-    response = client.get("/api/v1/modules", headers=_headers())
+    response = client.get("/api/v1/modules", params={"job_id": job_id}, headers=_headers())
     assert response.status_code == 200
     data = response.json()
     assert "archguard" in data["modules"]
@@ -148,10 +169,12 @@ def test_modules_aggregates_scores(monkeypatch, tmp_path):
 def test_modules_includes_import_edges(monkeypatch, tmp_path):
     """GET /api/v1/modules includes edges key (may be empty if no cross-module imports)."""
     monkeypatch.chdir(tmp_path)
+    job_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     _populate_audit_log(tmp_path, [
-        {"event": "analysis_run", "score": 85.0, "band": "PASS", "module_scores": {"core": 90.0}},
+        {"event": "analysis_run", "job_id": job_id, "score": 85.0,
+         "band": "PASS", "module_scores": {"core": 90.0}},
     ])
-    response = client.get("/api/v1/modules", headers=_headers())
+    response = client.get("/api/v1/modules", params={"job_id": job_id}, headers=_headers())
     assert response.status_code == 200
     data = response.json()
     assert "edges" in data

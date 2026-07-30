@@ -1,4 +1,5 @@
 """Run-history, module-list, trend, and dependency-graph read endpoints."""
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -144,13 +145,18 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
 @app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_modules(job_id: JobIdQuery = None) -> Any:
     """Return all known modules and their latest scores."""
+    # Without a job_id there is no repository context, and reading the server's
+    # own cwd audit log here would report a different repo's modules as if they
+    # were the visitor's. Mirror /api/v1/runs/latest and say so honestly.
     if not job_id:
-        return {"empty": True, "modules": {}, "edges": []}
+        return {
+            "empty": True,
+            "modules": {},
+            "edges": [],
+            "message": "No analysis selected. Submit or select a repository to see module data.",
+        }
     logger = AuditLogger(get_audit_path(job_id))
-    read_n = 10000 if job_id else 100
-    runs = logger.read_last_n_runs(n=read_n)
-    if job_id:
-        runs = [r for r in runs if r.get("job_id") == job_id]
+    runs = [r for r in logger.read_last_n_runs(n=10000) if r.get("job_id") == job_id]
     modules = {}
     for run in runs:
         for module, score in run.get("module_scores", {}).items():
@@ -188,30 +194,65 @@ def get_module_trends(
     return {"module": module, "trend": trend}
 
 
+_DEPS_EVENT = "dependency_scan"
+
+
+def _persisted_deps(audit_file: Path, job_id: str) -> dict[str, Any] | None:
+    """Return the newest persisted dependency scan for *job_id*, if any.
+
+    Kept separate from ``read_last_n_runs`` (which only yields ``analysis_run``
+    events) so persisting a scan doesn't inject a bogus run into run history,
+    trends, or compare-runs.
+    """
+    if not audit_file.exists():
+        return None
+    try:
+        lines = audit_file.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        _logger.warning("Could not read audit log %s: %s", audit_file, exc)
+        return None
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if (
+            entry.get("event") == _DEPS_EVENT
+            and entry.get("job_id") == job_id
+            and isinstance(entry.get("dependency_health"), dict)
+        ):
+            return entry["dependency_health"]  # type: ignore[no-any-return]
+    return None
+
+
 @app.get("/api/v1/deps", dependencies=[Depends(check_token), Depends(rate_limiter)])
 def get_deps(job_id: JobIdQuery = None) -> Any:
     """Run dependency analysis and return the result."""
     from archguard.analysis.deps import analyze_dependencies
-    from archguard.dashboard.app import get_target_path, get_audit_path
-    import json
+    from archguard.dashboard.app import get_target_path
+    # get_audit_path is used from module scope, like every sibling endpoint --
+    # re-importing it locally would shadow it and silently ignore test patches.
 
     if not job_id:
         raise HTTPException(status_code=400, detail="No analysis selected. Submit a job first.")
 
     audit_file = get_audit_path(job_id)
-    logger_instance = AuditLogger(audit_file)
-    runs = logger_instance.read_last_n_runs(n=100)
-    for r in reversed(runs):
-        if r.get("job_id") == job_id and "dependency_health" in r:
-            return r["dependency_health"]
+    persisted = _persisted_deps(audit_file, job_id)
+    if persisted is not None:
+        return persisted
 
+    # Same contract as the Blast Radius sibling: persisted data if we have it,
+    # otherwise an honest 410 rather than a fabricated "skipped" payload — a
+    # job we have no record of must not look like a job that scanned clean.
     try:
         target = get_target_path(job_id)
     except HTTPException:
-        return {
-            "skipped": True,
-            "skip_reason": "Analysis workspace expired. Re-run the analysis to scan dependencies."
-        }
+        raise HTTPException(
+            status_code=410,
+            detail="Analysis workspace expired. Re-run the analysis to scan dependencies.",
+        )
 
     try:
         result = analyze_dependencies(target)
@@ -233,21 +274,10 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
             "error": result.error,
         }
 
-        if audit_file.exists():
-            try:
-                lines = audit_file.read_text(encoding="utf-8").splitlines()
-                for i in range(len(lines) - 1, -1, -1):
-                    if not lines[i].strip():
-                        continue
-                    entry = json.loads(lines[i])
-                    if entry.get("job_id") == job_id and entry.get("event") == "analysis_complete":
-                        entry["dependency_health"] = output
-                        lines[i] = json.dumps(entry)
-                        audit_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-                        break
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning("Failed to persist dependency scan: %s", e)
+        # Append through AuditLogger so the entry is HMAC-signed like every
+        # other one; rewriting a line in place would silently void its
+        # signature. Survives workspace expiry, which is the whole point.
+        AuditLogger(audit_file).log(_DEPS_EVENT, job_id=job_id, dependency_health=output)
 
         return output
     except Exception as e:

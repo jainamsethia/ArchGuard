@@ -43,7 +43,7 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/your-org/archguard.git
+git clone https://github.com/jainamsethia/ArchGuard.git
 cd archguard
 
 # 2. Configure

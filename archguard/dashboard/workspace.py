@@ -158,10 +158,26 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
     logger.info("Clone completed: %s -> %s", clone_url, dest)
 
 
-async def cleanup_stale_workspaces(max_age_seconds: int = 3600) -> int:
+async def cleanup_stale_workspaces(
+    max_age_seconds: int = 3600, active_job_ids: set[str] | None = None
+) -> int:
     """Remove archguard-* temp directories older than *max_age_seconds*.
 
-    Called on application startup to clean up after crashes.
+    Called on application startup to clean up after crashes, and periodically.
+
+    Age is measured from mtime, not atime: access times are unreliable as a
+    liveness signal because they are disabled by default on Windows NTFS and on
+    Linux ``noatime`` mounts, and only coarsely updated under ``relatime``. On
+    such filesystems an atime-based sweep would reap a workspace a user is
+    actively viewing. Liveness comes from *active_job_ids* instead, which the
+    caller reads from the job manager -- an authoritative signal rather than a
+    filesystem-dependent guess.
+
+    Args:
+        max_age_seconds: delete workspaces older than this.
+        active_job_ids:  job IDs still known to the job manager; their
+                         workspaces are never removed regardless of age.
+
     Returns the number of directories removed.
     """
     import time
@@ -169,9 +185,14 @@ async def cleanup_stale_workspaces(max_age_seconds: int = 3600) -> int:
     tmp = Path(tempfile.gettempdir())
     removed = 0
     now = time.time()
+    active = active_job_ids or set()
 
     for candidate in tmp.glob("archguard-*"):
         if candidate.is_dir():
+            # Directory name is archguard-<job_id> for job-scoped workspaces.
+            job_id = candidate.name[len("archguard-"):]
+            if job_id in active:
+                continue
             age = now - candidate.stat().st_mtime
             if age > max_age_seconds:
                 shutil.rmtree(candidate, ignore_errors=True)

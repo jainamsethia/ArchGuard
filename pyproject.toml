@@ -2,7 +2,8 @@
 name = "archguard"
 version = "0.3.0"
 description = "Architectural drift detector for Python codebases."
-authors = []
+authors = ["Jainam Sethia <jainamsethia8@gmail.com>"]
+license = "MIT"
 readme = "README.md"
 packages = [{include = "archguard"}]
 include = [

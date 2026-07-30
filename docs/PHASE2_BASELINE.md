@@ -73,16 +73,15 @@ INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)
 | Variable | File(s) | Default | Required? | In `.env.example`? |
 |---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | `contract/llm_inference.py`, `llm/cloud.py`, `llm/advisor.py` | `""` (empty) | Optional (skip LLM if absent) | ✅ Yes |
-| `ARCHGUARD_PRIMARY_MODEL` | `contract/llm_inference.py`, `llm/cloud.py` | `claude-sonnet-4-20250514` | Optional | ✅ Yes |
+| `ARCHGUARD_PRIMARY_MODEL` | `llm/cloud.py`, `llm/advisor.py`, `llm/remediation.py` | `claude-sonnet-4-20250514` | Optional | ✅ Yes |
 | `ARCHGUARD_FALLBACK_MODEL` | `llm/cloud.py` | `claude-haiku-4-5-20251001` | Optional | ✅ Yes |
-| `ANTHROPIC_MODEL` | `llm/advisor.py` | `claude-sonnet-4-20250514` | Optional | ✅ Yes |
 | `OPENAI_API_KEY` | `llm/openai_provider.py`, `llm/remediation.py` | `""` (empty) | Optional (advisor panel) | ✅ Yes |
 | `OPENAI_MODEL` | `llm/openai_provider.py`, `llm/remediation.py` | `gpt-4-turbo` | Optional | ✅ Yes |
 | `OPENAI_BASE_URL` | `llm/openai_provider.py`, `llm/remediation.py` | `https://api.openai.com/v1` | Optional | ✅ Yes |
 | `OLLAMA_MODEL` | `llm/local.py` | `llama3` | Optional | ✅ Yes |
 | `OLLAMA_BASE_URL` | `llm/local.py` | `http://localhost:11434` | Optional | ❌ **Missing** |
-| `ARCHGUARD_DASHBOARD_TOKEN` | `dashboard/_state.py` | None (no auth) | Optional | ✅ Yes |
-| `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `dashboard/_state.py`, `cli/dashboard_cmd.py` | `""` (deny) | Optional | ✅ Yes |
+| `ARCHGUARD_DASHBOARD_TOKEN` | `dashboard/_auth.py`, `dashboard/_cookie_auth.py` | None (no auth) | Optional | ✅ Yes |
+| `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `dashboard/_auth.py`, `cli/dashboard_cmd.py` | `""` (deny) | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_SECRET` | `audit/logger.py` | None | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_STRICT` | `audit/logger.py` | `""` (off) | Optional | ✅ Yes |
 | `ARCHGUARD_AUDIT_MAX_ENTRIES` | `config.py` | `1000` | Optional | ✅ Yes |
