@@ -411,6 +411,11 @@ async def test_remediation_job_id_filter(monkeypatch):
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import remediation
 
+    # This test exercises the job_id filtering in remediation_plan_from_audit.
+    # Under CI's ARCHGUARD_MOCK_LLM=1 the endpoint returns a canned dict before
+    # reading the audit log at all, so the filter would never run.
+    monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
+
     with tempfile.TemporaryDirectory() as d:
         log_path = pathlib.Path(d) / "audit.jsonl"
         logger = AuditLogger(log_path)

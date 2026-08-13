@@ -138,37 +138,43 @@ def _phase4_embeddings(
     }
 
 
+def _contract_module_paths(communities: dict[str, list[str]]) -> dict[str, list[str]]:
+    """The module->paths mapping the generated contract will actually carry.
+
+    Each module is addressed by the single prefix ``_infer_path`` derives, which
+    is exactly what ``_get_module_paths`` hands Layer 2 at analysis time.
+    """
+    return {name: [_infer_path(files)] for name, files in communities.items()}
+
+
 def _compute_fan_outs(
     communities: dict[str, list[str]],
-    python_files: list[str],
     repo_root: Path,
 ) -> dict[str, int]:
-    """Compute fan_out_at_init for each module using the import parser."""
+    """Compute fan_out_at_init for each module using the import parser.
+
+    Deliberately measures against the *contract's* module paths (one inferred
+    prefix per module) and via ``parse_repo``, mirroring what Layer 2 does at
+    analysis time. Measuring against the parent directories of each community's
+    files instead -- the previous behaviour -- counted a different set of source
+    files, so the ``fan_out_at_init`` recorded in the contract disagreed with the
+    fan-out the module was then graded on by 2-3x on real repositories (httpie
+    recorded 21, graded on 11). The recorded number is presented to users as
+    evidence, so it has to be the number that was actually used.
+    """
     from archguard.analysis.parser import ImportParser
     from archguard.analysis.coupling import compute_fan_out
 
+    module_paths = _contract_module_paths(communities)
+
+    # parse_repo, not a hand-rolled walk over python_files: it applies the same
+    # skip-list and failure handling the analysis-time parse does.
     parser = ImportParser()
-    # Derive directory-level paths from file lists — path_belongs_to_module
-    # treats paths as directory prefixes (appends "/"), so individual files
-    # like "src/app.py" would never match "src/app.py/".
-    temp_module_paths: dict[str, list[str]] = {
-        name: list({str(Path(f).parent) for f in files} or {name})
-        for name, files in communities.items()
+    edges = parser.parse_repo(repo_root, module_paths, allow_partial=True).edges
+
+    return {
+        name: compute_fan_out(edges, name, module_paths) for name in communities
     }
-
-    edges = []
-    for f in python_files:
-        try:
-            source = (repo_root / f).read_text(errors="replace")
-            edges.extend(parser.parse_file(source, f, temp_module_paths))
-        except OSError:
-            continue
-
-    fan_outs: dict[str, int] = {}
-    for name in communities:
-        fan_outs[name] = compute_fan_out(edges, name, temp_module_paths)
-
-    return fan_outs
 
 
 def _write_summary(
@@ -239,34 +245,100 @@ def _generate_and_write_contract(
     llm_init: bool,
     ctx: typer.Context,
     fallback_used: bool = False,
+    fallback_reason: str = "",
+    threshold_profile: str | None = None,
 ) -> int:
     """Generates YAML contract, optionally using LLM, and writes it to output path.
     Returns number of modules written.
+
+    Thresholds come from one of two policies:
+
+    ``threshold_profile=None`` (the default, and what ``archguard init`` uses)
+        Budgets are derived from the fan-out measured during *this* run:
+        ``max(3, ceil(fan_out * 1.5))``. This is a "do not get worse than today"
+        baseline -- deliberately self-referential, because the team generating
+        the contract will be enforcing it against their own future changes.
+
+    ``threshold_profile="ci"`` (or another name from ``archguard.profiles``)
+        Budgets come from fixed policy instead. Required for one-off analysis of
+        a repository nobody is going to enforce this contract against: grading a
+        repo against thresholds derived from its own current state is
+        tautological, so it can only ever pass.
     """
+    use_fixed_thresholds = threshold_profile is not None
+
     # Generate Louvain contract dictionary
     louvain_modules = []
     for name, files in communities.items():
         fan_out = fan_outs.get(name, 0)
-        budget = max(3, math.ceil(fan_out * 1.5))
-        louvain_modules.append(
-            {
-                "name": name,
-                "path": _infer_path(files),
-                "fan_out_at_init": fan_out,
-                "coupling_budget": budget,
-                "semantic_drift_threshold": 0.25,
-            }
-        )
+        module: dict[str, Any] = {
+            "name": name,
+            "path": _infer_path(files),
+            # Kept in both modes: this is a *measurement*, not a threshold, and
+            # is useful context even when it is not what the module is graded on.
+            "fan_out_at_init": fan_out,
+        }
+        if not use_fixed_thresholds:
+            module["coupling_budget"] = max(3, math.ceil(fan_out * 1.5))
+            module["semantic_drift_threshold"] = 0.25
+        # else: left unset on purpose -- apply_profile() below fills these in,
+        # and it only populates keys that are absent.
+        louvain_modules.append(module)
 
     louvain_contract: dict[str, object] = {
         "version": "3.0",
         "model_weights_version": _model_weights_version(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "generated_by": "archguard init (directory heuristic fallback)" if fallback_used else "archguard init",
+        # NOTE: consumers (e.g. dashboard/pipeline_adapter.py) detect the
+        # heuristic by testing for the substring "fallback" -- keep it present.
+        "generated_by": (
+            "archguard init (directory heuristic fallback"
+            + (f": {fallback_reason}" if fallback_reason else "")
+            + ")"
+        )
+        if fallback_used
+        else "archguard init",
         "modules": louvain_modules,
         "fail_threshold": 0.75,
         "warn_threshold": 0.50,
     }
+
+    if use_fixed_thresholds:
+        from archguard.profiles.defaults import apply_profile
+
+        # Circular module dependencies are the one wrong-direction-import signal
+        # that needs no human-authored policy: if lib imports extra and extra
+        # imports lib, the cycle is a defect whatever the intended layering.
+        #
+        # Note what this deliberately does NOT do: synthesise `disallowed_imports`
+        # entries. A cycle proves at least one edge in it is wrong, but not
+        # *which* one -- naming a specific edge as forbidden would be a guess
+        # presented as a rule, which is the failure mode this whole path exists
+        # to avoid. The fitness function reports the cycle as a whole instead,
+        # naming the real path it found.
+        louvain_contract["fitness_functions"] = [
+            {
+                "name": "no_circular_deps",
+                "rule": "graph.cycles == 0",
+                "severity": "critical",
+                "rationale": (
+                    "Circular dependencies between modules make them impossible "
+                    "to build, test, or reason about independently."
+                ),
+            }
+        ]
+
+        # Recorded so downstream consumers (and the dashboard) can state what the
+        # score was actually graded against rather than presenting a bare number.
+        louvain_contract["profile"] = threshold_profile
+        # apply_profile also derives fail_threshold from the profile's
+        # min_health_score; warn_threshold must stay strictly below it or every
+        # WARN-band run would be reported as a pass.
+        apply_profile(louvain_contract, str(threshold_profile))
+        # apply_profile always writes a float here; the cast is only needed
+        # because louvain_contract is a heterogeneous dict[str, object].
+        fail_t = cast(float, louvain_contract.get("fail_threshold", 0.75))
+        louvain_contract["warn_threshold"] = round(fail_t / 2.0, 4)
 
     final_contract = louvain_contract
 

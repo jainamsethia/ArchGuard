@@ -91,11 +91,14 @@ def _resolve_changed_files(
     # Fallback: git diff HEAD~1
     try:
         # First, check if HEAD~1 exists
+        # check=False: a non-zero exit here *is* the answer (no HEAD~1), and
+        # the branch below handles it explicitly.
         result = subprocess.run(
             ["git", "rev-parse", "--verify", "HEAD~1"],
             cwd=repo_root,
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode == 0:
             # HEAD~1 exists, use normal diff
@@ -117,8 +120,9 @@ def _resolve_changed_files(
                 opts
             )
 
+        # check=False: the returncode is inspected and warned about below.
         diff_result = subprocess.run(
-            diff_cmd, cwd=repo_root, capture_output=True, text=True
+            diff_cmd, cwd=repo_root, capture_output=True, text=True, check=False
         )
 
         if diff_result.returncode != 0:

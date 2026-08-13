@@ -38,8 +38,18 @@ def _finalize_result(
     else:
         weights = (0.25, 0.25, 0.25, 0.25)
 
+    # A layer that did not run must not be averaged into the composite as a
+    # 0.00. compute_archdebt reweights across the layers that remain, so the
+    # score reflects what was actually measured rather than being diluted by
+    # checks that had nothing to check. Layer 1 is included here because an
+    # auto-generated contract declares no import rules for it to enforce.
     skipped_names = [
-        name for name, extra_key in (("Layer 3", "layer3_skipped"), ("Layer 4", "layer4_skipped"))
+        name
+        for name, extra_key in (
+            ("Layer 1", "layer1_skipped"),
+            ("Layer 3", "layer3_skipped"),
+            ("Layer 4", "layer4_skipped"),
+        )
         if metrics.extra.get(extra_key)
     ]
 

@@ -72,17 +72,55 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
             detail="question must not be empty",
         )
 
-    from archguard.config import AUDIT_LOG_FILENAME
-    from pathlib import Path
+    from archguard.dashboard.app import get_audit_path
 
-    audit = AuditLogger(Path.cwd() / AUDIT_LOG_FILENAME)
-    latest = audit.read_last_run() if not job_id else next(
-        (r for r in audit.read_last_n_runs(n=100) if r.get("job_id") == job_id), None
-    )
-    if latest and latest.get("violations"):
-        prompt_context = _build_context_from_violations(latest["violations"][:10])
+    # Ground the answer on *this* run only. The previous behaviour, when job_id
+    # was absent, was audit.read_last_run() against the server's cwd log --
+    # i.e. whichever repository anyone analysed most recently on this server.
+    # An ungrounded answer is fine; an answer silently grounded on a stranger's
+    # repository is not. Resolve strictly, and say so when there is nothing.
+    latest: dict[str, Any] | None = None
+    if job_id:
+        audit = AuditLogger(get_audit_path(job_id))
+        latest = next(
+            (
+                r
+                for r in reversed(audit.read_last_n_runs(n=100))
+                if r.get("job_id") == job_id
+            ),
+            None,
+        )
+
+    ungrounded_notice = ""
+    if latest is None:
+        ungrounded_notice = (
+            "No analysis run is selected, so this answer is general architectural "
+            "guidance and is not based on your repository.\n\n"
+        )
+        prompt_context = (
+            "You have NO analysis data for any repository. Answer only in general "
+            "terms and state plainly that you cannot see the user's codebase. Do "
+            "not invent module names, scores, or violations."
+        )
     else:
-        prompt_context = ""
+        prompt_context = (
+            _build_context_from_violations(latest["violations"][:10])
+            if latest.get("violations")
+            else "This run recorded no violations."
+        )
+        # A run built on guessed module boundaries must not be presented as
+        # though its findings were measured.
+        if latest.get("fallback_directory_heuristic"):
+            ungrounded_notice = (
+                "Note: this run's module boundaries were guessed from directory "
+                "names, not measured from commit history.\n\n"
+            )
+            prompt_context = (
+                "IMPORTANT CAVEAT: this analysis could not use the repository's "
+                "co-change history, so module boundaries were guessed from top-level "
+                "directory names rather than measured. Say so whenever the answer "
+                "depends on those boundaries being correct.\n\n" + prompt_context
+            )
 
     # The Advisor streams via Anthropic (ask_stream); the OpenAI provider is not
     # needed for this endpoint and may be omitted.
@@ -90,6 +128,8 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
 
     def _sse_generator() -> Generator[str, None, None]:
         try:
+            if ungrounded_notice:
+                yield f"data: {ungrounded_notice}\n\n"
             for chunk in advisor.ask_stream(question=question, context=prompt_context):
                 # SSE format: each event is "data: <payload>\n\n"
                 yield f"data: {chunk}\n\n"

@@ -40,7 +40,17 @@ def _run_init_cli(
     wizard: bool,
     force: bool,
     _console: Console,
+    threshold_profile: str | None = None,
 ) -> None:
+    """Run the init wizard.
+
+    *threshold_profile* selects fixed policy thresholds from
+    ``archguard.profiles`` instead of the default self-referential baseline
+    derived from the repository's own fan-out at generation time. The interactive
+    ``archguard init`` command leaves this ``None``; the dashboard's one-off
+    analysis of an arbitrary repo sets it (see
+    ``dashboard/pipeline_adapter.py::_generate_contract_sync``).
+    """
     if output is None:
         output = repo_root / ".archguard.yml"
 
@@ -150,6 +160,14 @@ def _run_init_cli(
             vprint("[bold cyan][2/5] Analyzing commit history...[/bold cyan]", ctx)
             phase2_data = _phase2_commits(repo_root)
 
+            if phase2_data.get("history_status") != "ok":
+                _console.print(
+                    format_warning(
+                        "Commit history could not be read "
+                        f"({phase2_data.get('history_error', 'unknown error')}). "
+                        "Module boundaries will be guessed from directory names."
+                    )
+                )
             vprint(
                 f"Processed {phase2_data['commit_count']} commits | "
                 f"{phase2_data['graph_edges']} co-change pairs",
@@ -177,6 +195,8 @@ def _run_init_cli(
                         phase1_data.get("python_files", []),
                         commit_count=phase2_data.get("commit_count", 0),
                         min_history=min_history_commits,
+                        history_status=phase2_data.get("history_status", "ok"),
+                        history_error=phase2_data.get("history_error", ""),
                     )
             else:
                 phase3_data = _phase3_communities(
@@ -185,6 +205,8 @@ def _run_init_cli(
                     phase1_data.get("python_files", []),
                     commit_count=phase2_data.get("commit_count", 0),
                     min_history=min_history_commits,
+                    history_status=phase2_data.get("history_status", "ok"),
+                    history_error=phase2_data.get("history_error", ""),
                 )
 
             seed_hex = hex(phase3_data["seed"])
@@ -232,11 +254,7 @@ def _run_init_cli(
 
             save_checkpoint(repo_root, 4, phase4_data)
 
-        fan_outs = _compute_fan_outs(
-            communities,
-            phase1_data.get("python_files", []),
-            repo_root,
-        )
+        fan_outs = _compute_fan_outs(communities, repo_root)
 
         if start_phase <= 5:
             vprint("[bold cyan][5/5] Writing contract...[/bold cyan]", ctx)
@@ -249,6 +267,8 @@ def _run_init_cli(
                 llm_init=llm_init,
                 ctx=ctx,
                 fallback_used=phase3_data.get("fallback_used", False),
+                fallback_reason=phase3_data.get("fallback_reason", ""),
+                threshold_profile=threshold_profile,
             )
 
             save_checkpoint(

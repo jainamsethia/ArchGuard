@@ -37,7 +37,31 @@ class ArchDebtBand(str, Enum):
     CRITICAL = "Critical"  # score >= fail_threshold
 
 
-_FITNESS_FAILURE_FLOOR = 0.75  # Floor score for a critical fitness failure (aligns with default fail_threshold)
+# Grades from best to worst; used to take the worse of two grades when capping.
+_GRADE_ORDER: tuple[str, ...] = ("A", "B", "C", "D", "F")
+
+# A failed critical fitness gate can never report better than this, whatever the
+# contract's thresholds say. "C" is the first grade that is not A/B: the point is
+# that a repo with e.g. a real import cycle must not be presented as well-built,
+# not to assign it a specific numeric penalty.
+_FITNESS_FAILURE_GRADE_CEILING = "C"
+
+
+def _grade_for_health(health: float) -> str:
+    """Letter grade for a 0-100 health score (higher = better)."""
+    if health >= 90:
+        return "A"
+    if health >= 80:
+        return "B"
+    if health >= 70:
+        return "C"
+    if health >= 60:
+        return "D"
+    return "F"
+
+
+def _worse_grade(a: str, b: str) -> str:
+    return a if _GRADE_ORDER.index(a) >= _GRADE_ORDER.index(b) else b
 
 
 @dataclass
@@ -64,14 +88,22 @@ class ArchDebtResult:
     fail_reasons: list[str] = field(default_factory=list)
     fitness_results: list[Any] = field(default_factory=list)
     fitness_passed: bool = True
+    # The contract's own fail_threshold, retained so the band/grade cap below
+    # can be expressed in the contract's terms instead of a fresh constant.
+    fail_threshold: float = 0.75
 
     def apply_fitness_results(
         self, fitness_results: list[Any], configs: list[Any] | None = None
     ) -> None:
         """Apply evaluated fitness results to this ArchDebtResult.
 
-        Updates should_fail_ci and fail_reasons based on critical failures.
-        The configs list provides severity/rationale metadata from FitnessFunctionConfig.
+        A failed *critical* gate caps the reported band and grade; it does not
+        move ``composite_score``. The composite is a measurement of layer debt,
+        and overwriting it with a fixed penalty (the previous behaviour: floor
+        the composite at 0.75) reported a precise-looking health score that no
+        layer had actually measured -- every such repo came out at exactly 25.0.
+        The debt stays what it was; what changes is that the result may no
+        longer be *presented* as healthy.
         """
         self.fitness_results = fitness_results
         config_map: dict[str, Any] = {}
@@ -96,11 +128,16 @@ class ArchDebtResult:
                     f"Fitness function '{name}' FAILED (critical): {details}"
                 )
 
-        if self.should_fail_ci:
-            # A failed fitness gate is a hard finding, not a scoring nuance —
-            self.composite_score = max(self.composite_score, _FITNESS_FAILURE_FLOOR)
+        if not self.fitness_passed:
+            # Cap the band, don't touch the score. Gated on fitness_passed and
+            # not should_fail_ci: the latter is already True whenever a layer
+            # threshold was breached, so keying off it capped runs where every
+            # fitness function had actually passed.
+            #
+            # composite_breach is deliberately left alone -- it means "the
+            # composite crossed fail_threshold", which is still false here.
+            # should_fail_ci is set above, which is what actually gates CI.
             self.band = ArchDebtBand.CRITICAL
-            self.composite_breach = True
 
     @property
     def health_score(self) -> float:
@@ -115,17 +152,26 @@ class ArchDebtResult:
 
     @property
     def health_grade(self) -> str:
-        """Letter grade A/B/C/D/F based on health_score (higher = better)."""
-        h = self.health_score
-        if h >= 90:
-            return "A"
-        if h >= 80:
-            return "B"
-        if h >= 70:
-            return "C"
-        if h >= 60:
-            return "D"
-        return "F"
+        """Letter grade A/B/C/D/F based on health_score (higher = better).
+
+        Capped when a critical fitness gate failed. The cap is the worse of:
+
+        * the best grade a CRITICAL-band run could hold under this contract --
+          ``(1 - fail_threshold) * 100`` is by definition the highest health
+          still classified CRITICAL, so the cap follows the contract's own
+          thresholds rather than a number invented here; and
+        * ``C``, so that a contract with a very lenient fail_threshold can
+          still never present a cycle-carrying repo as an A or a B.
+        """
+        grade = _grade_for_health(self.health_score)
+        if not self.fitness_passed:
+            threshold_ceiling = _grade_for_health(
+                round((1.0 - self.fail_threshold) * 100, 1)
+            )
+            grade = _worse_grade(
+                grade, _worse_grade(threshold_ceiling, _FITNESS_FAILURE_GRADE_CEILING)
+            )
+        return grade
 
 
 DEFAULT_WEIGHTS: tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25)
@@ -228,6 +274,7 @@ def compute_archdebt(
         composite_breach=composite_breach,
         should_fail_ci=should_fail_ci,
         fail_reasons=fail_reasons,
+        fail_threshold=fail_threshold,
     )
 
 

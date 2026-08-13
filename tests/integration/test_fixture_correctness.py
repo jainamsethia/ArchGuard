@@ -35,15 +35,25 @@ from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
-# Whether the ML extras (sentence-transformers + faiss-cpu) are installed.
-# Layer 3 (semantic drift) and Layer 4 (duplication) are skipped without them.
-try:
-    import sentence_transformers  # noqa: F401
-    import faiss  # noqa: F401
+# Whether Layers 3 and 4 will actually run.
+#
+# Two independent things disable them: the ML extras not being installed, and
+# ARCHGUARD_SKIP_ML=1 turning them off explicitly. CI's test job sets
+# ARCHGUARD_SKIP_ML=1, so an environment that *has* the extras still runs those
+# layers as no-ops -- checking only for the imports made these tests assert that
+# a deliberately disabled layer had produced findings.
+import os
 
-    _ML_AVAILABLE = True
+try:
+    import sentence_transformers  # noqa: F401,E402
+    import faiss  # noqa: F401,E402
+
+    _ML_INSTALLED = True
 except ImportError:
-    _ML_AVAILABLE = False
+    _ML_INSTALLED = False
+
+_ML_SKIPPED_BY_ENV = os.environ.get("ARCHGUARD_SKIP_ML") == "1"
+_ML_AVAILABLE = _ML_INSTALLED and not _ML_SKIPPED_BY_ENV
 
 
 async def _noop_progress(_msg: str) -> None:

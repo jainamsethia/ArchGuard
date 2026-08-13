@@ -168,6 +168,9 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
 
     _LLM_LIMITS.clear()
     saved_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
+    # This test pins the *missing key* message. CI sets ARCHGUARD_MOCK_LLM=1,
+    # which makes ask_stream yield canned text and never mention the env var.
+    saved_mock = os.environ.pop("ARCHGUARD_MOCK_LLM", None)
     try:
         response = client.post(
             "/api/v1/advisor/ask",
@@ -183,6 +186,8 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
     finally:
         if saved_anthropic is not None:
             os.environ["ANTHROPIC_API_KEY"] = saved_anthropic
+        if saved_mock is not None:
+            os.environ["ARCHGUARD_MOCK_LLM"] = saved_mock
 
 
 def test_advisor_ask_stream_empty_question_rejected():

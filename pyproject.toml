@@ -26,6 +26,9 @@ tree-sitter-python = ">=0.21,<0.22"
 networkx = ">=3.0"
 python-louvain = ">=0.16"
 pydriller = ">=2.5"
+# Transitive via pydriller, but pinned directly: 3.1.50 carries 15 known
+# advisories (GHSA-2f96-g7mh-g2hx and others) that pip-audit hard-fails CI on.
+gitpython = ">=3.1.58"
 httpx = ">=0.25"
 watchdog = ">=3.0.0"
 anthropic = {version = ">=0.109.0,<0.112.0", optional = true}
@@ -33,6 +36,12 @@ pydantic = ">=2.0,<3.0"
 numpy = {version = ">=1.24,<2.0.0", optional = true}
 scipy = {version = ">=1.10", optional = true}
 sentence-transformers = {version = ">=2.2", optional = true}
+# Transitive via sentence-transformers. 2.12.1 carries PYSEC-2025-194 and also
+# caps setuptools<82, which holds setuptools on a version with PYSEC-2026-3447.
+torch = {version = ">=2.13.0", optional = true}
+# Pulled in as a runtime dependency of torch (which only floors it at 77.0.3).
+# Floored here because < 83.0.0 carries PYSEC-2026-3447.
+setuptools = {version = ">=83.0.0", optional = true}
 faiss-cpu = {version = ">=1.7", optional = true}
 boto3 = {version = ">=1.28.0", optional = true}
 fastapi = {version = ">=0.100.0", optional = true}
@@ -44,11 +53,11 @@ cachetools = ">=5.0"
 python-dotenv = "^1.2.2"
 
 [tool.poetry.extras]
-ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu"]
+ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools"]
 cloud = ["anthropic", "boto3"]
 
 dashboard = ["fastapi", "uvicorn", "python-multipart", "jinja2"]
-all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "anthropic", "boto3", "fastapi", "uvicorn", "python-multipart"]
+all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools", "anthropic", "boto3", "fastapi", "uvicorn", "python-multipart"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

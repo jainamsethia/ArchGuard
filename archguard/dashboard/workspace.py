@@ -2,9 +2,14 @@
 
 Provides an async context manager that:
 1. Creates a temp directory prefixed with 'archguard-'
-2. Shallow-clones the target repository into it
+2. Blobless-clones the target repository into it, retaining full commit history
 3. Yields the Path to the cloned repo root
 4. Guarantees cleanup (shutil.rmtree) in try/finally regardless of exceptions
+
+The clone is deliberately *not* shallow.  Contract generation derives module
+boundaries from co-change history (see ``archguard.cli._init_phases``), and a
+truncated history silently degrades that to guessing modules from directory
+names.
 """
 
 from __future__ import annotations
@@ -89,9 +94,18 @@ def _find_git() -> str | None:
 
 
 async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
-    """Perform a shallow git clone.
+    """Perform a blobless, full-history git clone.
 
-    Uses ``--depth=1 --single-branch --no-tags`` for speed.
+    Uses ``--filter=blob:none --single-branch --no-tags`` for speed.  This keeps
+    every commit (history is what module detection is derived from) while
+    skipping historical file *contents*, which are never read: the co-change
+    graph is built with ``git log --name-only --no-renames``, which needs only
+    commit and tree objects.  Blobs for the checked-out revision are fetched by
+    the clone itself, so the working tree is complete.
+
+    Do not add ``--depth`` here.  It would truncate history and silently push
+    contract generation onto the directory-name heuristic.
+
     When *branch* is ``'HEAD'``, omits ``--branch`` so git uses the remote
     default branch.
 

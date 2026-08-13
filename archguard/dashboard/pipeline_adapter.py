@@ -5,8 +5,11 @@ Key design decisions:
   asyncio.get_running_loop().run_in_executor(None, ...) to avoid blocking FastAPI.
 - If .archguard.yml is absent, we call _run_init_cli() programmatically
   with confirm_all=True and force_ci=True to auto-generate it.
-- 'changed_files' for a fresh clone = all .py files in the repo (since every
-  file is "new" from the pipeline's perspective with --depth=1).
+- 'changed_files' for a fresh clone = all .py files in the repo, since every
+  file is "new" from the pipeline's perspective on a fresh workspace.
+- The workspace clone is blobless but retains full history (see
+  dashboard/workspace.py), so contract generation detects modules from real
+  co-change data rather than falling back to directory names.
 """
 
 from __future__ import annotations
@@ -22,6 +25,15 @@ from typing import Awaitable, Callable, Any
 logger = logging.getLogger(__name__)
 
 ANALYSIS_TIMEOUT_SECONDS: int = int(os.environ.get("ARCHGUARD_ANALYSIS_TIMEOUT", "600"))
+
+# Threshold policy for contracts the dashboard auto-generates for one-off
+# analysis of an arbitrary repository. "ci" is the balanced preset (coupling
+# <= 10, health >= 75); "strict" (coupling <= 5) flags healthy libraries, and
+# "lenient" (coupling <= 15) lets genuinely tangled ones through. See
+# archguard.profiles.defaults.PROFILES.
+DASHBOARD_THRESHOLD_PROFILE: str = os.environ.get(
+    "ARCHGUARD_DASHBOARD_PROFILE", "ci"
+)
 
 # --------------------------------------------------------------------------
 # Result dataclasses (JSON-serializable)
@@ -49,6 +61,7 @@ class AnalysisJobResult:
     duration_seconds: float = 0.0
     contract_auto_generated: bool = False
     fallback_directory_heuristic: bool = False
+    fallback_reason: str = ""
     skipped: bool = False
     skip_reason: str = ""
     error: str | None = None
@@ -103,6 +116,7 @@ async def run_analysis_on_repo(
     start = time.monotonic()
     contract_auto_generated = False
     fallback_heuristic = False
+    fallback_reason = ""
 
     # -- Step 1: Auto-generate contract if absent -------------------------
     archguard_yml = repo_path / ".archguard.yml"
@@ -120,13 +134,26 @@ async def run_analysis_on_repo(
                     try:
                         yml_content = yaml.safe_load(f)
                         if isinstance(yml_content, dict):
-                            gen_by = yml_content.get("generated_by", "")
-                            if "fallback" in str(gen_by):
+                            gen_by = str(yml_content.get("generated_by", ""))
+                            if "fallback" in gen_by:
                                 fallback_heuristic = True
-                    except Exception:
-                        pass
+                                fallback_reason = gen_by
+                    except yaml.YAMLError as yaml_exc:
+                        # Don't swallow this: failing to read generated_by is
+                        # exactly how a heuristic-fallback run gets reported as
+                        # a measured one.
+                        logger.warning(
+                            "[job %s] Could not parse generated contract to detect "
+                            "heuristic fallback: %s", job_id, yaml_exc,
+                        )
 
-            await _emit("Contract auto-generated.")
+            if fallback_heuristic:
+                await _emit(
+                    "Contract auto-generated using the directory-name heuristic - "
+                    "module boundaries are guessed, not measured."
+                )
+            else:
+                await _emit("Contract auto-generated.")
         except Exception as exc:
             logger.warning("[job %s] Contract auto-generation failed: %s", job_id, exc)
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
@@ -150,6 +177,7 @@ async def run_analysis_on_repo(
             duration_seconds=elapsed,
             contract_auto_generated=contract_auto_generated,
             fallback_directory_heuristic=fallback_heuristic,
+            fallback_reason=fallback_reason,
         )
 
     await _emit(f"Found {len(py_files)} Python files. Starting 4-layer analysis...")
@@ -165,6 +193,9 @@ async def run_analysis_on_repo(
                 py_files,
                 skip_explanation,
                 job_id,
+                contract_auto_generated,
+                fallback_heuristic,
+                fallback_reason,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -181,6 +212,7 @@ async def run_analysis_on_repo(
             duration_seconds=elapsed,
             contract_auto_generated=contract_auto_generated,
             fallback_directory_heuristic=fallback_heuristic,
+            fallback_reason=fallback_reason,
             error=err_str,
         )
 
@@ -206,6 +238,7 @@ async def run_analysis_on_repo(
         duration_seconds=elapsed,
         contract_auto_generated=contract_auto_generated,
         fallback_directory_heuristic=fallback_heuristic,
+        fallback_reason=fallback_reason,
         skipped=result.skipped,
         skip_reason=result.skip_reason,
     )
@@ -217,10 +250,19 @@ async def run_analysis_on_repo(
 def _generate_contract_sync(repo_path: Path) -> None:
     """Auto-generate .archguard.yml using _run_init_cli with headless settings.
 
-    Uses confirm_all=True (no interactive prompts) and force_ci=True (skip
-    shallow-clone guard). This runs phases 1-5 of the init wizard using
-    directory-structure-based community detection (commit history unavailable
-    in a --depth=1 shallow clone).
+    Uses confirm_all=True (no interactive prompts) and force_ci=True (skip the
+    shallow-clone guard). Runs phases 1-5 of the init wizard; module boundaries
+    come from real co-change history (the workspace clone keeps full history).
+
+    Thresholds are pinned to a fixed profile rather than ``archguard init``'s
+    default self-referential baseline. That baseline sets each module's
+    coupling_budget to ``ceil(fan_out * 1.5)`` of the fan-out measured during
+    generation, which is a sound "don't get worse than today" policy for a team
+    enforcing the contract against their own future commits -- but here the
+    contract is generated and graded in the same pass against a repository
+    nobody will enforce it on. Under that baseline no repository can ever fail
+    its own first scan, however badly coupled it actually is, so every dashboard
+    run returned 100/A. See DASHBOARD_THRESHOLD_PROFILE.
     """
     import typer
     from rich.console import Console
@@ -247,6 +289,7 @@ def _generate_contract_sync(repo_path: Path) -> None:
         wizard=False,
         force=True,
         _console=Console(quiet=True),
+        threshold_profile=DASHBOARD_THRESHOLD_PROFILE,
     )
 
 def _run_analysis_sync(
@@ -254,6 +297,9 @@ def _run_analysis_sync(
     py_files: list[Path],
     skip_explanation: bool,
     job_id: str,
+    contract_auto_generated: bool = False,
+    fallback_directory_heuristic: bool = False,
+    fallback_reason: str = "",
 ) -> Any:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool."""
     from archguard.analysis.layers import AnalysisOrchestrator
@@ -323,6 +369,7 @@ def _run_analysis_sync(
         modules_analyzed_list: list[str] = []
         dep_graph: dict[str, list[str]] = {}
         import_edges_list: list[dict[str, str]] = []
+        derived_artifacts_error = ""
 
         try:
             contract_dict = load_contract(repo_path)
@@ -381,7 +428,14 @@ def _run_analysis_sync(
                 logger.warning("Failed to compute import edges: %s", edge_exc)
 
         except Exception as contract_exc:
-            logger.warning("Failed to load contract for derived artifacts: %s", contract_exc)
+            # The run is still persisted (the score and violations are real),
+            # but every module-keyed artifact below is now empty. Record why so
+            # the dashboard can distinguish that from a repo with no modules.
+            logger.warning(
+                "Failed to load contract for derived artifacts: %s", contract_exc,
+                exc_info=True,
+            )
+            derived_artifacts_error = f"{type(contract_exc).__name__}: {contract_exc}"
             module_scores = {}
 
         payload = AnalysisResultPayload(
@@ -406,19 +460,37 @@ def _run_analysis_sync(
             dependency_graph=dep_graph,
             import_edges=import_edges_list,
             contract=contract_dict,
+            metrics=result.metrics if isinstance(getattr(result, "metrics", None), dict) else {},
+            contract_auto_generated=contract_auto_generated,
+            fallback_directory_heuristic=fallback_directory_heuristic,
+            fallback_reason=fallback_reason,
+            derived_artifacts_error=derived_artifacts_error,
         )
-            
+
         audit.log(
             AUDIT_EVENT_ANALYSIS,
             **payload.model_dump()
         )
-    except Exception as exc:
-        logger.warning("Failed to write audit log in pipeline adapter: %s", exc)
+    except Exception:
+        # If this fires the analysis still "succeeds" for the caller, but no run
+        # is persisted -- every read endpoint will report no data for this job.
+        # Log it at exception level with a traceback; a warning line without one
+        # is how this stayed invisible.
+        logger.exception(
+            "[job %s] Failed to persist analysis run; the dashboard will show no "
+            "data for this job even though the analysis completed", job_id,
+        )
 
     return result
 
 def _extract_layer_results(result: Any) -> list[LayerResult]:
-    """Convert AnalysisResult.layer_scores into a list of LayerResult."""
+    """Convert AnalysisResult.layer_scores into a list of LayerResult.
+
+    Per-layer skip state is read from ``result.metrics`` (where each stage
+    records ``layer<N>_skipped`` / ``layer<N>_skip_reason``) rather than from the
+    single run-level ``result.skip_reason``, which describes the whole analysis
+    and was being attributed to whichever layer happened to be marked skipped.
+    """
     ls = result.layer_scores
     layer_names = {
         1: "Import Boundary Violations",
@@ -426,19 +498,31 @@ def _extract_layer_results(result: Any) -> list[LayerResult]:
         3: "Semantic Drift",
         4: "Duplication / Explanation",
     }
+    scores = {
+        1: ls.layer1_violation,
+        2: ls.layer2_coupling,
+        3: ls.layer3_drift,
+        4: ls.layer4_duplication,
+    }
+    metrics = getattr(result, "metrics", None) or {}
+    skipped_names = getattr(result, "skipped_layers_names", []) or []
 
-    layers = [
-        LayerResult(layer=1, name=layer_names[1], score=ls.layer1_violation,
-                    violation_count=sum(1 for v in result.violations if v.layer == 1)),
-        LayerResult(layer=2, name=layer_names[2], score=ls.layer2_coupling,
-                    violation_count=sum(1 for v in result.violations if v.layer == 2)),
-        LayerResult(layer=3, name=layer_names[3], score=ls.layer3_drift,
-                    violation_count=sum(1 for v in result.violations if v.layer == 3),
-                    skipped="Layer 3" in result.skipped_layers_names,
-                    skip_reason=result.skip_reason if "Layer 3" in result.skipped_layers_names else ""),
-        LayerResult(layer=4, name=layer_names[4], score=ls.layer4_duplication,
-                    violation_count=sum(1 for v in result.violations if v.layer == 4),
-                    skipped="Layer 4" in result.skipped_layers_names,
-                    skip_reason=result.skip_reason if "Layer 4" in result.skipped_layers_names else ""),
-    ]
+    layers: list[LayerResult] = []
+    for n in (1, 2, 3, 4):
+        skipped = bool(metrics.get(f"layer{n}_skipped")) or f"Layer {n}" in skipped_names
+        reason = str(metrics.get(f"layer{n}_skip_reason", "") or "")
+        if skipped and not reason:
+            # Fall back to the run-level reason only when the stage recorded
+            # none of its own (e.g. fail-fast skipped the layer outright).
+            reason = getattr(result, "skip_reason", "") or ""
+        layers.append(
+            LayerResult(
+                layer=n,
+                name=layer_names[n],
+                score=scores[n],
+                violation_count=sum(1 for v in result.violations if v.layer == n),
+                skipped=skipped,
+                skip_reason=reason if skipped else "",
+            )
+        )
     return layers

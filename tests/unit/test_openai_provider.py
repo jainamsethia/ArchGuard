@@ -8,6 +8,18 @@ import pytest
 from archguard.llm.openai_provider import AdvisorUnavailableError, OpenAIAdvisorProvider
 
 
+@pytest.fixture(autouse=True)
+def _disable_mock_llm(monkeypatch):
+    """Exercise the real provider, not the canned mock.
+
+    CI runs the suite with ARCHGUARD_MOCK_LLM=1, which makes
+    OpenAIAdvisorProvider return a fixed "Mock Recommendation" before any HTTP
+    call -- so every assertion in this file about request handling, timeouts and
+    malformed responses would pass vacuously or fail confusingly.
+    """
+    monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
+
+
 @pytest.fixture
 def provider():
     return OpenAIAdvisorProvider(api_key="test-key")

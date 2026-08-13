@@ -215,6 +215,8 @@ def _run_layer3(
     max_drift = 0.0
     module_drifts: dict[str, float] = {}
     skip_reason = ""
+    skipped_modules = 0
+    measured_modules = 0
     for mod_name, files in affected.items():
         try:
             result = analyzer.compute_drift(mod_name, files, repo_root)
@@ -235,7 +237,12 @@ def _run_layer3(
                     )
                 )
             if getattr(result, "skipped", False):
-                skip_reason = getattr(result, "skip_reason", "")
+                skipped_modules += 1
+                # Keep the first reason seen; they are the same cause in
+                # practice (no baseline on a first scan).
+                skip_reason = skip_reason or getattr(result, "skip_reason", "")
+            else:
+                measured_modules += 1
             max_drift = max(max_drift, result.drift_score)
         except RuntimeError:
             raise
@@ -245,6 +252,13 @@ def _run_layer3(
             raise AnalysisError(
                 f"Layer 3 analysis failed on module {mod_name}", cause=e
             ) from e
+
+    # Only call the whole layer skipped when nothing was measured. If some
+    # modules had a baseline and others did not, the layer did produce a real
+    # signal from those that did, and flagging it "skipped" would understate
+    # it. (Callers treat any non-empty reason as "this layer did not run".)
+    if measured_modules:
+        skip_reason = ""
 
     return max_drift, module_drifts, violations, skip_reason
 

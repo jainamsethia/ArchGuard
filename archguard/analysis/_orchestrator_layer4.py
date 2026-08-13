@@ -25,6 +25,11 @@ def _run_layer_4(
 
     if "duplication" in skip_layers:
         layer4 = 0.0
+        # As for Layer 3: a skipped layer must not be reported as a clean pass.
+        metrics.extra["layer4_skipped"] = True
+        metrics.extra["layer4_skip_reason"] = (
+            "duplication detection not run (ARCHGUARD_SKIP_ML or contract skip_layers)"
+        )
         if progress:
             progress.update(
                 task4,

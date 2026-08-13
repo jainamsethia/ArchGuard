@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import ast
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +31,8 @@ except ImportError:
     SentenceTransformer: typing.Any = None  # type: ignore[no-redef]
 
 from archguard.cache.embeddings import EmbeddingCache
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -235,6 +238,15 @@ class SemanticAnalyzer:
             centroid = centroid / norm
         return centroid
 
+    def _store_baseline(
+        self, module_name: str, centroid: "npt.NDArray[np.float32]"
+    ) -> None:
+        """Persist *centroid* so the next run has something to compare against."""
+        centroid_hash = hashlib.sha256(
+            centroid.astype(np.float32).tobytes(),
+        ).hexdigest()
+        self._cache.store_centroid(module_name, centroid, centroid_hash)
+
     def compute_drift(
         self,
         module_name: str,
@@ -266,19 +278,24 @@ class SemanticAnalyzer:
         MAX_FILES = 500
         processed_files = 0
         all_embeddings: dict[str, npt.NDArray[np.float32]] = {}
+        unreadable_files: list[str] = []
+        failed_files: list[str] = []
         for fpath in changed_files:
             if processed_files >= MAX_FILES:
                 break
             processed_files += 1
             try:
                 rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
-                
+
                 try:
                     file_content = fpath.read_text(encoding="utf-8")
                     tree = ast.parse(file_content)
-                except Exception:
+                except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
+                    # A file we cannot parse contributes no functions, which
+                    # silently pulls the centroid toward "no drift". Record it.
+                    unreadable_files.append(f"{fpath.name}: {type(exc).__name__}")
                     continue
-                
+
                 chunks = []
                 for node in ast.walk(tree):
                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -295,8 +312,25 @@ class SemanticAnalyzer:
                 if chunks:
                     embedded = self.embed_chunks(chunks)
                     all_embeddings.update(embedded)
-            except Exception:
+            except Exception as exc:  # noqa: BLE001 - one bad file must not abort the module
+                failed_files.append(f"{getattr(fpath, 'name', fpath)}: {type(exc).__name__}: {exc}")
+                logger.debug("Embedding failed for %s", fpath, exc_info=True)
                 continue
+
+        if unreadable_files or failed_files:
+            # Without this, a module whose files all failed to embed is
+            # indistinguishable from a module that genuinely did not drift.
+            logger.warning(
+                "Semantic drift for module %s: %d/%d changed file(s) contributed no "
+                "embeddings (%d unparseable, %d errored). Drift is computed from the "
+                "remainder and understates real drift. First failures: %s",
+                module_name,
+                len(unreadable_files) + len(failed_files),
+                processed_files,
+                len(unreadable_files),
+                len(failed_files),
+                (unreadable_files + failed_files)[:5],
+            )
 
         # 3. Compute post-PR centroid
         if not all_embeddings:
@@ -307,21 +341,41 @@ class SemanticAnalyzer:
                 post_pr_centroid=pre_centroid,
                 functions_analyzed=0,
                 cache_hit=cache_hit,
+                skipped=True,
+                skip_reason=(
+                    "no functions found to embed - semantic drift not measured"
+                ),
             )
 
         post_centroid = self.compute_centroid(all_embeddings)
 
         # 4. Compute drift
         if not cache_hit:
-            drift = 0.0
-        else:
-            drift = cosine_distance(pre_centroid, post_centroid)
+            # Drift is a comparison against a stored baseline centroid. On a
+            # first analysis there is nothing to compare to, so 0.0 here means
+            # "not measured", not "measured, no drift". Reporting it as a clean
+            # pass is how a check that never ran ends up contributing a
+            # perfect score -- every one-off dashboard run clones fresh, so
+            # this is the normal case there, not an edge case.
+            self._store_baseline(module_name, post_centroid)
+            return SemanticDriftResult(
+                module_name=module_name,
+                drift_score=0.0,
+                pre_pr_centroid=pre_centroid,
+                post_pr_centroid=post_centroid,
+                functions_analyzed=len(all_embeddings),
+                cache_hit=False,
+                skipped=True,
+                skip_reason=(
+                    "no prior baseline - semantic drift is not available on a "
+                    "first scan of a repository"
+                ),
+            )
+
+        drift = cosine_distance(pre_centroid, post_centroid)
 
         # 5. Update stored centroid
-        centroid_hash = hashlib.sha256(
-            post_centroid.astype(np.float32).tobytes(),
-        ).hexdigest()
-        self._cache.store_centroid(module_name, post_centroid, centroid_hash)
+        self._store_baseline(module_name, post_centroid)
 
         return SemanticDriftResult(
             module_name=module_name,

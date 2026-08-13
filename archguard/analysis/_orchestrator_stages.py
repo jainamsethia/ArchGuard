@@ -157,6 +157,20 @@ def _run_layer_1_2(
 
     violations = l1_viols + l2_viols
 
+    # Layer 1 only enforces the allowed_imports / disallowed_imports a contract
+    # declares. Auto-generated contracts declare neither, so the layer inspects
+    # every import and can never flag one -- a guaranteed 0.00 that reads as
+    # "boundaries checked, all clean". Record that it had no rules to enforce,
+    # so it is reported as not-applicable rather than as a clean pass.
+    if not any(
+        "disallowed_imports" in m or "allowed_imports" in m
+        for m in orchestrator.contract.get("modules", [])
+    ):
+        metrics.extra["layer1_skipped"] = True
+        metrics.extra["layer1_skip_reason"] = (
+            "no import rules declared in this contract - no boundaries to enforce"
+        )
+
     unique_failures = []
     seen = set()
     for f in parse_failures:
@@ -319,6 +333,12 @@ def _run_layer_3(
     module_drifts: dict[str, float] = {}
     if "semantic" in skip_layers:
         layer3 = 0.0
+        # Record the skip, not just the 0.0. Without this the layer reports
+        # "checked, no drift" to every consumer while it never ran at all.
+        metrics.extra["layer3_skipped"] = True
+        metrics.extra["layer3_skip_reason"] = (
+            "semantic drift not run (ARCHGUARD_SKIP_ML or contract skip_layers)"
+        )
         if progress:
             t = progress.add_task("Layer 3: Semantic Cohesion...", total=None)
             progress.update(

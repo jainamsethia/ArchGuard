@@ -32,3 +32,24 @@ class AnalysisResultPayload(BaseModel):
     dependency_graph: dict[str, list[str]] = Field(default_factory=dict)
     import_edges: list[dict[str, str]] = Field(default_factory=list)
     contract: dict[str, Any] = Field(default_factory=dict)
+
+    # AnalysisResult.metrics, including "fitness_results". dashboard.js reads
+    # latestRun.metrics.fitness_results to render the Fitness Functions panel,
+    # so omitting this left that panel permanently empty and dropped fitness
+    # outcomes from the audit trail even though they had been evaluated.
+    metrics: dict[str, Any] = Field(default_factory=dict)
+
+    # Provenance of the module map every score below is computed against.
+    # These are additive; existing consumers that ignore them are unaffected.
+    # When fallback_directory_heuristic is True the module boundaries were
+    # guessed from top-level directory names, not measured from co-change
+    # history, and the score/violations must be read with that caveat.
+    contract_auto_generated: bool = False
+    fallback_directory_heuristic: bool = False
+    fallback_reason: str = ""
+
+    # Set when the contract could be analysed but the derived artifacts
+    # (module_scores / modules_analyzed / dependency_graph) could not be built.
+    # Without it, an empty module list reads as "this repo has no modules"
+    # rather than "ArchGuard failed to work them out".
+    derived_artifacts_error: str = ""

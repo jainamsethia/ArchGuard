@@ -76,8 +76,11 @@ def _run_pip_audit(
         cmd = ["pip-audit", "--format=json", "-r", str(found_file)]
 
     try:
+        # check=False: a non-zero exit is pip-audit's normal way of reporting
+        # that it found vulnerabilities; the caller inspects returncode/stdout.
         return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, cwd=str(repo_root)
+            cmd, capture_output=True, text=True, timeout=timeout,
+            cwd=str(repo_root), check=False,
         )
     except FileNotFoundError:
         return DependencyHealthResult(

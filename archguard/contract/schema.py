@@ -68,6 +68,15 @@ ARCHGUARD_SCHEMA: dict[str, Any] = {
         "model_weights_version": {"type": "string"},
         "generated_at": {"type": "string"},
         "generated_by": {"type": "string"},
+        "profile": {
+            "type": "string",
+            "description": (
+                "Name of the threshold profile the module budgets came from "
+                "(see archguard.profiles.defaults). Present when thresholds are "
+                "fixed policy rather than derived from the repository's own "
+                "measurements at generation time."
+            ),
+        },
         "weights": {
             "type": "object",
             "additionalProperties": False,

@@ -168,7 +168,12 @@ def analyze_command(
         from archguard.cli._analyze_core import _status
         _dummy_opts = type("Opts", (), {"output_format": output_format})()
         _status(f"[bold blue]Cloning {github_url} into temporary directory...[/bold blue]", _dummy_opts)
-        res = subprocess.run(["git", "clone", "--depth", "1", github_url, temp_dir], capture_output=True, text=True)
+        # check=False: the returncode is inspected immediately below so the
+        # clone failure can be reported with git's own stderr.
+        res = subprocess.run(
+            ["git", "clone", "--depth", "1", github_url, temp_dir],
+            capture_output=True, text=True, check=False,
+        )
         if res.returncode != 0:
             _status(f"[bold red]Failed to clone repository:[/bold red] {res.stderr}", _dummy_opts)
             raise typer.Exit(1)

@@ -86,6 +86,32 @@
 <dt>Suppression</dt><dd>A deliberately ignored violation (false positive or accepted debt). Suppressed violations are excluded from the score and the Active Violations count.</dd>
 </dl>
 </details>
+<!-- Persistent provenance warning for runs whose module boundaries were guessed
+     from directory names rather than measured from co-change history. Sits
+     above the tablist so it stays visible on every tab, not just Overview.
+     Populated by updateProvenanceBanner() in dashboard.js. -->
+<div aria-live="polite" class="glass-card card-section" id="fallback-banner" role="alert" hidden
+     style="border-left:4px solid var(--warn-color);background:rgba(245,158,11,0.10)">
+<h2 class="text-section-title-flush" id="fallback-banner-title" style="color:var(--warn-color)">⚠ Module boundaries were guessed, not measured</h2>
+<p class="section-note" id="fallback-banner-body"></p>
+</div>
+<!-- States which thresholds the score was graded against. Shown whenever the
+     contract was auto-generated, so a score is never presented as a bare
+     number with no indication of the policy behind it.
+     Populated by updateThresholdNote() in dashboard.js. -->
+<div aria-live="polite" class="glass-card card-section" id="threshold-note" hidden
+     style="border-left:4px solid var(--accent-color, #6366f1)">
+<p class="section-note margin-reset" id="threshold-note-body"></p>
+</div>
+<!-- What this run actually checked. The score is an average over the layers
+     that produced a signal, so the ones that did not have to be named -- a
+     layer with nothing to check must not read as a layer that found nothing.
+     Populated by updateLayerStatus() in dashboard.js. -->
+<div class="glass-card card-section" id="layer-status" hidden>
+<h2 class="text-section-title-flush">What this run checked</h2>
+<p class="section-note" id="layer-status-intro"></p>
+<ul id="layer-status-list" class="text-helper"></ul>
+</div>
 <div class="tablist" role="tablist">
 <button aria-controls="overview" aria-selected="true" class="tab" id="tab-overview" role="tab">Overview</button>
 <button aria-controls="violations" aria-selected="false" class="tab" id="tab-violations" role="tab">Violations</button>

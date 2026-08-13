@@ -69,8 +69,15 @@ class AuditLogger:
                         key_f.write(audit_secret)
                     try:
                         key_file.chmod(0o600)
-                    except Exception:
-                        pass
+                    except OSError as chmod_exc:
+                        # Windows and some network filesystems don't honour
+                        # POSIX modes. The key is still written, but it is not
+                        # owner-only -- say so rather than implying it is.
+                        _logging.getLogger(__name__).warning(
+                            "Could not restrict permissions on audit key %s (%s). "
+                            "The HMAC key may be readable by other users on this host.",
+                            key_file, chmod_exc,
+                        )
                     _logging.getLogger(__name__).info(
                         "Generated new audit HMAC key at %s", key_file
                     )

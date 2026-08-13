@@ -144,6 +144,10 @@ def test_advisor_primary_model(monkeypatch) -> None:
     from archguard.llm.advisor import ArchitectureAdvisor
 
     pytest.importorskip("anthropic", reason="cloud extras not installed")
+    # This test asserts on the real Anthropic client call, so the mock-LLM
+    # short-circuit CI sets (ARCHGUARD_MOCK_LLM=1) must be off -- otherwise
+    # ask_stream returns canned text and never reaches the client.
+    monkeypatch.delenv('ARCHGUARD_MOCK_LLM', raising=False)
     monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-fake-testvalue-1234567890')
     monkeypatch.setenv('ARCHGUARD_PRIMARY_MODEL', 'claude-test-model-marker')
 

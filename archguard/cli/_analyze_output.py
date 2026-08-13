@@ -321,7 +321,11 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             band=audit_band,
             violations=v_list_out,
             skipped=False,
-            layer_results=lr_out
+            layer_results=lr_out,
+            # Only forward a real mapping; AnalysisResult.metrics is typed as a
+            # dict but callers pass stand-ins, and a validation error here would
+            # be swallowed by the handler below and drop the whole audit entry.
+            metrics=result.metrics if isinstance(getattr(result, "metrics", None), dict) else {},
         )
 
         audit.log(

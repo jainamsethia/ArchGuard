@@ -179,3 +179,89 @@ def test_orchestrator_injects_fitness_metrics(tmp_path):
         assert res.metrics["fitness_results"][0]["passed"] is True
     finally:
         archguard.analysis.layers.load_contract = original_load
+
+
+# ---------------------------------------------------------------------------
+# Band/grade cap on a failed critical gate
+#
+# A repo with a real import cycle must not be presentable as grade A/B. The cap
+# is applied to the *reported* band and grade only: composite_score stays the
+# measured layer debt. The previous implementation floored the composite at a
+# fixed 0.75, which reported an exact health score of 25.0 that no layer had
+# measured.
+# ---------------------------------------------------------------------------
+
+
+def _critical_cycle_failure():
+    configs = [
+        FitnessFunctionConfig(
+            name="cycles", rule="graph.cycles == 0", severity="critical"
+        )
+    ]
+    results = [
+        FitnessFunctionResult(
+            rule="graph.cycles == 0", passed=False, details="Cycle found: a -> b -> a"
+        )
+    ]
+    return results, configs
+
+
+def test_critical_failure_caps_band_without_moving_the_score():
+    archdebt = _create_base_archdebt()
+    archdebt.fail_threshold = 0.25
+    before = archdebt.composite_score
+
+    archdebt.apply_fitness_results(*_critical_cycle_failure())
+
+    assert archdebt.composite_score == before, (
+        "composite must remain the measured layer debt; capping is a reporting "
+        "decision, not a point deduction"
+    )
+    assert archdebt.health_score == round((1.0 - before) * 100, 1)
+    assert archdebt.band is ArchDebtBand.CRITICAL
+
+
+def test_critical_failure_caps_grade_below_b():
+    """A healthy-scoring repo with a cycle must not report A or B."""
+    archdebt = _create_base_archdebt()  # composite 0.1 -> health 90.0 -> "A"
+    archdebt.fail_threshold = 0.25
+    assert archdebt.health_grade == "A"  # before
+
+    archdebt.apply_fitness_results(*_critical_cycle_failure())
+
+    assert archdebt.health_grade not in ("A", "B")
+    assert archdebt.health_grade == "C"
+
+
+def test_strict_contract_caps_grade_further_than_the_floor():
+    """The cap follows the contract's own fail_threshold when that is harsher."""
+    archdebt = _create_base_archdebt()
+    archdebt.fail_threshold = 0.75  # CRITICAL means health <= 25 -> "F"
+
+    archdebt.apply_fitness_results(*_critical_cycle_failure())
+
+    assert archdebt.health_grade == "F"
+
+
+def test_passing_gates_do_not_cap_a_run_that_already_fails_ci():
+    """Regression: the cap keyed off should_fail_ci, not off fitness results.
+
+    A run that breached a layer threshold arrives with should_fail_ci already
+    True. That must not cap the band when every fitness function passed.
+    """
+    archdebt = _create_base_archdebt()
+    archdebt.should_fail_ci = True  # e.g. a per-component breach
+    archdebt.band = ArchDebtBand.WATCH
+    before = archdebt.composite_score
+
+    configs = [
+        FitnessFunctionConfig(
+            name="cycles", rule="graph.cycles == 0", severity="critical"
+        )
+    ]
+    results = [FitnessFunctionResult(rule="graph.cycles == 0", passed=True, details="")]
+    archdebt.apply_fitness_results(results, configs)
+
+    assert archdebt.fitness_passed is True
+    assert archdebt.band is ArchDebtBand.WATCH
+    assert archdebt.composite_score == before
