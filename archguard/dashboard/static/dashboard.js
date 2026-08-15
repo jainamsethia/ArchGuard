@@ -231,6 +231,7 @@ function initActionButtons() {
                     window.latestRun = latestData;
                     updateMetrics(latestData);
                     updateFitnessPanel(latestData);
+                    updateViolationCounts(latestData);
                     updateViolationsTable(latestData);
                 }
                 updateTrendChart(runsData.runs);
@@ -464,6 +465,41 @@ function initActionButtons() {
                 `The score below is an average over the ${ran.length} of ${layers.length} `
                 + `layer${layers.length === 1 ? '' : 's'} that produced a signal on this run.`;
             box.hidden = false;
+        }
+
+        // Identity of a violation row, matching archguard.analysis.ranking.finding_key.
+        // Used to mark which rows an AI fix plan actually covered.
+        function violationKey(v) {
+            return [v.module || '', v.layer || '', v.message || ''].join('|');
+        }
+
+        // Which findings the last "Suggest fixes" run covered. Populated from the
+        // server's own ranking, never recomputed here -- the browser must not
+        // decide what counts as high priority.
+        window.remediationSelectedKeys = new Set();
+
+        function updateViolationCounts(latestRun) {
+            const el = document.getElementById('violations-counts');
+            if (!el) return;
+
+            const sel = latestRun && latestRun.remediation_selection;
+            if (!sel) {
+                el.textContent = '';
+                return;
+            }
+
+            // selected_violations, not selected: the latter also counts a failed
+            // gate, which is sent to the LLM but is not a row in this table.
+            const covered = sel.selected_violations != null ? sel.selected_violations : sel.selected;
+            const parts = [`${sel.detected} violation${sel.detected === 1 ? '' : 's'} detected`];
+            if (sel.suppressed > 0) parts.push(`${sel.suppressed} suppressed`);
+            if (sel.eligible > covered) {
+                parts.push(`AI fix suggestions available for the ${covered} highest-priority`);
+            } else if (covered > 0) {
+                parts.push(`AI fix suggestions available for all ${covered}`);
+            }
+            el.textContent = parts.join(' · ')
+                + '. Every violation found is listed below regardless.';
         }
 
         function getSeverityClass(severity) {
@@ -743,12 +779,32 @@ function initActionButtons() {
                 const suppressAttrs = canSuppress
                     ? `data-module="${sanitize(v.module)}" data-layer="${sanitize(v.layer)}" data-message="${sanitize(v.message)}"`
                     : 'disabled style="opacity:0.4; cursor:not-allowed;" title="This violation has no stable module/layer key to suppress."';
+                // Plain-language explanation comes from the server
+                // (archguard.analysis.plain_language) so the wording cannot
+                // drift between the API and the page. The technical message and
+                // raw numbers stay visible alongside it, not replaced by it.
+                const plain = v.plain || null;
+                const plainHtml = plain ? `
+                        <div class="violation-plain">
+                            <div class="violation-plain-title">${sanitize(plain.title)}</div>
+                            <div class="violation-plain-body">${sanitize(plain.body)}</div>
+                        </div>` : '';
+                const techHtml = plain && plain.technical_details
+                    ? `<div class="violation-tech">Technical details: ${sanitize(plain.technical_details)}</div>`
+                    : '';
+                const covered = window.remediationSelectedKeys.has(violationKey(v))
+                    ? '<span class="badge badge-low" title="An AI fix suggestion was generated for this violation">AI fix suggested</span>'
+                    : '';
                 return `
                 <tr>
                     <td>L${sanitize(v.layer || '?')}</td>
-                    <td><span class="badge ${getSeverityClass(v.severity)}">${sanitize(v.severity || 'low')}</span></td>
+                    <td><span class="badge ${getSeverityClass(v.severity)}">${sanitize(v.severity || 'low')}</span> ${covered}</td>
                     <td style="color: #cbd5e1; word-break: break-all;">${violationLocationCell(v)}</td>
-                    <td>${sanitize(v.message || 'Unknown violation')}</td>
+                    <td>
+                        <div class="violation-message">${sanitize(v.message || 'Unknown violation')}</div>
+                        ${plainHtml}
+                        ${techHtml}
+                    </td>
                     <td><button class="btn-action btn-suppress" ${suppressAttrs} style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">Suppress</button></td>
                 </tr>
             `;
@@ -1333,10 +1389,14 @@ function getEmptyStateHtml(icon, title, body) {
             resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation suggestions...</div>';
 
             try {
+                // GET, not POST-with-a-body: the server reads the persisted run
+                // and applies its own ranking and suppression. Posting the
+                // browser's copy of the list would let the client decide what
+                // the LLM sees, and would hit the request's 50-violation cap on
+                // any repo with more findings than that.
                 const res = await fetch(`/api/v1/remediation/plan${jobQuery}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ violations: window.latestRun.violations })
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
                 });
                 if (!res.ok) {
                     const text = await res.text().catch(() => '');
@@ -1354,6 +1414,13 @@ function getEmptyStateHtml(icon, title, body) {
                 if (data.error) {
                     resultsEl.innerHTML = getErrorStateHtml(data.error, () => generateViolationsRemediation());
                     return;
+                }
+
+                // Mark which rows the plan actually covered, using the server's
+                // selection rather than re-deriving it here.
+                if (data.selection && Array.isArray(data.selection.selected_keys)) {
+                    window.remediationSelectedKeys = new Set(data.selection.selected_keys);
+                    updateViolationsTable(window.latestRun);
                 }
 
                 renderRemediationTasks(tasks, resultsEl);

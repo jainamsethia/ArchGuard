@@ -978,3 +978,16 @@ body.page-dashboard {
     visibility: visible;
     opacity: 1;
 }
+
+/* Plain-language violation explanations.
+   Shown for every violation regardless of rank; the technical message and raw
+   numbers stay visible above/below rather than being replaced by the friendlier
+   wording. */
+.violation-message      { color: var(--text-primary, #e2e8f0); }
+.violation-plain        { margin-top: 0.5rem; padding-left: 0.65rem;
+                          border-left: 3px solid var(--accent-color); }
+.violation-plain-title  { font-weight: 600; color: var(--text-primary, #e2e8f0); }
+.violation-plain-body   { color: var(--text-secondary); font-size: 0.85rem;
+                          margin-top: 0.15rem; line-height: 1.45; max-width: 46rem; }
+.violation-tech         { margin-top: 0.4rem; font-size: 0.75rem;
+                          color: var(--text-secondary); font-family: ui-monospace, monospace; }

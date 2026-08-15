@@ -283,6 +283,8 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
                     severity=sev.value if isinstance(sev, Enum) else str(sev),
                     message=getattr(v, "message", ""),
                     layer=str(getattr(v, "layer", "0")),
+                    kind=getattr(v, "kind", "") or "",
+                    metrics=dict(getattr(v, "metrics", {}) or {}),
                 )
             )
 

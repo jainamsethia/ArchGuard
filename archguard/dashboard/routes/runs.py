@@ -44,6 +44,42 @@ def get_runs(
     return {"runs": runs[:limit], "total": len(runs[:limit])}
 
 
+def _with_plain_language(run: dict[str, Any], job_id: str | None = None) -> dict[str, Any]:
+    """Attach plain-language explanations and the remediation-selection counts.
+
+    The explanations are rendered here rather than stored, so runs persisted
+    before the templates existed get one too, and so the wording has a single
+    source of truth in ``archguard.analysis.plain_language`` instead of a copy
+    in the frontend. Rendering is pure: static text plus the violation's own
+    recorded numbers, with a generic fallback for any kind lacking a template.
+
+    ``remediation_selection`` is computed with the same ranking the remediation
+    endpoint uses, so the counts the UI shows describe the set the LLM would
+    actually receive -- and are available without spending an LLM call.
+    """
+    from archguard.analysis.plain_language import explain_dict
+
+    violations = run.get("violations")
+    if not isinstance(violations, list):
+        return run
+
+    enriched = []
+    for v in violations:
+        if not isinstance(v, dict):
+            enriched.append(v)
+            continue
+        enriched.append({**v, "plain": explain_dict(v)})
+
+    out = {**run, "violations": enriched}
+    try:
+        from archguard.dashboard._selection import select_findings, selection_summary
+
+        out["remediation_selection"] = selection_summary(select_findings(run, job_id))
+    except Exception as exc:  # noqa: BLE001 - counts must never break the run view
+        _logger.warning("Could not compute remediation selection: %s", exc)
+    return out
+
+
 @app.get("/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
 @app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
 def get_latest_run(job_id: JobIdQuery = None) -> Any:
@@ -55,7 +91,7 @@ def get_latest_run(job_id: JobIdQuery = None) -> Any:
         # Iterate in reverse so we return the *newest* match for this job_id.
         for r in reversed(runs):
             if r.get("job_id") == job_id:
-                return r
+                return _with_plain_language(r, job_id)
         raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
     return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
 

@@ -18,6 +18,13 @@ class RemediationRequest(BaseModel):
     )
 
 
+def _selection_summary_no_job(selection: Any) -> dict[str, Any]:
+    """Selection counts for the job-less POST variant (no suppression store)."""
+    from archguard.dashboard._selection import selection_summary
+
+    return selection_summary(selection)
+
+
 def _mock_remediation_response(violations: Any) -> dict[str, Any]:
     print(f"--- MOCK LLM PROMPT ---\nRemediation for: {violations}\n--- END MOCK LLM PROMPT ---")
     return {
@@ -47,10 +54,20 @@ async def remediation_plan(body: RemediationRequest) -> Any:
     if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
         return _mock_remediation_response(body.violations)
 
+    from archguard.analysis.ranking import select_for_remediation
     from archguard.llm.remediation import generate_remediation_plan, RemediationUnavailableError
 
+    # Rank and cap even when the caller supplies the list. Without this the LLM
+    # receives whatever order the caller happened to send, and a LOW-severity
+    # finding can crowd out a CRITICAL one. No suppression store is consulted
+    # here -- this endpoint has no job context; the GET variant below does.
+    selection = select_for_remediation(body.violations)
+
     try:
-        result = await generate_remediation_plan(body.violations)
+        result = await generate_remediation_plan(
+            [r.finding for r in selection.selected]
+        )
+        result["selection"] = _selection_summary_no_job(selection)
         return result
     except RemediationUnavailableError as exc:
         return {"tasks": [], "error": str(exc)}
@@ -88,10 +105,15 @@ async def remediation_plan_from_audit(
             raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
     else:
         return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
-    violations = latest.get("violations", [])
+    from archguard.dashboard._selection import select_findings, selection_summary
+
+    selection = select_findings(latest, job_id)
+    violations = [r.finding for r in selection.selected if not r.is_fitness_gate]
+    gates = [r.finding for r in selection.selected if r.is_fitness_gate]
 
     try:
-        result = await generate_remediation_plan(violations)
+        result = await generate_remediation_plan(violations, fitness_failures=gates)
+        result["selection"] = selection_summary(selection)
         return result
     except RemediationUnavailableError as exc:
         return {"tasks": [], "error": str(exc)}

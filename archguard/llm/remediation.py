@@ -130,7 +130,11 @@ class RemediationEngine:
         violations: list[dict[str, Any]] = findings.get("violations", [])
         if violations:
             lines.append(f"\nArchitecture Violations ({len(violations)} total):")
-            for v in violations[:15]:
+            # No slice here: callers pass an already-ranked, already-capped set
+            # (archguard.analysis.ranking.select_for_remediation). Truncating
+            # again would silently drop the tail of a deliberate selection, and
+            # would do it in arrival order rather than by severity.
+            for v in violations:
                 sev = v.get("severity", "low")
                 layer = v.get("layer", "?")
                 module = v.get("module", "Unknown")
@@ -422,6 +426,7 @@ def _parse_remediation_response(raw: str) -> list[RemediationTask]:
 
 async def generate_remediation_plan(
     violations: list[dict[str, Any]] | list[Any] | None = None,
+    fitness_failures: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Generate a remediation plan from a list of violations.
 
@@ -458,6 +463,8 @@ async def generate_remediation_plan(
             )
 
     findings: dict[str, Any] = {"violations": violation_dicts}
+    if fitness_failures:
+        findings["fitness_failures"] = fitness_failures
 
     try:
         # Try Anthropic first (same key as AI Advisor), fall back to OpenAI

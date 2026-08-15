@@ -424,10 +424,21 @@ async def test_remediation_job_id_filter(monkeypatch):
         
         monkeypatch.setattr(remediation, "get_audit_path", lambda jid: log_path)
         
-        async def mock_gen(violations):
-            return violations
+        # Capture what the endpoint actually forwards. The mock returns the real
+        # function's shape (a dict with "tasks"), not the violations list: the
+        # route now attaches selection metadata to that result, so a mock
+        # returning a bare list would only be testing the error path.
+        forwarded: dict[str, object] = {}
+
+        async def mock_gen(violations, fitness_failures=None):
+            forwarded["violations"] = violations
+            forwarded["fitness_failures"] = fitness_failures
+            return {"tasks": []}
+
         monkeypatch.setattr("archguard.llm.remediation.generate_remediation_plan", mock_gen)
-        
+
         res = await remediation.remediation_plan_from_audit(limit=1, job_id="job-A")
-        assert len(res) == 1
-        assert res[0]["id"] == "v1"
+
+        # job-A's violation is the one forwarded, not job-B's.
+        assert [v["id"] for v in forwarded["violations"]] == ["v1"]
+        assert res["selection"]["detected"] == 1

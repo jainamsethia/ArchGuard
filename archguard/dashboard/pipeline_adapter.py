@@ -354,6 +354,8 @@ def _run_analysis_sync(
                     message=getattr(v, "message", ""),
                     layer=str(getattr(v, "layer", "0")),
                     scope=scope,
+                    kind=getattr(v, "kind", "") or "",
+                    metrics=dict(getattr(v, "metrics", {}) or {}),
                 )
             )
 

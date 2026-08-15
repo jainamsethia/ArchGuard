@@ -248,6 +248,11 @@
 <div class="tab-panel-main" id="violations" role="tabpanel">
 <div class="glass-card card-section">
 <h2 class="text-section-title">Recent Violations</h2>
+<!-- Every violation found stays in the table below. Only eligibility for an
+     AI-written fix is capped, so the counts have to say so plainly rather
+     than letting a shorter plan imply a shorter list of problems.
+     Populated by updateViolationCounts() in dashboard.js. -->
+<p class="section-note" id="violations-counts"></p>
 <div id="violations-remediation" class="margin-bottom">
 <button class="btn-action" id="violations-remediation-btn">Suggest fixes for these violations</button>
 <div id="violations-remediation-results" class="text-helper margin-top-sm"></div>

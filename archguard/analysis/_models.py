@@ -9,7 +9,14 @@ from archguard.utils.severity import Severity
 
 @dataclass
 class ViolationDetail:
-    """A single violation found during analysis."""
+    """A single violation found during analysis.
+
+    ``kind`` and ``metrics`` carry the same facts as ``message`` in structured
+    form. ``message`` is a presentation string ("fan_out=11 exceeds budget=10");
+    ranking and the plain-language templates need the 11 and the 10 as numbers,
+    and recovering them by parsing the sentence back apart would break silently
+    the first time the wording changed.
+    """
 
     layer: int
     module: str
@@ -19,6 +26,11 @@ class ViolationDetail:
     line: int = 0
     explanation: str = ""
     severity: Severity = Severity.LOW
+    # One of archguard.analysis.violation_kinds.* -- "" for anything that
+    # predates this field (older persisted runs) so consumers can fall back.
+    kind: str = ""
+    # Kind-specific measurements, e.g. {"fan_out": 11.0, "budget": 10.0}.
+    metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass

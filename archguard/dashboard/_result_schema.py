@@ -12,6 +12,12 @@ class ViolationPayload(BaseModel):
     layer: str
     scope: str = "file"
 
+    # Structured form of the facts already in `message`. Additive: runs
+    # persisted before these existed simply carry the defaults, and the
+    # plain-language renderer falls back to a generic template for them.
+    kind: str = ""
+    metrics: dict[str, float] = Field(default_factory=dict)
+
 class LayerResultPayload(BaseModel):
     layer: int
     name: str

@@ -8,6 +8,7 @@ from typing import Any
 from archguard.analysis.layers import ViolationDetail, _get_module_paths
 from archguard.utils.paths import normalize_path, path_belongs_to_module
 from archguard.utils.severity import Severity
+from archguard.analysis import violation_kinds
 
 
 def _analyze_file_imports(
@@ -60,6 +61,8 @@ def _analyze_file_imports(
                         file_path=rel,
                         line=edge.line,
                         severity=Severity.CRITICAL,
+                        kind=violation_kinds.IMPORT_BOUNDARY,
+                        metrics={},
                     )
                 )
                 continue
@@ -80,6 +83,8 @@ def _analyze_file_imports(
                             file_path=rel,
                             line=edge.line,
                             severity=Severity.CRITICAL,
+                            kind=violation_kinds.IMPORT_BOUNDARY,
+                            metrics={},
                         )
                     )
 
@@ -186,6 +191,8 @@ def _run_layer2(
                     commit_sha=commit_sha[:7],
                     file_path="",
                     severity=Severity.HIGH,
+                    kind=violation_kinds.FAN_OUT,
+                    metrics={"fan_out": float(fan_out), "budget": float(budget)},
                 )
             )
 
@@ -234,6 +241,11 @@ def _run_layer3(
                         commit_sha=commit_sha[:7],
                         file_path="",
                         severity=Severity.LOW,
+                        kind=violation_kinds.SEMANTIC_DRIFT,
+                        metrics={
+                            "drift": float(result.drift_score),
+                            "threshold": float(thresholds.get(mod_name, 0.25)),
+                        },
                     )
                 )
             if getattr(result, "skipped", False):
@@ -347,6 +359,12 @@ def _run_layer4(
                         commit_sha=commit_sha[:7],
                         file_path="",
                         severity=sev,
+                        kind=violation_kinds.DUPLICATION,
+                        metrics={
+                            "duplication_score": float(result.aggregate_score),
+                            "threshold": float(threshold),
+                            "match_count": float(len(result.matches)),
+                        },
                     )
                 )
             max_agg = max(max_agg, result.aggregate_score)
