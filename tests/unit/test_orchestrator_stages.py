@@ -83,7 +83,10 @@ def test_finalize_result_filters_suppressed_violations(monkeypatch):
         layer=2, module="test", message="msg2", commit_sha="abcd", file_path="b.py"
     )
 
-    def mock_filter(repo_root, viols):
+    # Signature mirrors _filter_suppressed, including the store_path the
+    # orchestrator now forwards so the dashboard's durable, repo-keyed
+    # suppression file is consulted instead of the throwaway clone.
+    def mock_filter(repo_root, viols, store_path=None):
         return [v for v in viols if v.message != "msg1"]
 
     monkeypatch.setattr(

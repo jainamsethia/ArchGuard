@@ -130,6 +130,7 @@ def _handle_l1_l2_fail_fast(
             rel_files,
             commit_sha,
             metrics.to_dict(),
+            suppression_path=getattr(orchestrator, "suppression_path", None),
         )
         res.parse_failures = unique_failures
         res.partial_analysis = bool(unique_failures)
@@ -298,6 +299,7 @@ def _handle_l3_fail_fast(
             rel_files,
             commit_sha,
             metrics.to_dict(),
+            suppression_path=getattr(orchestrator, "suppression_path", None),
         )
         res.parse_failures = unique_failures
         res.partial_analysis = bool(unique_failures)

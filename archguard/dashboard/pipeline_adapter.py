@@ -72,6 +72,27 @@ class AnalysisJobResult:
 
 ProgressCallback = Callable[[str], Awaitable[None]]
 
+def _dashboard_suppression_path(repo_url: str) -> Path | None:
+    """The durable, repository-keyed suppression file for *repo_url*.
+
+    Returns None when the repository cannot be identified, in which case the
+    analysis falls back to the default location inside the analysed tree.
+    """
+    if not repo_url:
+        return None
+    try:
+        from archguard.dashboard.routes.suppression import suppression_base_dir
+        from archguard.suppression.scope import suppression_path_for_repo
+
+        return suppression_path_for_repo(suppression_base_dir(), repo_url)
+    except Exception as exc:  # noqa: BLE001 - never block analysis on this
+        logger.warning(
+            "Could not resolve suppression store for %s (%s); "
+            "suppressions will not be applied to this run.", repo_url, exc,
+        )
+        return None
+
+
 def _log_skip_or_error(job_id: str, repo_path: Path, reason: str) -> None:
     try:
         from archguard.audit.logger import AuditLogger
@@ -193,6 +214,7 @@ async def run_analysis_on_repo(
                 py_files,
                 skip_explanation,
                 job_id,
+                repo_url,
                 contract_auto_generated,
                 fallback_heuristic,
                 fallback_reason,
@@ -297,6 +319,7 @@ def _run_analysis_sync(
     py_files: list[Path],
     skip_explanation: bool,
     job_id: str,
+    repo_url: str = "",
     contract_auto_generated: bool = False,
     fallback_directory_heuristic: bool = False,
     fallback_reason: str = "",
@@ -305,7 +328,14 @@ def _run_analysis_sync(
     from archguard.analysis.layers import AnalysisOrchestrator
 
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_path)
-    orchestrator = AnalysisOrchestrator(repo_root=repo_path)
+    # Point the suppression filter at the durable, repository-keyed store the
+    # dashboard writes to. Without this it looks inside repo_path -- a throwaway
+    # clone that no user has ever suppressed anything in -- so every suppressed
+    # violation reappeared on the next scan.
+    orchestrator = AnalysisOrchestrator(
+        repo_root=repo_path,
+        suppression_path=_dashboard_suppression_path(repo_url),
+    )
 
     with orchestrator:
         result = orchestrator.run(

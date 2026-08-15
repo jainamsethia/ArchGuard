@@ -22,7 +22,11 @@ def _finalize_result(
     rel_files: list[str],
     unique_failures: list[Any],
 ) -> AnalysisResult:
-    violations = _filter_suppressed_fn(orchestrator.repo_root, violations)
+    violations = _filter_suppressed_fn(
+        orchestrator.repo_root,
+        violations,
+        store_path=getattr(orchestrator, "suppression_path", None),
+    )
 
     scores = LayerScores(layer1, layer2, layer3, layer4)
 

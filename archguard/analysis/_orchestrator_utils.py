@@ -5,11 +5,21 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 import typing
 
 if typing.TYPE_CHECKING:
     from archguard.analysis.layers import AnalysisResult
+
+    class SuppressionFilter(typing.Protocol):
+        """Signature of _suppression_filter._filter_suppressed."""
+
+        def __call__(
+            self,
+            repo_root: Path,
+            violations: list[Any],
+            store_path: Path | None = None,
+        ) -> list[Any]: ...
 
 from archguard.analysis.scoring import (
     LayerScores,
@@ -23,7 +33,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 def _build_partial_result(
     repo_root: Path,
     contract: dict[str, Any],
-    filter_fn: Callable[[Path, list[Any]], list[Any]],
+    filter_fn: "SuppressionFilter",
     l1: float,
     l2: float,
     l3: float,
@@ -34,11 +44,14 @@ def _build_partial_result(
     rel_files: list[str],
     commit_sha: str,
     metrics: dict[str, Any],
+    suppression_path: Path | None = None,
 ) -> "AnalysisResult":
     """Build a partial AnalysisResult for fail-fast scenarios."""
     from archguard.analysis.layers import AnalysisResult
 
-    violations = filter_fn(repo_root, violations)
+    # Same store the full path uses: a fail-fast run must not resurrect
+    # violations the user already suppressed.
+    violations = filter_fn(repo_root, violations, store_path=suppression_path)
     scores = LayerScores(l1, l2, l3, l4)
 
     weights_cfg = contract.get("weights")

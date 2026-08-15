@@ -37,6 +37,23 @@ class SuppressionStore:
         self._cache: list[Suppression] | None = None
         self._cache_mtime: float = 0.0
 
+    @classmethod
+    def at_path(cls, store_path: Path) -> "SuppressionStore":
+        """Build a store backed by an explicit JSONL file.
+
+        The default constructor derives the path from a repository root, which
+        assumes the suppressions live inside the checkout being analysed. That
+        holds for the CLI, where the checkout persists between runs, but not for
+        the dashboard, which analyses a fresh throwaway clone each time and must
+        keep its suppressions somewhere durable and keyed by repository instead.
+        """
+        store = cls.__new__(cls)
+        store._path = store_path
+        store._lock_path = store_path.with_suffix(".lock")
+        store._cache = None
+        store._cache_mtime = 0.0
+        return store
+
     def add(
         self,
         module: str,
