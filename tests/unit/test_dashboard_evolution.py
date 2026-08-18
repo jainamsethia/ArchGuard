@@ -91,5 +91,9 @@ def test_api_evolution_empty(mock_audit_logger_empty, monkeypatch):
     response = client.get("/api/evolution/summary")
     assert response.status_code == 200
     data = response.json()
-    assert len(data["snapshots"]) == 0
-    assert data["health_trend"]["classification"] == "insufficient"
+    # With no runs recorded there is no history to report. The panel now says so
+    # explicitly rather than returning an empty trend report, which read like a
+    # real measurement of a repository that simply had nothing wrong.
+    assert data["insufficient_history"] is True
+    assert data["runs_available"] == 0
+    assert "not enough scan history" in data["message"].lower()

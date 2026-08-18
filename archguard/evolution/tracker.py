@@ -124,6 +124,7 @@ from pathlib import Path  # noqa: E402
 from pydriller import Repository  # noqa: E402
 
 from archguard.evolution.snapshots import (  # noqa: E402
+    CommitAnalysisFailure,
     CommitHealthSnapshot,
     EvolutionReport as ArchEvolutionReport,
 )
@@ -134,26 +135,50 @@ logger = logging.getLogger(__name__)
 class ArchitectureEvolutionTracker:
     def __init__(self, repo_path: Path | str):
         self.repo_path = Path(repo_path).resolve()
+        # sha -> why its analysis failed, populated by _analyze_commit and
+        # drained by analyze_history. Worker threads only ever write their own
+        # key, so a plain dict is safe here.
+        self._failure_reasons: dict[str, str] = {}
 
     def analyze_history(self, max_commits: int = 10, max_workers: int = 4) -> ArchEvolutionReport:
         commits = list(Repository(str(self.repo_path)).traverse_commits())
         if len(commits) > max_commits:
             commits = commits[-max_commits:]
         snapshots = []
+        failures: list[CommitAnalysisFailure] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_commit = {
                 executor.submit(self._analyze_commit, commit.hash, commit.author_date.isoformat(), commit.author.name, commit.msg): commit.hash
                 for commit in commits
             }
             for future in as_completed(future_to_commit):
+                sha = future_to_commit[future]
                 try:
                     snapshot = future.result()
                     if snapshot:
                         snapshots.append(snapshot)
+                    else:
+                        # _analyze_commit already logged the cause; it returns
+                        # None rather than raising, so without recording it here
+                        # the failure vanishes and the caller sees an empty
+                        # result indistinguishable from a repo with no history.
+                        failures.append(
+                            CommitAnalysisFailure(
+                                sha=sha,
+                                reason=self._failure_reasons.pop(
+                                    sha, "analysis failed for this commit"
+                                ),
+                            )
+                        )
                 except Exception as e:
                     logger.error(f"Failed to analyze commit: {e}")
+                    failures.append(CommitAnalysisFailure(sha=sha, reason=str(e)))
         snapshots.sort(key=lambda s: s.committed_at)
-        return ArchEvolutionReport(snapshots=snapshots)
+        return ArchEvolutionReport(
+            snapshots=snapshots,
+            failures=failures,
+            commits_attempted=len(commits),
+        )
 
     def _analyze_commit(self, sha: str, committed_at: str, author: str, message: str) -> CommitHealthSnapshot | None:
         from archguard.analysis.layers import AnalysisOrchestrator
@@ -179,4 +204,7 @@ class ArchitectureEvolutionTracker:
                     )
             except Exception as e:
                 logger.error(f"Failed to analyze commit {sha}: {e}")
+                # Recorded so analyze_history can report *why*, not merely that
+                # the count was zero.
+                self._failure_reasons[sha] = str(e)
                 return None

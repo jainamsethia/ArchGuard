@@ -11,6 +11,58 @@ from archguard.dashboard._rate_limit import rate_limiter
 from archguard.audit.logger import AuditLogger
 
 
+MIN_RUNS_FOR_HISTORY = 2
+
+
+def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], str | None]:
+    """Analysis runs belonging to the same repository as *job_id*.
+
+    Neither available log is per-repo history. The job's own workspace log holds
+    exactly one run -- the job that wrote it -- and when that workspace expires
+    ``get_audit_path`` falls back to the server-wide log, which interleaves every
+    repository this instance has ever analysed. Computing a trend over that
+    fallback produced a chart mixing unrelated projects.
+
+    Every run already records ``repo_url``, so scoping by it is enough to avoid
+    presenting one repository's history as another's. This is deliberately *not*
+    the deferred per-repo history feature: it only filters what is already
+    persisted, and still returns fewer than two runs for most repositories.
+    """
+    logger = AuditLogger(get_audit_path(job_id))
+    runs = logger.read_last_n_runs(n=limit)
+
+    repo_url = None
+    try:
+        from archguard.dashboard.routes.suppression import repo_url_for_job
+
+        repo_url = repo_url_for_job(job_id)
+    except Exception:  # noqa: BLE001 - scoping is best-effort, never fatal
+        repo_url = None
+
+    if repo_url:
+        runs = [r for r in runs if r.get("repo_url") == repo_url]
+    elif job_id:
+        # Repository unknown: fall back to this job's own runs rather than the
+        # whole server's, which would be cross-repo.
+        runs = [r for r in runs if r.get("job_id") == job_id]
+    return runs, repo_url
+
+
+def _insufficient_history(runs: list[Any], repo_url: str | None) -> dict[str, Any]:
+    """The honest payload when a repository has too few scans for a trend."""
+    return {
+        "insufficient_history": True,
+        "runs_available": len(runs),
+        "runs_required": MIN_RUNS_FOR_HISTORY,
+        "repo_url": repo_url,
+        "message": (
+            "Not enough scan history yet for this repository. "
+            f"{len(runs)} scan(s) recorded; at least {MIN_RUNS_FOR_HISTORY} are "
+            "needed before changes over time can be shown."
+        ),
+    }
+
+
 @app.get(
     "/api/v1/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
@@ -21,8 +73,9 @@ def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: 
     """Return the complete evolution trend report."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
+    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    if len(runs) < MIN_RUNS_FOR_HISTORY:
+        return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
     report = tracker.generate_report()
     return report.model_dump() if hasattr(report, "model_dump") else report.dict()
@@ -38,8 +91,9 @@ def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: 
     """Return the parsed evolution snapshots."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
+    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    if len(runs) < MIN_RUNS_FOR_HISTORY:
+        return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
     snapshots = [
         s.model_dump() if hasattr(s, "model_dump") else s.dict()
@@ -58,8 +112,9 @@ def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: J
     """Return just the calculated trends."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
+    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    if len(runs) < MIN_RUNS_FOR_HISTORY:
+        return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
     report = tracker.generate_report()
 
@@ -123,6 +178,31 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
         tracker = ArchitectureEvolutionTracker(target)
         report = tracker.analyze_history(max_commits=body.max_commits)
 
+        # Every attempted commit failed. Returning debt_velocity 0.0 and
+        # commits_analyzed 0 here looked like a successful measurement of a
+        # perfectly stable repository, when in fact nothing was measured at all.
+        # On the dashboard path the usual cause is concrete: the contract is
+        # auto-generated into the working tree and never committed, so a
+        # worktree checked out at an old commit has no .archguard.yml.
+        if report.all_failed:
+            reason = report.failure_summary
+            logging.warning(
+                "Git-history analysis measured nothing: %d/%d commits failed (%s)",
+                report.failure_count, report.commits_attempted, reason,
+            )
+            return {
+                "error": "no_commits_analyzable",
+                "message": (
+                    f"None of the {report.commits_attempted} commits examined could be "
+                    f"analysed, so no trend could be measured. Cause: {reason}"
+                ),
+                "snapshots": [],
+                "commits_analyzed": 0,
+                "commits_attempted": report.commits_attempted,
+                "commits_failed": report.failure_count,
+                "failure_reason": reason,
+            }
+
         result = {
             "snapshots": [
                 {
@@ -139,6 +219,12 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
             "trend_direction": report.trend_direction,
             "score_range": {"min": report.score_range[0], "max": report.score_range[1]},
             "commits_analyzed": len(report.snapshots),
+            "commits_attempted": report.commits_attempted,
+            # A partial failure still yields real numbers, but they describe
+            # fewer commits than the user asked for -- say so rather than
+            # letting the gap pass as a complete picture.
+            "commits_failed": report.failure_count,
+            "failure_reason": report.failure_summary,
         }
 
         with _EVO_LOCK:
