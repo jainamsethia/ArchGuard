@@ -40,23 +40,25 @@ def test_pip_audit_timeout(tmp_path: Path):
         assert "timed out after 60 seconds" in res.skip_reason
 
 
-def test_command_generation_pyproject_poetry(tmp_path: Path):
-    """Poetry pyproject.toml should use environment scan (no path arg)."""
+def test_poetry_project_is_skipped_not_audited_against_the_wrong_env(tmp_path: Path):
+    """A Poetry project must be skipped, never audited without a target.
+
+    Regression: this used to run bare ``pip-audit --format=json``. With no
+    target pip-audit audits the environment it is installed in -- verified
+    live to return ArchGuard's own packages (archguard, anthropic, bandit) --
+    and those were reported as the analysed repository's vulnerabilities.
+    """
     (tmp_path / "pyproject.toml").write_text('[tool.poetry]\nname = "test"\n')
 
     with patch("subprocess.run") as mock_run:
-        mock_process = MagicMock()
-        mock_process.stdout = "{}"
-        mock_process.stderr = ""
-        mock_run.return_value = mock_process
+        result = analyze_dependencies(tmp_path)
 
-        analyze_dependencies(tmp_path)
+        assert not mock_run.called, "must not shell out with an untargeted audit"
 
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "-r" not in cmd
-        assert str(tmp_path) not in cmd
-        assert cmd == ["pip-audit", "--format=json"]
+    assert result.skipped is True
+    assert "poetry" in result.skip_reason.lower()
+    assert result.vulnerable_packages == []
+    assert result.scanned_packages == 0
 
 
 def test_command_generation_pyproject_pep621(tmp_path: Path):

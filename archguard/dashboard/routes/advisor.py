@@ -1,6 +1,7 @@
-"""AI Advisor session endpoints (OpenAI-backed) and the streaming ask endpoint
-(Anthropic-backed) - two different LLM providers, kept together because both
-serve the dashboard's single Advisor UI panel."""
+"""AI Advisor endpoints.
+
+Both the analyze() path and the streaming ask endpoint now run on Gemini, so
+this module no longer straddles two providers."""
 
 import logging
 from typing import Any, Generator
@@ -17,7 +18,7 @@ from archguard.llm.advisor import ArchitectureAdvisor
 
 def _message_for_reason(reason: str) -> str:
     if reason == "no_api_key":
-        return "AI Advisor is not configured. Please set ANTHROPIC_API_KEY."
+        return "AI Advisor is not configured. Please set GEMINI_API_KEY."
     elif reason == "api_error":
         return "AI Advisor is temporarily unavailable due to an API error."
     return f"AI Advisor is unavailable: {reason}"
@@ -45,6 +46,22 @@ class AdvisorAskRequest(BaseModel):
 # is ArchGuard's one supported advisor interaction model. See CHANGELOG.
 
 
+def _sse_event(text: str) -> str:
+    """Encode *text* as one SSE event, safe for multi-line payloads.
+
+    A ``data:`` field cannot carry a raw newline: the first one ends the field
+    and a blank line ends the event. Emitting ``f"data: {chunk}\\n\\n"`` for a
+    markdown chunk therefore truncated it at the first newline and left the
+    remaining lines as bare text, which browsers discard because they are not
+    ``data:`` fields -- silently deleting list items and table rows.
+
+    The spec's encoding is one ``data:`` line per line of payload; the client
+    rejoins them with a newline. A trailing newline in *text* is preserved as a
+    final empty ``data:`` line so blank-line separated markdown survives.
+    """
+    return "".join(f"data: {line}\n" for line in text.split("\n")) + "\n"
+
+
 def _build_context_from_violations(violations: list[Any]) -> str:
     lines = ["Active Violations:"]
     for v in violations:
@@ -57,13 +74,13 @@ def _build_context_from_violations(violations: list[Any]) -> str:
     "/api/v1/advisor/ask", dependencies=[Depends(check_token), Depends(_llm_rate_limit)]
 )
 def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)) -> StreamingResponse:
-    """Stream an Anthropic Claude response to an architectural question.
+    """Stream a Gemini response to an architectural question.
 
     Returns a text/event-stream (SSE) response where each line is a raw text
     chunk yielded by ArchitectureAdvisor.ask_stream().
 
-    Requires ANTHROPIC_API_KEY to be set; falls back to a single error chunk
-    when the key is missing or the Anthropic SDK is unavailable.
+    Requires GEMINI_API_KEY to be set; falls back to a single error chunk
+    when the key is missing or the API call fails.
     """
     question = body.question.strip()
     if not question:
@@ -122,20 +139,21 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
                 "depends on those boundaries being correct.\n\n" + prompt_context
             )
 
-    # The Advisor streams via Anthropic (ask_stream); the OpenAI provider is not
-    # needed for this endpoint and may be omitted.
+    # ask_stream() builds its own Gemini client, so no provider is needed here.
     advisor = ArchitectureAdvisor()
 
     def _sse_generator() -> Generator[str, None, None]:
         try:
             if ungrounded_notice:
-                yield f"data: {ungrounded_notice}\n\n"
+                yield _sse_event(ungrounded_notice)
             for chunk in advisor.ask_stream(question=question, context=prompt_context):
-                # SSE format: each event is "data: <payload>\n\n"
-                yield f"data: {chunk}\n\n"
+                yield _sse_event(chunk)
         except Exception as exc:  # pragma: no cover
             logging.warning("advisor_ask_stream error: %s", exc)
-            yield "data: An internal error occurred while streaming. Check server logs for details.\n\n"
+            yield _sse_event(
+                "An internal error occurred while streaming. "
+                "Check server logs for details."
+            )
 
     return StreamingResponse(
         _sse_generator(),

@@ -991,3 +991,17 @@ body.page-dashboard {
                           margin-top: 0.15rem; line-height: 1.45; max-width: 46rem; }
 .violation-tech         { margin-top: 0.4rem; font-size: 0.75rem;
                           color: var(--text-secondary); font-family: ui-monospace, monospace; }
+
+/* Grounded-vs-suggested marker on remediation cards. Distinguishes a target
+   taken from ArchGuard's configured limits from one the AI proposed itself. */
+.remediation-card-basis { margin-top: 0.6rem; font-size: 0.72rem; }
+
+/* Markdown rendering for AI Advisor answers. */
+.md-h        { margin: 0.9rem 0 0.4rem; color: var(--text-primary, #e2e8f0); font-weight: 600; }
+.md-list     { margin: 0.4rem 0 0.6rem 1.2rem; }
+.md-list li  { margin-bottom: 0.25rem; }
+.md-code     { background: rgba(15,23,42,0.6); border: 1px solid var(--border-color);
+               border-radius: 6px; padding: 0.7rem; overflow-x: auto; font-size: 0.8rem; }
+.md-table    { border-collapse: collapse; margin: 0.6rem 0; width: 100%; font-size: 0.82rem; }
+.md-table th, .md-table td { border: 1px solid var(--border-color); padding: 0.35rem 0.6rem; text-align: left; }
+.md-table th { background: rgba(148,163,184,0.12); font-weight: 600; }

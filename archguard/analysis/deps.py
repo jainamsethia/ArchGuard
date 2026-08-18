@@ -69,9 +69,23 @@ def _run_pip_audit(
 ) -> subprocess.CompletedProcess[str] | DependencyHealthResult:
     if found_file.name == "pyproject.toml":
         if _is_poetry_project(found_file):
-            cmd = ["pip-audit", "--format=json"]
-        else:
-            cmd = ["pip-audit", "--format=json", str(repo_root)]
+            # No target can be derived for a Poetry project: pip-audit cannot
+            # read poetry.lock, and invoking it bare (the previous behaviour)
+            # audits whatever environment pip-audit is installed in -- which for
+            # the dashboard is ArchGuard's own virtualenv. That reported
+            # ArchGuard's dependencies, and its vulnerabilities, as though they
+            # belonged to the analysed repository. Skipping is the honest
+            # outcome; a wrong answer is worse than no answer.
+            return DependencyHealthResult(
+                skipped=True,
+                skip_reason=(
+                    "Poetry project: pip-audit cannot read poetry.lock, and "
+                    "auditing without a target would scan ArchGuard's own "
+                    "environment instead of this repository. Export a "
+                    "requirements.txt to enable this scan."
+                ),
+            )
+        cmd = ["pip-audit", "--format=json", str(repo_root)]
     else:
         cmd = ["pip-audit", "--format=json", "-r", str(found_file)]
 

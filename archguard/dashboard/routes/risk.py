@@ -35,7 +35,12 @@ def _downstream_counts(dependency_graph: dict[str, list[str]]) -> dict[str, int]
         queue = deque(inverted.get(src, []))
         while queue:
             current = queue.popleft()
-            if current in seen:
+            # Skip the module itself. When it sits in a dependency cycle the
+            # traversal walks back around to it, and counting it inflated its
+            # own blast radius by one -- contradicting "how many *other*
+            # modules" above, and letting a cycle push a repo into a higher
+            # risk band via max_downstream.
+            if current in seen or current == src:
                 continue
             seen.add(current)
             queue.extend(inverted.get(current, []))
