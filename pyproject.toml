@@ -31,7 +31,6 @@ pydriller = ">=2.5"
 gitpython = ">=3.1.58"
 httpx = ">=0.25"
 watchdog = ">=3.0.0"
-anthropic = {version = ">=0.109.0,<0.112.0", optional = true}
 pydantic = ">=2.0,<3.0"
 numpy = {version = ">=1.24,<2.0.0", optional = true}
 scipy = {version = ">=1.10", optional = true}
@@ -54,10 +53,13 @@ python-dotenv = "^1.2.2"
 
 [tool.poetry.extras]
 ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools"]
-cloud = ["anthropic", "boto3"]
+# NOTE: "cloud" now means S3 sync (boto3) only. LLM support is no longer an
+# extra: Gemini is reached over HTTP with httpx, which is a core dependency,
+# so AI features work from a plain `pip install archguard`.
+cloud = ["boto3"]
 
 dashboard = ["fastapi", "uvicorn", "python-multipart", "jinja2"]
-all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools", "anthropic", "boto3", "fastapi", "uvicorn", "python-multipart"]
+all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools", "boto3", "fastapi", "uvicorn", "python-multipart"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

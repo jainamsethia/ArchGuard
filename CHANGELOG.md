@@ -1,5 +1,38 @@
 ## [Unreleased] - 2026-07-25
 
+### Gemini as the sole LLM provider
+- **Anthropic removed from every runtime path.** All four LLM integration
+  points now call Gemini through its OpenAI-compatible endpoint via a new
+  `archguard.llm.gemini` client: L4 violation explanations
+  (`archguard/llm/cloud.py`), the streaming AI Advisor
+  (`archguard/llm/advisor.py`), AI fix suggestions
+  (`archguard/llm/remediation.py`), and `archguard init --llm-init`
+  (`archguard/contract/llm_inference.py`). The `anthropic` SDK is gone from
+  the dependency tree.
+- **Env vars renamed**: `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_BASE_URL`.
+  `OPENAI_API_KEY` is still read as a deprecated alias (with a warning) so
+  existing deployments keep working, but it must hold a *Gemini* key. The
+  OpenAI-shaped names were kept only because the code speaks that wire format,
+  which now misleads operators into provisioning the wrong credential.
+- **Primary/fallback resilience preserved** as two Gemini tiers
+  (`gemini-3.6-flash` -> `gemini-3.5-flash-lite`, both env-overridable). The fallback
+  now triggers only on genuinely transient errors; it previously caught bare
+  `Exception`, so a bad API key burned an attempt on both tiers and reported
+  the second failure, hiding the real cause.
+- **Packaging**: LLM support is no longer an extra. Gemini is reached with
+  `httpx`, a core dependency, so AI features work from a plain
+  `pip install archguard`. The `cloud` extra now means S3 sync (boto3) only.
+- **Secret redaction unchanged in coverage**: Anthropic/OpenAI key patterns are
+  retained and a Google API key pattern added. Redaction guards against keys in
+  analysed source and operator environments, so narrowing it would weaken a
+  security control for no benefit.
+- **Dashboard empty state fixed**: `renderEmptyState()` replaced the main
+  container's `innerHTML` (destroying `#refresh-loader`) and then dereferenced
+  that element, throwing `Cannot read properties of null` and aborting
+  `fetchData()`. Unrelated to providers, found while reproducing the
+  "Suggest fixes shows nothing" report.
+
+
 ### Root-cause fix & hardening pass
 - **RC1 — Workspace ephemerality**: Derived artifacts (dependency graph, import
   edges, contract, module scores) are now persisted in the audit log before the

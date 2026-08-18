@@ -15,6 +15,11 @@ from archguard.llm.cloud import (
     PRIMARY_MODEL,
     CloudLLMExplainer,
 )
+from archguard.llm.gemini import (
+    GeminiAuthError,
+    GeminiRateLimitError,
+    GeminiServerError,
+)
 from archguard.llm.prompts import parse_llm_response
 
 
@@ -58,28 +63,19 @@ _CONTRACT: dict = {
 }
 
 
-def _mock_anthropic(monkeypatch: pytest.MonkeyPatch, create: AsyncMock) -> None:
-    """Install a fake anthropic module whose AsyncAnthropic client uses `create`."""
-    mock_client = MagicMock()
-    mock_client.messages = MagicMock()
-    mock_client.messages.create = create
-
-    mock_async_client_cls = MagicMock()
-    mock_async_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_async_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-
-    mock_module = MagicMock()
-    mock_module.AsyncAnthropic = mock_async_client_cls
-    monkeypatch.setattr("archguard.llm.cloud.anthropic", mock_module)
-    monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", True)
+def _mock_gemini(monkeypatch: pytest.MonkeyPatch, acomplete: AsyncMock) -> None:
+    """Install a fake GeminiClient whose acomplete() is *acomplete*."""
+    fake_client = MagicMock()
+    fake_client.acomplete = acomplete
+    monkeypatch.setattr(
+        "archguard.llm.cloud.GeminiClient", MagicMock(return_value=fake_client)
+    )
     monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
 
 
-def _response(text: str, stop_reason: str = "end_turn") -> MagicMock:
-    resp = MagicMock()
-    resp.content = [MagicMock(text=text)]
-    resp.stop_reason = stop_reason
-    return resp
+def _response(text: str, finish_reason: str = "stop") -> tuple[str, str]:
+    """GeminiClient.acomplete returns (text, finish_reason)."""
+    return text, finish_reason
 
 
 class TestCloudLLMExplainer:
@@ -89,7 +85,7 @@ class TestCloudLLMExplainer:
     async def test_primary_model_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Primary model succeeds -> its text is returned, one call with PRIMARY_MODEL."""
         create = AsyncMock(return_value=_response("1. Move shared types to a common package."))
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -109,9 +105,9 @@ class TestCloudLLMExplainer:
     ) -> None:
         """Primary raises -> fallback model is tried and its text returned."""
         create = AsyncMock(
-            side_effect=[RuntimeError("rate limited"), _response("1. Fix the import boundary.")]
+            side_effect=[GeminiRateLimitError("rate limited"), _response("1. Fix the import boundary.")]
         )
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -130,8 +126,8 @@ class TestCloudLLMExplainer:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Both models raise -> the per-violation result is the exception, not a crash."""
-        create = AsyncMock(side_effect=RuntimeError("API down"))
-        _mock_anthropic(monkeypatch, create)
+        create = AsyncMock(side_effect=GeminiServerError("API down"))
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -149,8 +145,9 @@ class TestCloudLLMExplainer:
     ) -> None:
         """No API key -> clear 'unavailable' text per violation, no API calls."""
         create = AsyncMock()
-        _mock_anthropic(monkeypatch, create)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _mock_gemini(monkeypatch, create)
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
         explainer = CloudLLMExplainer(api_key="")
         result = _make_result()
@@ -159,22 +156,32 @@ class TestCloudLLMExplainer:
             result.violations, _CONTRACT, result.changed_files
         )
 
-        assert out == ["Explanation unavailable (ANTHROPIC_API_KEY not set)"]
+        assert out == ["Explanation unavailable (GEMINI_API_KEY not set)"]
         create.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_sdk_unavailable_raises_actionable_error(
+    async def test_auth_failure_is_not_retried_on_the_fallback_tier(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """SDK missing -> RuntimeError pointing at the cloud extra."""
-        monkeypatch.setattr("archguard.llm.cloud._ANTHROPIC_AVAILABLE", False)
-        explainer = CloudLLMExplainer(api_key="test-key")
+        """Bad credentials fail identically on both tiers.
+
+        The previous implementation caught bare Exception, so an auth error
+        burned an attempt on the fallback model and surfaced the second failure,
+        hiding the real cause. Only transient errors should fall back.
+        """
+        create = AsyncMock(side_effect=GeminiAuthError("invalid key"))
+        _mock_gemini(monkeypatch, create)
+
+        explainer = CloudLLMExplainer(api_key="bad-key")
         result = _make_result()
 
-        with pytest.raises(RuntimeError, match=r"archguard\[cloud\]"):
-            await explainer.explain_violations_concurrent(
-                result.violations, _CONTRACT, result.changed_files
-            )
+        out = await explainer.explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert isinstance(out[0], GeminiAuthError)
+        create.assert_called_once()
+        assert create.call_args[1]["model"] == PRIMARY_MODEL
 
     @pytest.mark.asyncio
     async def test_secrets_redacted_before_api_call(
@@ -192,7 +199,7 @@ class TestCloudLLMExplainer:
             ),
         ]
         create = AsyncMock(return_value=_response("1. Redact tokens."))
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result(violations)
@@ -201,7 +208,7 @@ class TestCloudLLMExplainer:
             result.violations, _CONTRACT, result.changed_files
         )
 
-        sent_prompt = create.call_args[1]["messages"][0]["content"]
+        sent_prompt = create.call_args[0][0]
         assert pat not in sent_prompt
         assert "[REDACTED:GITHUB_PAT]" in sent_prompt
 
@@ -213,7 +220,7 @@ class TestCloudLLMExplainer:
         create = AsyncMock(
             return_value=_response("1. The payments module crosses the", "max_tokens")
         )
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -230,7 +237,7 @@ class TestCloudLLMExplainer:
     ) -> None:
         """stop_reason='end_turn' ending with '.' -> no truncation note."""
         create = AsyncMock(return_value=_response("1. Move shared auth types to a common module."))
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -247,7 +254,7 @@ class TestCloudLLMExplainer:
     ) -> None:
         """stop_reason='end_turn' without terminal punctuation -> truncation note."""
         create = AsyncMock(return_value=_response("1. Move shared auth types to a common"))
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -264,7 +271,7 @@ class TestCloudLLMExplainer:
     ) -> None:
         """EVENT_TRUNCATED_EXPLANATION is audit-logged when a response is truncated."""
         create = AsyncMock(return_value=_response("1. Fix boundary", "max_tokens"))
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         mock_audit = MagicMock()
         explainer = CloudLLMExplainer(api_key="test-key", audit_logger=mock_audit)
@@ -284,9 +291,9 @@ class TestCloudLLMExplainer:
         """When the primary fails, the configured FALLBACK_MODEL is what gets called."""
         monkeypatch.setattr("archguard.llm.cloud.FALLBACK_MODEL", "test-model-123")
         create = AsyncMock(
-            side_effect=[RuntimeError("primary down"), _response("response text.")]
+            side_effect=[GeminiRateLimitError("primary down"), _response("response text.")]
         )
-        _mock_anthropic(monkeypatch, create)
+        _mock_gemini(monkeypatch, create)
 
         explainer = CloudLLMExplainer(api_key="test-key")
         result = _make_result()
@@ -297,15 +304,16 @@ class TestCloudLLMExplainer:
 
         assert create.call_args[1]["model"] == "test-model-123"
 
-    def test_missing_anthropic_error_mentions_cloud_extra(self, monkeypatch):
+    def test_missing_key_error_names_the_variable_to_set(self, monkeypatch):
+        """The sync path must say which variable is missing, not fail opaquely."""
         import archguard.llm.cloud as cloud_module
 
         monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
-        monkeypatch.setattr(cloud_module, "_ANTHROPIC_AVAILABLE", False)
-        explainer = cloud_module.CloudLLMExplainer.__new__(
-            cloud_module.CloudLLMExplainer
-        )
-        with pytest.raises(RuntimeError, match=r"archguard\[cloud\]"):
+        monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        explainer = cloud_module.CloudLLMExplainer(api_key="")
+        with pytest.raises(GeminiAuthError, match="GEMINI_API_KEY"):
             explainer._call_api("prompt", "model")
 
 

@@ -126,7 +126,7 @@ jobs:
           poetry run archguard analyze --repo . --no-llm --json \
             --out-file self-analysis.json
         env:
-          ANTHROPIC_API_KEY: ""
+          GEMINI_API_KEY: ""
       - name: Verify fitness functions pass
         run: |
           poetry run archguard fitness check --repo .

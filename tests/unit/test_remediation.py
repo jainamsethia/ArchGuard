@@ -9,7 +9,7 @@ from archguard.llm.remediation import (
     RemediationEngine,
     RemediationProvider,
     RemediationTask,
-    OpenAIRemediationProvider,
+    GeminiRemediationProvider,
     RemediationUnavailableError,
 )
 
@@ -197,25 +197,41 @@ def test_engine_handles_provider_exception():
 
 
 # ---------------------------------------------------------------------------
-# OpenAIRemediationProvider — success path
+# GeminiRemediationProvider — success path
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _disable_mock_llm(monkeypatch):
+    """Exercise the real provider, not the canned mock.
+
+    CI runs with ARCHGUARD_MOCK_LLM=1, under which GeminiRemediationProvider
+    returns [] before making any HTTP call -- so every assertion about request
+    handling and error mapping below would pass vacuously.
+    """
+    monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
 
 
 @pytest.fixture
 def oai_provider():
-    return OpenAIRemediationProvider(api_key="test-key")
+    return GeminiRemediationProvider(api_key="test-key")
 
 
 def _mock_oai_response(tasks_payload: list[dict]) -> MagicMock:
+    """A successful Gemini chat-completions response.
+
+    status_code is set because GeminiClient maps HTTP status onto its own typed
+    errors rather than calling raise_for_status().
+    """
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.json.return_value = {
         "choices": [{"message": {"content": json.dumps({"tasks": tasks_payload})}}]
     }
-    mock_resp.raise_for_status.return_value = None
     return mock_resp
 
 
-def test_openai_provider_success(oai_provider):
+def test_gemini_provider_success(oai_provider):
     payload = [
         {
             "title": "Eliminate circular imports",
@@ -235,45 +251,42 @@ def test_openai_provider_success(oai_provider):
     assert len(tasks[0].acceptance_criteria) == 2
 
 
-def test_openai_provider_missing_api_key():
-    provider = OpenAIRemediationProvider(api_key="")
+def test_gemini_provider_missing_api_key(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    provider = GeminiRemediationProvider(api_key="")
     with pytest.raises(RemediationUnavailableError):
         provider.generate_tasks("context")
 
 
-def test_openai_provider_timeout(oai_provider):
+def test_gemini_provider_timeout(oai_provider):
     with patch("httpx.Client.post", side_effect=httpx.TimeoutException("Timeout")):
         with pytest.raises(RemediationUnavailableError):
             oai_provider.generate_tasks("context")
 
 
-def test_openai_provider_rate_limit(oai_provider):
+def test_gemini_provider_rate_limit(oai_provider):
     mock_resp = MagicMock()
     mock_resp.status_code = 429
-    with patch("httpx.Client.post") as mock_post:
-        mock_post.return_value = MagicMock(
-            raise_for_status=MagicMock(
-                side_effect=httpx.HTTPStatusError(
-                    "429", request=MagicMock(), response=mock_resp
-                )
-            )
-        )
-        with pytest.raises(RemediationUnavailableError):
-            oai_provider.generate_tasks("context")
-
-
-def test_openai_provider_malformed_json(oai_provider):
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {
-        "choices": [{"message": {"content": "not json at all"}}]
-    }
-    mock_resp.raise_for_status.return_value = None
+    mock_resp.headers = {"Retry-After": "30"}
+    mock_resp.text = "quota exceeded"
     with patch("httpx.Client.post", return_value=mock_resp):
         with pytest.raises(RemediationUnavailableError):
             oai_provider.generate_tasks("context")
 
 
-def test_openai_provider_invalid_task_fields_skipped(oai_provider):
+def test_gemini_provider_malformed_json(oai_provider):
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"content": "not json at all"}}]
+    }
+    with patch("httpx.Client.post", return_value=mock_resp):
+        with pytest.raises(RemediationUnavailableError):
+            oai_provider.generate_tasks("context")
+
+
+def test_gemini_provider_invalid_task_fields_skipped(oai_provider):
     """Tasks missing title or description are skipped; valid ones are kept."""
     payload = [
         {
@@ -303,7 +316,7 @@ def test_openai_provider_invalid_task_fields_skipped(oai_provider):
     assert tasks[0].title == "Valid task"
 
 
-def test_openai_provider_clamps_effort_days(oai_provider):
+def test_gemini_provider_clamps_effort_days(oai_provider):
     """effort_days below 1 is clamped to 1; non-integer falls back to 1."""
     payload = [
         {
@@ -326,7 +339,7 @@ def test_openai_provider_clamps_effort_days(oai_provider):
     assert all(t.effort_days == 1 for t in tasks)
 
 
-def test_openai_provider_bad_priority_falls_back_to_medium(oai_provider):
+def test_gemini_provider_bad_priority_falls_back_to_medium(oai_provider):
     payload = [
         {
             "title": "T",
@@ -364,7 +377,7 @@ def test_full_pipeline_violation_to_plan():
         },
     ]
 
-    provider = OpenAIRemediationProvider(api_key="test-key")
+    provider = GeminiRemediationProvider(api_key="test-key")
     with patch("httpx.Client.post", return_value=_mock_oai_response(payload)):
         plan = RemediationEngine(provider).plan(
             {

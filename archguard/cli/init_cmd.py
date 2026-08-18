@@ -65,7 +65,7 @@ def init_command(
     llm_init: bool = typer.Option(
         False,
         "--llm-init",
-        help="Use Claude to generate contract from code structure (requires ANTHROPIC_API_KEY)",
+        help="Use Gemini to generate contract from code structure (requires GEMINI_API_KEY)",
     ),
     wizard: bool = typer.Option(
         False,

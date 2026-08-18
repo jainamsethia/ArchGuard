@@ -34,30 +34,42 @@ def test_no_bak_files_in_package(tmp_path):
     assert bak_files == [], f"Found stale .bak files: {bak_files}"
 
 
-def test_primary_model_defaults_are_consistent():
-    """All call sites defaulting ARCHGUARD_PRIMARY_MODEL must agree, so the
-    contract-inference path and the explanation path never silently diverge."""
+def test_primary_model_default_is_defined_exactly_once():
+    """The primary/fallback model defaults must live in one place.
+
+    They used to be duplicated as literals in cloud.py and llm_inference.py,
+    which let the explanation path and the contract-inference path silently
+    drift onto different models. Both now resolve through
+    archguard.llm.gemini, so this asserts no call site reintroduces its own
+    literal default.
+    """
     import ast
     import pathlib
 
     targets = [
         pathlib.Path("archguard/llm/cloud.py"),
         pathlib.Path("archguard/contract/llm_inference.py"),
+        pathlib.Path("archguard/llm/advisor.py"),
     ]
-    defaults = set()
+    offenders = []
     for path in targets:
-        source = path.read_text(encoding="utf-8")
-        for node in ast.walk(ast.parse(source)):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr in ("getenv", "get")
                 and len(node.args) == 2
                 and isinstance(node.args[0], ast.Constant)
-                and node.args[0].value == "ARCHGUARD_PRIMARY_MODEL"
-                and isinstance(node.args[1], ast.Constant)
+                and node.args[0].value
+                in ("ARCHGUARD_PRIMARY_MODEL", "ARCHGUARD_FALLBACK_MODEL")
             ):
-                defaults.add(node.args[1].value)
-    assert len(defaults) == 1, (
-        f"Inconsistent ARCHGUARD_PRIMARY_MODEL defaults: {defaults}"
+                offenders.append(f"{path}: {node.args[0].value}")
+    assert offenders == [], (
+        "Model defaults must come from archguard.llm.gemini, not be redefined: "
+        f"{offenders}"
     )
+
+    from archguard.llm import gemini
+
+    assert gemini.DEFAULT_PRIMARY_MODEL
+    assert gemini.DEFAULT_FALLBACK_MODEL

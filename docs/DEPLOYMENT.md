@@ -70,7 +70,7 @@ curl http://localhost:8000/health
 4. **Environment Variables (set in Render Dashboard → Secrets):**
    - `ARCHGUARD_DASHBOARD_TOKEN` — **required**
    - `ENVIRONMENT=production`
-   - `ANTHROPIC_API_KEY` — optional, for AI Advisor
+   - `GEMINI_API_KEY` — optional, for all AI features
    - `GITHUB_TOKEN` — optional, for higher API rate limits
    - `ALLOWED_ORIGINS` — your frontend domain(s)
 5. Deploy.
@@ -123,8 +123,7 @@ uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 --workers 2
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ANTHROPIC_API_KEY` | For AI Advisor streaming | (optional) |
-| `OPENAI_API_KEY` | For OpenAI-based recommendations | (optional) |
+| `GEMINI_API_KEY` | For all AI features (explanations, Advisor, fix suggestions) | (optional) |
 | `ARCHGUARD_PRIMARY_MODEL` | Primary LLM model | `claude-sonnet-4-20250514` |
 | `ARCHGUARD_MOCK_LLM` | Set to `1` to mock LLM responses (CI/testing) | (unset) |
 

@@ -17,7 +17,7 @@ services:
       # Set ARCHGUARD_DASHBOARD_TOKEN in the Render dashboard secrets instead.
       # See .env.example for instructions.
       # Secrets — set these in the Render dashboard, not here
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
       - key: GITHUB_TOKEN
         sync: false

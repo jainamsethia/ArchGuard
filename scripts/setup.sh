@@ -32,7 +32,7 @@ echo ""
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "📋  Created .env from .env.example"
-  echo "    ✏   Open .env and set ANTHROPIC_API_KEY and GITHUB_TOKEN for full functionality"
+  echo "    ✏   Open .env and set GEMINI_API_KEY and GITHUB_TOKEN for full functionality"
 else
   echo "📋  .env already exists — skipping"
 fi

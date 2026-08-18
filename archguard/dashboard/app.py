@@ -71,7 +71,7 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
     recommended = {
-        "ANTHROPIC_API_KEY": "L4 LLM explanations and the AI Advisor will be disabled",
+        "GEMINI_API_KEY": "L4 LLM explanations, the AI Advisor and AI fix suggestions will be disabled",
         "GITHUB_TOKEN": "GitHub API limited to 60 req/hr (unauthenticated)",
     }
     for var, consequence in recommended.items():

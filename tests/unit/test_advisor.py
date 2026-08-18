@@ -134,60 +134,55 @@ def test_advisor_prioritization_stable_sort():
     assert results[0].title == "First"
     assert results[1].title == "Second"
 
-def test_advisor_primary_model(monkeypatch) -> None:
+def test_advisor_stream_uses_the_configured_gemini_client(monkeypatch) -> None:
+    """ask_stream must go through GeminiClient with the configured credentials.
+
+    Note the scope change from the original MED-03 regression: the Advisor's
+    model now comes from GEMINI_MODEL, not ARCHGUARD_PRIMARY_MODEL. The latter
+    still exists but selects the primary tier for L4 explanations and contract
+    inference, which is a different concern; model resolution itself is covered
+    in tests/unit/test_gemini_client.py.
     """
-    Regression test for MED-03.
-    Verifies: ask_stream honors ARCHGUARD_PRIMARY_MODEL.
-    """
-    import pytest
     from unittest.mock import patch, MagicMock
     from archguard.llm.advisor import ArchitectureAdvisor
 
-    pytest.importorskip("anthropic", reason="cloud extras not installed")
-    # This test asserts on the real Anthropic client call, so the mock-LLM
-    # short-circuit CI sets (ARCHGUARD_MOCK_LLM=1) must be off -- otherwise
-    # ask_stream returns canned text and never reaches the client.
+    # This test asserts on the real Gemini call, so the mock-LLM short-circuit
+    # CI sets (ARCHGUARD_MOCK_LLM=1) must be off -- otherwise ask_stream returns
+    # canned text and never reaches the client.
     monkeypatch.delenv('ARCHGUARD_MOCK_LLM', raising=False)
-    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-fake-testvalue-1234567890')
-    monkeypatch.setenv('ARCHGUARD_PRIMARY_MODEL', 'claude-test-model-marker')
+    monkeypatch.setenv('GEMINI_API_KEY', 'gemini-fake-testvalue')
+    monkeypatch.setenv('GEMINI_MODEL', 'gemini-test-model-marker')
 
     mock_client = MagicMock()
-    mock_stream_ctx = MagicMock()
-    mock_stream_ctx.__enter__.return_value.text_stream = iter(['ok'])
-    mock_client.messages.stream.return_value = mock_stream_ctx
+    mock_client.stream.return_value = iter(['ok'])
 
-    with patch('anthropic.Anthropic', return_value=mock_client):
+    with patch('archguard.llm.gemini.GeminiClient', return_value=mock_client) as cls:
         advisor = ArchitectureAdvisor.__new__(ArchitectureAdvisor)
-        list(advisor.ask_stream('question'))
-        _, kwargs = mock_client.messages.stream.call_args
-        assert kwargs['model'] == 'claude-test-model-marker'
+        assert list(advisor.ask_stream('question')) == ['ok']
+        # The model is resolved by GeminiClient from GEMINI_MODEL.
+        assert cls.call_args[1]['api_key'] == 'gemini-fake-testvalue'
 
 
 def test_ask_stream_redacts_secrets_before_llm_call(monkeypatch) -> None:
     """
     Regression test for MED-005 (ported from the removed session advisor API).
     Verifies: an API-key-shaped string in the question or context is redacted
-    before it appears in the messages sent to the Anthropic client.
+    before it appears in the prompt sent to Gemini.
     """
-    import pytest
     from unittest.mock import patch, MagicMock
     from archguard.llm.advisor import ArchitectureAdvisor
 
-    pytest.importorskip("anthropic", reason="cloud extras not installed")
     monkeypatch.delenv('ARCHGUARD_MOCK_LLM', raising=False)
-    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-fake-testvalue-1234567890')
+    monkeypatch.setenv('GEMINI_API_KEY', 'gemini-fake-testvalue')
 
     mock_client = MagicMock()
-    mock_stream_ctx = MagicMock()
-    mock_stream_ctx.__enter__.return_value.text_stream = iter(['ok'])
-    mock_client.messages.stream.return_value = mock_stream_ctx
+    mock_client.stream.return_value = iter(['ok'])
 
     fake_key = 'sk-ant-api03-' + 'F' * 85
 
-    with patch('anthropic.Anthropic', return_value=mock_client):
+    with patch('archguard.llm.gemini.GeminiClient', return_value=mock_client):
         advisor = ArchitectureAdvisor.__new__(ArchitectureAdvisor)
         list(advisor.ask_stream(f'my key is {fake_key}', context=f'config: {fake_key}'))
-        _, kwargs = mock_client.messages.stream.call_args
-        sent_text = kwargs['messages'][0]['content']
+        sent_text = mock_client.stream.call_args[0][0]
         assert fake_key not in sent_text
 

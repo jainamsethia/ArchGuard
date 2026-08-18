@@ -124,11 +124,11 @@ def test_evolution_endpoint():
 
 def test_advisor_ask_stream_endpoint_exists():
     """POST /api/v1/advisor/ask must exist and return 200 (even without API key)."""
-    # With no ANTHROPIC_API_KEY set, ask_stream() yields a single error chunk.
+    # With no GEMINI_API_KEY set, ask_stream() yields a single error chunk.
     from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
-    saved = os.environ.pop("ANTHROPIC_API_KEY", None)
+    saved = os.environ.pop("GEMINI_API_KEY", None)
     try:
         response = client.post(
             "/api/v1/advisor/ask",
@@ -137,7 +137,7 @@ def test_advisor_ask_stream_endpoint_exists():
         assert response.status_code == 200
     finally:
         if saved is not None:
-            os.environ["ANTHROPIC_API_KEY"] = saved
+            os.environ["GEMINI_API_KEY"] = saved
 
 
 def test_advisor_ask_stream_content_type():
@@ -145,7 +145,7 @@ def test_advisor_ask_stream_content_type():
     from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
-    saved = os.environ.pop("ANTHROPIC_API_KEY", None)
+    saved = os.environ.pop("GEMINI_API_KEY", None)
     try:
         response = client.post(
             "/api/v1/advisor/ask",
@@ -155,19 +155,20 @@ def test_advisor_ask_stream_content_type():
         assert "text/event-stream" in response.headers.get("content-type", "")
     finally:
         if saved is not None:
-            os.environ["ANTHROPIC_API_KEY"] = saved
+            os.environ["GEMINI_API_KEY"] = saved
 
 
 def test_advisor_ask_stream_no_key_yields_error_chunk():
-    """Without ANTHROPIC_API_KEY, the stream yields a single SSE error chunk.
+    """Without GEMINI_API_KEY, the stream yields a single SSE error chunk.
 
-    Pins the provider story: the Advisor streams via Anthropic, so the
-    missing-key message must name ANTHROPIC_API_KEY (not OPENAI_API_KEY).
+    Pins the provider story: the Advisor streams via Gemini, so the
+    missing-key message must name GEMINI_API_KEY.
     """
     from archguard.dashboard._rate_limit import _LLM_LIMITS
 
     _LLM_LIMITS.clear()
-    saved_anthropic = os.environ.pop("ANTHROPIC_API_KEY", None)
+    saved_key = os.environ.pop("GEMINI_API_KEY", None)
+    saved_legacy = os.environ.pop("OPENAI_API_KEY", None)
     # This test pins the *missing key* message. CI sets ARCHGUARD_MOCK_LLM=1,
     # which makes ask_stream yield canned text and never mention the env var.
     saved_mock = os.environ.pop("ARCHGUARD_MOCK_LLM", None)
@@ -181,11 +182,13 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
         # SSE format: must contain at least one "data: " line
         assert "data: " in body
         # The fallback message must direct the user to the correct env var.
-        assert "ANTHROPIC_API_KEY" in body
-        assert "OPENAI_API_KEY" not in body
+        assert "GEMINI_API_KEY" in body
+        assert "ANTHROPIC_API_KEY" not in body
     finally:
-        if saved_anthropic is not None:
-            os.environ["ANTHROPIC_API_KEY"] = saved_anthropic
+        if saved_key is not None:
+            os.environ["GEMINI_API_KEY"] = saved_key
+        if saved_legacy is not None:
+            os.environ["OPENAI_API_KEY"] = saved_legacy
         if saved_mock is not None:
             os.environ["ARCHGUARD_MOCK_LLM"] = saved_mock
 

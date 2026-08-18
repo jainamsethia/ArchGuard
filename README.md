@@ -14,7 +14,7 @@ Create a new Railway project from this repo (Railway dashboard → **New Project
 healthcheck config.
 
 **Required environment variables to set in Railway dashboard:**
-- `ANTHROPIC_API_KEY` — for L4 LLM explanations (optional but recommended)
+- `GEMINI_API_KEY` — for L4 LLM explanations and all other AI features (optional but recommended)
 - `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
 - `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
 - `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
@@ -108,7 +108,7 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 - **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
 - **Louvain community detection** on commit co-change graph for automatic contract generation
 - **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
-- **Resilient LLM explanations**: Claude Sonnet (primary) with automatic fallback to Claude Haiku on rate-limit or timeout, dispatched with concurrent async calls. A local-model (Ollama) backend exists in `archguard.llm.local` but is not yet wired into the CLI's explanation path — tracked for a future release.
+- **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls. A local-model (Ollama) backend exists in `archguard.llm.local` but is not yet wired into the CLI's explanation path — tracked for a future release.
 - **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
 ## Phase 3: Architecture Intelligence
@@ -119,7 +119,7 @@ ArchGuard integrates multiple intelligent components to actively evaluate and gu
 Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
 
 ### AI Advisor
-An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Streams responses via the Anthropic Claude API (requires `ANTHROPIC_API_KEY`).
+An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Streams responses via the Gemini API (requires `GEMINI_API_KEY`).
 
 ### Architecture Evolution Tracking
 Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
@@ -259,7 +259,7 @@ participant GH as GitHub
 participant Action as Action Runner
 participant AG as ArchGuard CLI
 participant Cache as SQLite Cache
-participant LLM as Claude API
+participant LLM as Gemini API
 GH->>Action: PR opened/updated
 Action->>AG: archguard analyze --pr-number N
 AG->>Cache: Load cached embeddings
@@ -287,7 +287,7 @@ AG-->>Action: Exit 1 if score > fail_threshold
     skip-explanation: 'false'   # Set 'true' to skip LLM calls (faster, free)
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # Optional: omit to use local Ollama
+    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional: omit to skip AI explanations
 - name: Push updated cache to S3
   run: archguard sync push --bucket my-archguard-cache
   env:
@@ -314,12 +314,12 @@ See `.env.example` for a copy-pasteable template. Full reference:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | _(none)_ | Claude API key. Powers LLM violation explanations **and** the dashboard's AI Advisor panel. Omit to skip both. |
-| `ARCHGUARD_PRIMARY_MODEL` | `claude-sonnet-4-20250514` | Primary Claude model for explanations and Advisor responses. |
-| `ARCHGUARD_FALLBACK_MODEL` | `claude-haiku-4-5-20251001` | Fallback Claude model used on rate-limit/timeout. |
-| `OPENAI_API_KEY` | _(none)_ | Used by the **Remediation Plan** generator (`archguard/llm/remediation.py`). The AI Advisor does not use this key — it streams via the Anthropic key above. |
-| `OPENAI_MODEL` | `gpt-4-turbo` | Model used for remediation-plan generation. |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Override for OpenAI compatible endpoints. |
+| `GEMINI_API_KEY` | _(none)_ | Gemini API key. Powers **every** AI feature: L4 violation explanations, the AI Advisor panel, AI fix suggestions, and `archguard init --llm-init`. Omit to disable them all. |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | Default model for one-shot calls (remediation, advisor recommendations). |
+| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for a proxy or a different API version. |
+| `ARCHGUARD_PRIMARY_MODEL` | `gemini-3.6-flash` | Primary model for L4 explanations and contract inference. |
+| `ARCHGUARD_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Cheaper/faster model used when the primary is rate-limited or unreachable. |
+| `OPENAI_API_KEY` | _(none)_ | **Deprecated alias** for `GEMINI_API_KEY`, read only if the latter is unset so existing deployments keep working. It must hold a *Gemini* key — an OpenAI key will not work. Warns on use. |
 | `OLLAMA_MODEL` | `llama3` | Local-model name (implemented but not yet reachable from the CLI — see FAQ). |
 | `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. When `ARCHGUARD_DASHBOARD_TOKEN` is set, visiting the dashboard URL in a browser displays a one-time token-entry form. After entering the token, a 24-hour session cookie is issued and the dashboard is fully functional. The session TTL is configurable via `ARCHGUARD_SESSION_COOKIE_TTL` (seconds; default 86400). API and CLI clients continue to use `Authorization: Bearer <token>` as before. |
 | `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
@@ -329,7 +329,7 @@ See `.env.example` for a copy-pasteable template. Full reference:
 | `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | Required for `archguard sync push/pull` (S3 cache backend). |
 | `ARCHGUARD_SKIP_ML` | `false` | Skip Layer 3/4 even if ML extras are installed. |
-| `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `ANTHROPIC_API_KEY` is set. |
+| `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `GEMINI_API_KEY` is set. |
 | `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response across all LLM features (Analysis, AI Advisor, Remediation) instead of calling the LLM — used in CI/tests. |
 | `ARCHGUARD_TEST_MODE` | `false` | Set by the test suite and CI; **currently read nowhere in `archguard/` source** — has no effect today. |
 | `ARCHGUARD_CLONE_TIMEOUT` | `120` | Maximum time in seconds to wait for a git clone to complete. |

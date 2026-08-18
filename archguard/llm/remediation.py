@@ -9,7 +9,13 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
+from archguard.llm.gemini import (
+    GeminiAuthError,
+    GeminiClient,
+    GeminiError,
+    resolve_api_key,
+)
+
 
 class RemediationUnavailableError(RuntimeError):
     """Raised when a remediation task list could not be generated (config or API error),
@@ -19,6 +25,22 @@ class RemediationUnavailableError(RuntimeError):
 logger = logging.getLogger(__name__)
 
 VALID_PRIORITIES = {"critical", "high", "medium", "low"}
+
+# Whether a task's numeric target is one ArchGuard actually enforces, or the
+# model's own recommendation. Defaults to SUGGESTED: an unlabelled or
+# unrecognised value must never be promoted to "requirement", because the
+# failure mode being guarded against is exactly a suggestion masquerading as one.
+# Output budget for a remediation plan. Sized for the full capped selection
+# (15 findings) rendered as tasks with descriptions and acceptance criteria, and
+# overridable because Gemini's thinking models spend part of this budget before
+# emitting any JSON.
+_REMEDIATION_MAX_TOKENS: int = int(
+    os.environ.get("ARCHGUARD_REMEDIATION_MAX_TOKENS", "8192")
+)
+
+TARGET_BASIS_REQUIREMENT = "archguard_requirement"
+TARGET_BASIS_SUGGESTION = "suggestion"
+VALID_TARGET_BASIS = {TARGET_BASIS_REQUIREMENT, TARGET_BASIS_SUGGESTION}
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -34,6 +56,9 @@ class RemediationTask:
     priority: str  # "critical" | "high" | "medium" | "low"
     effort_days: int  # estimated calendar days
     acceptance_criteria: list[str] = field(default_factory=list)
+    # Whether this task's target is a threshold ArchGuard enforces, or the
+    # model's own recommendation. See VALID_TARGET_BASIS.
+    target_basis: str = TARGET_BASIS_SUGGESTION
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RemediationTask):
@@ -116,6 +141,40 @@ class RemediationEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _labelled_metrics(violation: dict[str, Any]) -> str:
+        """Render a violation's metrics as explicitly labelled facts.
+
+        Splits the numbers into what ArchGuard *measured* and the limit it was
+        *configured* with, because the model cannot tell them apart otherwise.
+        Previously only the free-text message reached the prompt, so for
+        duplication -- whose message carries the score but not the threshold --
+        the model had no configured limit at all and supplied its own.
+        """
+        metrics = violation.get("metrics") or {}
+        if not isinstance(metrics, dict) or not metrics:
+            return ""
+
+        measured_keys = ("fan_out", "duplication_score", "drift", "match_count")
+        limit_keys = ("budget", "threshold")
+
+        def fmt(value: Any) -> str:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return str(value)
+            return str(int(num)) if num == int(num) else f"{num:g}"
+
+        measured = [f"{k}={fmt(metrics[k])}" for k in measured_keys if k in metrics]
+        limits = [f"{k}={fmt(metrics[k])}" for k in limit_keys if k in metrics]
+
+        parts = []
+        if measured:
+            parts.append(f"ArchGuard measured: {', '.join(measured)}")
+        if limits:
+            parts.append(f"ArchGuard's configured limit: {', '.join(limits)}")
+        return "; ".join(parts)
+
     def _build_context(self, findings: dict[str, Any]) -> str:
         """Convert structured findings into a text context for the provider."""
         lines: list[str] = ["Architecture Remediation Findings:", ""]
@@ -140,6 +199,9 @@ class RemediationEngine:
                 module = v.get("module", "Unknown")
                 msg = v.get("message", "")
                 lines.append(f"- [L{layer}] {module}: {msg} (severity={sev})")
+                facts = self._labelled_metrics(v)
+                if facts:
+                    lines.append(f"    {facts}")
 
         fitness_failures: list[dict[str, Any]] = findings.get("fitness_failures", [])
         if fitness_failures:
@@ -183,17 +245,31 @@ class RemediationEngine:
 
 
 # ---------------------------------------------------------------------------
-# OpenAI Remediation Provider
+# Gemini Remediation Provider
 # ---------------------------------------------------------------------------
 
 _REMEDIATION_SYSTEM_PROMPT = """\
 You are an expert Software Architect generating remediation plans from ArchGuard findings.
 Based on the provided findings, produce a JSON object with a single key "tasks".
+
+AUTHORITATIVE NUMBERS
+The ONLY thresholds ArchGuard actually enforces are the ones given in the
+findings below as "ArchGuard's configured limit". Treat every other number as
+your own suggestion.
+- Never present a threshold ArchGuard did not state as an ArchGuard requirement.
+- Do not write phrases like "ArchGuard requires X" or "must be below X" unless X
+  appears verbatim as a configured limit in the findings.
+- You may still propose a stricter target; say plainly that it is your
+  recommendation, e.g. "ArchGuard's limit is 0.10; consider aiming for 0.05".
+
 Each task in the array MUST have exactly these fields:
 - "title": Short, unique, descriptive task title (string)
 - "description": Detailed implementation steps (string)
 - "priority": One of "critical", "high", "medium", "low" (string)
 - "effort_days": Estimated calendar days to complete (integer >= 1)
+- "target_basis": "archguard_requirement" if this task's target is exactly a
+  configured limit stated in the findings; "suggestion" for anything else,
+  including your own stricter targets and tasks with no numeric target (string)
 - "acceptance_criteria": A list of 2-4 measurable acceptance criteria strings
 
 If there are no findings, return {"tasks": []}.
@@ -201,8 +277,13 @@ Do NOT wrap in markdown code fences.
 """
 
 
-class OpenAIRemediationProvider(RemediationProvider):
-    """Calls OpenAI to generate structured remediation tasks."""
+class GeminiRemediationProvider(RemediationProvider):
+    """Calls Gemini to generate structured remediation tasks.
+
+    Replaces the previous pair of providers (Anthropic primary, OpenAI
+    fallback). With Gemini as ArchGuard's only provider there is nothing to
+    select between, so provider choice is no longer a runtime decision.
+    """
 
     def __init__(
         self,
@@ -211,164 +292,88 @@ class OpenAIRemediationProvider(RemediationProvider):
         base_url: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
-        self.base_url = base_url or os.environ.get(
-            "OPENAI_BASE_URL", "https://api.openai.com/v1"
+        self._client = GeminiClient(
+            api_key=api_key, model=model, base_url=base_url, timeout=timeout
         )
-        self.timeout = timeout
 
     def generate_tasks(self, context: str) -> list[RemediationTask]:
-        if not self.api_key:
-            logger.warning("OPENAI_API_KEY missing. Cannot generate remediation tasks.")
-            raise RemediationUnavailableError("OPENAI_API_KEY is not configured")
-
-        messages = [
-            {"role": "system", "content": _REMEDIATION_SYSTEM_PROMPT},
-            {"role": "user", "content": context},
-        ]
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": 0.2,
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f"{self.base_url}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-            response.raise_for_status()
-            data = response.json()
-            raw_content = data["choices"][0]["message"]["content"]
-            return _parse_remediation_response(raw_content)
-
-        except httpx.TimeoutException:
-            logger.error("Timeout calling OpenAI for remediation.")
-            raise RemediationUnavailableError("Timeout calling OpenAI for remediation.")
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            if status_code == 429:
-                retry_after = e.response.headers.get("Retry-After", "")
-                wait_msg = f" Retry after {retry_after}s." if retry_after else ""
-                logger.error("Rate limit exceeded calling OpenAI for remediation.%s", wait_msg)
-                raise RemediationUnavailableError(
-                    f"OpenAI rate limit exceeded.{wait_msg}"
-                )
-            else:
-                logger.error("HTTP %d calling OpenAI for remediation: %s", status_code, e.response.text)
-                raise RemediationUnavailableError(
-                    "The remediation service returned an error. Check server logs for details."
-                )
-        except httpx.RequestError as e:
-            logger.error("Network error calling OpenAI for remediation: %s", e)
-            raise RemediationUnavailableError(
-                "Could not reach the remediation service. Check your network and API configuration."
-            )
-        except (KeyError, IndexError) as e:
-            logger.error("Malformed OpenAI response for remediation: %s", e)
-            raise RemediationUnavailableError(
-                "Received an unexpected response from the remediation service."
-            )
-
-
-# ---------------------------------------------------------------------------
-# Anthropic Remediation Provider
-# ---------------------------------------------------------------------------
-
-
-class AnthropicRemediationProvider(RemediationProvider):
-    """Calls Anthropic Claude to generate structured remediation tasks."""
-
-    def __init__(
-        self,
-        api_key: str | None = None,
-        model: str | None = None,
-        timeout: float = 30.0,
-    ) -> None:
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.model = model or os.environ.get(
-            "ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514"
-        )
-        self.timeout = timeout
-
-    def generate_tasks(self, context: str) -> list[RemediationTask]:
-        if not self.api_key:
-            raise RemediationUnavailableError("ANTHROPIC_API_KEY is not configured")
-
         if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
             return []
 
         try:
-            import anthropic
-        except ImportError:
-            raise RemediationUnavailableError(
-                "Anthropic SDK not installed. Run: pip install anthropic"
-            )
-
-        try:
-            client = anthropic.Anthropic(
-                api_key=self.api_key,
-                timeout=self.timeout,
-            )
-            response = client.messages.create(
-                model=self.model,
-                max_tokens=2048,
+            raw_content, finish_reason = self._client.complete(
+                context,
                 system=_REMEDIATION_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": context}],
+                max_tokens=_REMEDIATION_MAX_TOKENS,
+                json_object=True,
             )
-            from anthropic.types import TextBlock
-            text_blocks = [b for b in response.content if isinstance(b, TextBlock)]
-            if not text_blocks:
-                raise RemediationUnavailableError("No text content in Anthropic response.")
-            raw_content = text_blocks[0].text
-            return _parse_remediation_response(raw_content)
+        except GeminiAuthError as exc:
+            # Surfaced verbatim: the dashboard renders this string, and the user
+            # needs to know it is a credentials problem, not an empty result.
+            raise RemediationUnavailableError(str(exc)) from exc
+        except GeminiError as exc:
+            logger.error("Gemini remediation call failed: %s", exc)
+            raise RemediationUnavailableError(str(exc)) from exc
 
-        except anthropic.AuthenticationError:
-            raise RemediationUnavailableError(
-                "Anthropic API key is invalid or expired."
-            )
-        except anthropic.RateLimitError:
-            logger.error("Anthropic rate limit exceeded for remediation.")
-            raise RemediationUnavailableError("Anthropic rate limit exceeded.")
-        except anthropic.APIConnectionError as e:
-            logger.error("Anthropic connection error: %s", e)
-            raise RemediationUnavailableError(
-                "Could not connect to Anthropic API."
-            )
-        except (KeyError, IndexError) as e:
-            logger.error("Malformed Anthropic response: %s", e)
-            raise RemediationUnavailableError(
-                "Received an unexpected response from Anthropic."
-            )
-        except Exception as e:
-            logger.error("Anthropic remediation error: %s", e)
-            raise RemediationUnavailableError(
-                "An error occurred generating remediation tasks."
-            )
-
+        return _parse_remediation_response(raw_content, finish_reason)
 
 # ---------------------------------------------------------------------------
 # Shared response parser
 # ---------------------------------------------------------------------------
 
 
-def _parse_remediation_response(raw: str) -> list[RemediationTask]:
+def _decode_failure_detail(raw: str, exc: json.JSONDecodeError, finish_reason: str) -> str:
+    """Describe *why* a response failed to decode, at the point it failed.
+
+    A bare "Expecting value: line 43 column 9 (char 2360)" says nothing about
+    what was actually at char 2360, so every occurrence needed the raw text
+    recovered by hand before it could be diagnosed. This puts the deciding
+    evidence -- length, finish_reason, and the surrounding characters -- into
+    the message itself.
+    """
+    length = len(raw)
+    parts = [f"{length} chars"]
+
+    if finish_reason:
+        parts.append(f"finish_reason={finish_reason!r}")
+
+    # The decoder failing at the very end of the input is the signature of a
+    # response that stopped mid-structure rather than one containing bad syntax.
+    at_end = exc.pos >= length - 1
+    if finish_reason == "length":
+        parts.append(
+            "TRUNCATED: the model hit its output token limit -- raise "
+            "ARCHGUARD_REMEDIATION_MAX_TOKENS (Gemini's thinking models spend "
+            "part of this budget before emitting any JSON)"
+        )
+    elif at_end:
+        parts.append("input ends at the failure point (likely truncated)")
+
+    window = 90
+    start = max(0, exc.pos - window)
+    end = min(length, exc.pos + window)
+    before = raw[start:exc.pos]
+    after = raw[exc.pos:end]
+    snippet = f"{before}>>>HERE>>>{after}"
+    parts.append(f"near failure: ...{snippet!r}...")
+
+    return " | ".join(parts)
+
+
+def _parse_remediation_response(
+    raw: str, finish_reason: str = ""
+) -> list[RemediationTask]:
     """Parse the JSON response from either provider into RemediationTask list."""
     if not raw.strip():
         return []
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        msg = f"Failed to JSON-decode remediation response: {e}"
-        logger.error(msg)
+        detail = _decode_failure_detail(raw, e, finish_reason)
+        msg = f"Failed to JSON-decode remediation response: {e} [{detail}]"
+        # Full body at ERROR: without it the snippet alone is often not enough
+        # to tell a truncation from a malformed field.
+        logger.error("%s\n--- RAW REMEDIATION RESPONSE ---\n%s\n--- END RAW ---", msg, raw)
         raise RemediationUnavailableError(msg)
 
     tasks_data = data.get("tasks", [])
@@ -387,6 +392,7 @@ def _parse_remediation_response(raw: str) -> list[RemediationTask]:
         priority = str(item.get("priority", "medium")).lower()
         effort_days = item.get("effort_days")
         acceptance_criteria = item.get("acceptance_criteria", [])
+        target_basis = str(item.get("target_basis", "")).strip().lower()
 
         if not (title and description):
             logger.warning(
@@ -406,6 +412,18 @@ def _parse_remediation_response(raw: str) -> list[RemediationTask]:
             acceptance_criteria = []
         acceptance_criteria = [str(c) for c in acceptance_criteria if c]
 
+        # Fail closed: only an explicit, recognised "archguard_requirement"
+        # earns that label. Missing, misspelled or invented values degrade to a
+        # suggestion, so a model that ignores the field cannot have its own
+        # target presented as something ArchGuard enforces.
+        if target_basis not in VALID_TARGET_BASIS:
+            if target_basis:
+                logger.warning(
+                    "Unrecognised target_basis %r; treating as a suggestion.",
+                    target_basis,
+                )
+            target_basis = TARGET_BASIS_SUGGESTION
+
         result.append(
             RemediationTask(
                 title=str(title),
@@ -413,6 +431,7 @@ def _parse_remediation_response(raw: str) -> list[RemediationTask]:
                 priority=priority,
                 effort_days=effort_days,
                 acceptance_criteria=acceptance_criteria,
+                target_basis=target_basis,
             )
         )
 
@@ -467,15 +486,13 @@ async def generate_remediation_plan(
         findings["fitness_failures"] = fitness_failures
 
     try:
-        # Try Anthropic first (same key as AI Advisor), fall back to OpenAI
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            provider: RemediationProvider = AnthropicRemediationProvider()
-        elif os.environ.get("OPENAI_API_KEY"):
-            provider = OpenAIRemediationProvider()
-        else:
+        # Gemini is the only provider, so there is nothing to select between --
+        # the sole decision left is whether it is configured at all.
+        if not resolve_api_key():
             raise RemediationUnavailableError(
-                "No AI provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+                "Gemini is not configured. Set GEMINI_API_KEY to enable AI fix suggestions."
             )
+        provider: RemediationProvider = GeminiRemediationProvider()
         engine = RemediationEngine(provider)
         plan = engine.plan(findings)
         tasks = [
@@ -485,6 +502,7 @@ async def generate_remediation_plan(
                 "priority": t.priority,
                 "effort_days": t.effort_days,
                 "acceptance_criteria": t.acceptance_criteria,
+                "target_basis": t.target_basis,
             }
             for t in plan.all_tasks
         ]

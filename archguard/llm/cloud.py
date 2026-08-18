@@ -1,4 +1,16 @@
-"""Anthropic SDK cloud LLM explainer - primary + fallback model."""
+"""Gemini cloud LLM explainer - primary + fallback model.
+
+Layer 4 attaches a natural-language explanation to each violation. Two model
+tiers are used, not one: the primary is tried first, and a cheaper, faster tier
+takes over when the primary is rate-limited or unreachable. That resilience
+pattern predates the move to Gemini (it was Sonnet -> Haiku) and is kept
+deliberately -- an explanation that arrives from the cheaper model is worth far
+more than a run that fails because the better model was busy.
+
+What did change: the fallback now triggers only on genuinely transient
+conditions. It previously caught bare ``Exception``, so a bad API key burned an
+attempt on both tiers and reported the second failure, hiding the real cause.
+"""
 
 from __future__ import annotations
 
@@ -7,15 +19,17 @@ import os
 from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
-try:
-    import anthropic
-
-    _ANTHROPIC_AVAILABLE = True
-except ImportError:
-    _ANTHROPIC_AVAILABLE = False
-    anthropic = None  # type: ignore[assignment]
-
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
+from archguard.llm.gemini import (
+    NON_RETRYABLE_ERRORS,
+    RETRYABLE_ERRORS,
+    GeminiAuthError,
+    GeminiClient,
+    GeminiRateLimitError,
+    fallback_model,
+    primary_model,
+    resolve_api_key,
+)
 from archguard.llm.prompts import (
     SYSTEM_PROMPT,
     build_contract_summary,
@@ -30,43 +44,35 @@ if TYPE_CHECKING:
 
 logger: logging.Logger = logging.getLogger(__name__)
 
-PRIMARY_MODEL: str = os.getenv("ARCHGUARD_PRIMARY_MODEL", "claude-sonnet-4-20250514")
-FALLBACK_MODEL: str = os.getenv("ARCHGUARD_FALLBACK_MODEL", "claude-haiku-4-5-20251001")
-MAX_TOKENS: int = 2048
+PRIMARY_MODEL: str = primary_model()
+FALLBACK_MODEL: str = fallback_model()
+# Shares the reasoning-token problem described in gemini.DEFAULT_MAX_TOKENS.
+# This budget covers both L4 explanations and contract inference, and the latter
+# parses its response as JSON -- so a truncated reply there fails exactly the way
+# remediation did, rather than merely reading as a cut-off sentence.
+MAX_TOKENS: int = int(os.getenv("ARCHGUARD_EXPLANATION_MAX_TOKENS", "8192"))
 
 _TERMINAL_PUNCT: frozenset[str] = frozenset({".", "!", "?", '"', "'"})
 
-_CLOUD_RETRYABLE = (
-    (
-        anthropic.APIConnectionError,
-        anthropic.RateLimitError,
-        anthropic.InternalServerError,
-    )
-    if _ANTHROPIC_AVAILABLE
-    else (Exception,)
-)
-_CLOUD_NON_RETRYABLE = (
-    (
-        anthropic.AuthenticationError,
-        anthropic.PermissionDeniedError,
-        ValueError,
-        TypeError,
-    )
-    if _ANTHROPIC_AVAILABLE
-    else (ValueError, TypeError)
-)
+# Kept as module-level names because the retry decorator below binds them at
+# import time, and tests reference them.
+_CLOUD_RETRYABLE = RETRYABLE_ERRORS
+_CLOUD_NON_RETRYABLE = NON_RETRYABLE_ERRORS
 
 
 class CloudLLMExplainer:
-    """Calls Anthropic Claude for violation explanations with fallback."""
+    """Calls Gemini for violation explanations, with a cheaper fallback tier."""
 
     def __init__(
         self,
         api_key: str | None = None,
         audit_logger: AuditLogger | None = None,
     ) -> None:
-        self._api_key: str = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        self._api_key: str = resolve_api_key(api_key)
         self._audit: AuditLogger | None = audit_logger
+
+    def _client(self) -> GeminiClient:
+        return GeminiClient(api_key=self._api_key)
 
     async def explain_violations_concurrent(
         self,
@@ -78,51 +84,59 @@ class CloudLLMExplainer:
         """Fetch explanations for all violations concurrently."""
         import asyncio
 
-        if not _ANTHROPIC_AVAILABLE:
-            raise RuntimeError(
-                'The Anthropic SDK is not installed. Run: pip install "archguard[cloud]"'
-            )
-
         if not self._api_key and os.getenv("ARCHGUARD_MOCK_LLM") != "1":
-            # Just return a clear explanation unavailable for each violation instead of crashing
-            return ["Explanation unavailable (ANTHROPIC_API_KEY not set)"] * len(violations)
+            # A missing key is a configuration problem, not a per-violation
+            # failure: say so once per violation rather than crashing the run.
+            return ["Explanation unavailable (GEMINI_API_KEY not set)"] * len(violations)
 
         summary = build_contract_summary(contract)
         safe_violations = self._redact_violations(violations)
         semaphore = asyncio.Semaphore(max_concurrent)
+        client = self._client()
 
         async def explain_one(violation: ViolationDetail) -> str:
             prompt = build_violation_prompt([violation], summary, changed_files)
-            if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
+            mock = os.getenv("ARCHGUARD_MOCK_LLM") == "1"
+            if mock and os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") != "1":
                 print(f"--- MOCK LLM PROMPT ---\n{prompt}\n--- END MOCK LLM PROMPT ---")
-                # When testing fallback, raise on PRIMARY_MODEL if instructed via env var
-                if os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") == "1":
-                    # the loop will catch this and try fallback
-                    pass
-                else:
-                    return "Mock LLM explanation for testing"
-            
+                return "Mock LLM explanation for testing"
+
             async with semaphore:
-                async with anthropic.AsyncAnthropic(api_key=self._api_key) as client:
-                    for model in (PRIMARY_MODEL, FALLBACK_MODEL):
-                        try:
-                            if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
-                                if model == PRIMARY_MODEL and os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") == "1":
-                                    raise RuntimeError("Simulated primary failure")
-                                return f"Mock LLM explanation for testing (model={model})"
-                                
-                            response = await client.messages.create(
-                                model=model,
-                                max_tokens=MAX_TOKENS,
-                                system=SYSTEM_PROMPT,
-                                messages=[{"role": "user", "content": prompt}],
-                            )
-                            text = str(getattr(response.content[0], "text", ""))
-                            return self._flag_truncation(text, str(response.stop_reason))
-                        except Exception:
-                            if model == FALLBACK_MODEL:
-                                raise
-                            continue
+                last_error: Exception | None = None
+                for model in (PRIMARY_MODEL, FALLBACK_MODEL):
+                    try:
+                        if mock:
+                            if (
+                                model == PRIMARY_MODEL
+                                and os.getenv("ARCHGUARD_MOCK_PRIMARY_FAIL") == "1"
+                            ):
+                                # Raised as a retryable error so the mock
+                                # exercises the real fallback branch.
+                                raise GeminiRateLimitError("Simulated primary failure")
+                            return f"Mock LLM explanation for testing (model={model})"
+
+                        text, finish = await client.acomplete(
+                            prompt,
+                            system=SYSTEM_PROMPT,
+                            model=model,
+                            max_tokens=MAX_TOKENS,
+                        )
+                        return self._flag_truncation(text, finish)
+                    except NON_RETRYABLE_ERRORS:
+                        # Credentials or a malformed request will fail identically
+                        # on the cheaper tier; retrying only hides the real cause.
+                        raise
+                    except RETRYABLE_ERRORS as exc:
+                        last_error = exc
+                        if model == FALLBACK_MODEL:
+                            raise
+                        logger.warning(
+                            "Gemini %s unavailable (%s); falling back to %s",
+                            model, exc, FALLBACK_MODEL,
+                        )
+                        continue
+                if last_error is not None:
+                    raise last_error
             return "Explanation unavailable"
 
         tasks = [explain_one(v) for v in safe_violations]
@@ -134,31 +148,23 @@ class CloudLLMExplainer:
         non_retryable_exceptions=_CLOUD_NON_RETRYABLE,
     )
     def _call_api(self, prompt: str, model: str, system: str = SYSTEM_PROMPT) -> tuple[str, str]:
-        """Call the Anthropic API. Lazy-imports the SDK."""
+        """Call Gemini synchronously. Returns ``(text, finish_reason)``."""
         if os.getenv("ARCHGUARD_MOCK_LLM") == "1":
-            return "Mock LLM explanation for testing", "end_turn"
-        if not _ANTHROPIC_AVAILABLE:
-            raise RuntimeError(
-                'The Anthropic SDK is not installed. Run: pip install "archguard[cloud]"'
-            )
-
-        client: Any = anthropic.Anthropic(api_key=self._api_key)
-        message: Any = client.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
+            return "Mock LLM explanation for testing", "stop"
+        return self._client().complete(
+            prompt, system=system, model=model, max_tokens=MAX_TOKENS
         )
-        return str(message.content[0].text), str(message.stop_reason)
 
     def _flag_truncation(self, text: str, stop_reason: str) -> str:
         """Append a truncation note (and audit-log it) when the response is cut off.
 
-        A response is considered truncated when the API reports max_tokens, or
-        when it stopped normally but does not end in terminal punctuation.
+        Treated as truncated when the API reports a length cap, or when it
+        stopped normally but does not end in terminal punctuation. Gemini's
+        OpenAI-compatible endpoint reports this as ``length`` where Anthropic
+        used ``max_tokens``; both are accepted so the check keeps working.
         """
         stripped = text.rstrip()
-        truncated = stop_reason == "max_tokens" or (
+        truncated = stop_reason in ("length", "max_tokens") or (
             stripped != "" and stripped[-1] not in _TERMINAL_PUNCT
         )
         if not truncated:
@@ -178,3 +184,11 @@ class CloudLLMExplainer:
             redacted = redact_secrets(v.message)
             result.append(replace(v, message=redacted.text))
         return result
+
+
+__all__ = [
+    "CloudLLMExplainer",
+    "PRIMARY_MODEL",
+    "FALLBACK_MODEL",
+    "GeminiAuthError",
+]

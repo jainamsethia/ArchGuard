@@ -11,8 +11,13 @@ class RedactionResult:
 
 
 SECRET_PATTERNS: list[tuple[str, str]] = [
+    # Anthropic and OpenAI patterns are retained even though ArchGuard now calls
+    # only Gemini: redaction protects against keys appearing in analysed source
+    # or in a leftover operator environment, so narrowing it would weaken a
+    # security control for no benefit.
     (r"\bsk-ant-[a-zA-Z0-9\-]{50,150}\b", "ANTHROPIC_KEY"),
     (r"\bsk-[a-zA-Z0-9]{48}\b", "OPENAI_KEY"),
+    (r"\bAIza[0-9A-Za-z_\-]{35}\b", "GOOGLE_API_KEY"),
     (r"\bAKIA[0-9A-Z]{16}\b", "AWS_KEY"),
     (
         r"(?i)\baws_secret_access_key\s*=\s*['\"][A-Za-z0-9/+=]{40}['\"]",
@@ -53,6 +58,8 @@ _ENV_SECRET_VARS: tuple[str, ...] = (
     "ARCHGUARD_LLM_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
 )
 
 
