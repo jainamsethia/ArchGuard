@@ -6,6 +6,10 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>ArchGuard Dashboard</title>
 <link rel="stylesheet" href="/index.css"/>
+<!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
+     before the first paint, which is what stops a stored light preference
+     from flashing dark first. -->
+<script src="/theme.js"></script>
 
 <!-- Local Chart.js -->
 <script src="/vendor/chart.umd.min.js"></script>
@@ -51,21 +55,31 @@
 </div>
 </div>
 <div class="refresh-status">
+<div class="theme-switch" role="group" aria-label="Colour theme">
+<button type="button" class="theme-option" data-theme-value="light" aria-pressed="false" title="Light">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+<span class="sr-only">Light</span>
+</button>
+<button type="button" class="theme-option" data-theme-value="dark" aria-pressed="true" title="Dark">
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"/></svg>
+<span class="sr-only">Dark</span>
+</button>
+</div>
 <span id="last-updated">Last updated: Just now</span>
 <div class="loader hidden" id="refresh-loader"></div>
 </div>
 </div>
 <div class="metrics-grid">
 <div class="glass-card">
-<div class="metric-title tooltip-container">Health Score<span class="tooltip-text">A 0-100 score of architectural health (higher is better). It is the inverse of the ArchDebt composite: Health = (1 − ArchDebt) × 100. 100 means zero detected architectural debt. Grade bands: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, F &lt; 60.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Health Score<span class="tooltip-text">A 0-100 score of architectural health (higher is better). It is the inverse of the ArchDebt composite: Health = (1 − ArchDebt) × 100. 100 means zero detected architectural debt. Grade bands: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, F &lt; 60.</span></div>
 <div class="metric-value" id="current-score"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
-<div class="metric-title tooltip-container">Health Band<span class="tooltip-text">A band (HEALTHY, WATCH, WARN, FAIL) mapped from the ArchDebt composite score (0.0-1.0, lower is better). FAIL means CI would block the change.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Health Band<span class="tooltip-text">A band (HEALTHY, WATCH, WARN, FAIL) mapped from the ArchDebt composite score (0.0-1.0, lower is better). FAIL means CI would block the change.</span></div>
 <div class="metric-value text-metric-lg" id="current-band"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 <div class="glass-card">
-<div class="metric-title tooltip-container">Active Violations<span class="tooltip-text">Count of architecture violations found across the 4 layers: Import Boundaries, Coupling Delta, Semantic Drift, and Duplication. Suppressed violations are excluded.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Active Violations<span class="tooltip-text">Count of architecture violations found across the 4 layers: Import Boundaries, Coupling Delta, Semantic Drift, and Duplication. Suppressed violations are excluded.</span></div>
 <div class="metric-value" id="active-violations"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 </div>
 </div>
@@ -91,7 +105,7 @@
      above the tablist so it stays visible on every tab, not just Overview.
      Populated by updateProvenanceBanner() in dashboard.js. -->
 <div aria-live="polite" class="glass-card card-section" id="fallback-banner" role="alert" hidden
-     style="border-left:4px solid var(--warn-color);background:rgba(245,158,11,0.10)">
+     style="border-left:4px solid var(--warn-color);background:var(--tint-warn-bg)">
 <h2 class="text-section-title-flush" id="fallback-banner-title" style="color:var(--warn-color)">⚠ Module boundaries were guessed, not measured</h2>
 <p class="section-note" id="fallback-banner-body"></p>
 </div>
@@ -100,7 +114,7 @@
      number with no indication of the policy behind it.
      Populated by updateThresholdNote() in dashboard.js. -->
 <div aria-live="polite" class="glass-card card-section" id="threshold-note" hidden
-     style="border-left:4px solid var(--accent-color, #6366f1)">
+     style="border-left:4px solid var(--accent-text)">
 <p class="section-note margin-reset" id="threshold-note-body"></p>
 </div>
 <!-- What this run actually checked. The score is an average over the layers
@@ -149,22 +163,22 @@
 <p class="section-note">Based on your last N ArchGuard analysis runs for this repository.</p>
 <div class="metrics-grid" id="evolution-trends-grid">
 <div class="glass-card">
-<div class="metric-title tooltip-container">Health Trend<span class="tooltip-text">Direction of the Health Score (0-100, higher is better) across recent runs for this repository.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Health Trend<span class="tooltip-text">Direction of the Health Score (0-100, higher is better) across recent runs for this repository.</span></div>
 <div class="metric-value text-metric-md" id="trend-health-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-health-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title tooltip-container">Debt Trend<span class="tooltip-text">Direction of the ArchDebt composite (0.0-1.0, lower is better) across recent runs. This is the inverse of Health Score.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Debt Trend<span class="tooltip-text">Direction of the ArchDebt composite (0.0-1.0, lower is better) across recent runs. This is the inverse of Health Score.</span></div>
 <div class="metric-value text-metric-md" id="trend-debt-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-debt-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title tooltip-container">Violations Trend<span class="tooltip-text">Direction of the total violation count across recent runs. Falling is good.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Violations Trend<span class="tooltip-text">Direction of the total violation count across recent runs. Falling is good.</span></div>
 <div class="metric-value text-metric-md" id="trend-violation-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-violation-status">--</div>
 </div>
 <div class="glass-card">
-<div class="metric-title tooltip-container">Fitness Trend<span class="tooltip-text">Direction of the custom fitness-function pass rate. Fitness functions are your own pass/fail rules defined in .archguard.yml.</span></div>
+<div class="metric-title tooltip-container" tabindex="0">Fitness Trend<span class="tooltip-text">Direction of the custom fitness-function pass rate. Fitness functions are your own pass/fail rules defined in .archguard.yml.</span></div>
 <div class="metric-value text-metric-md" id="trend-fitness-val"><span class="skeleton">&nbsp;&nbsp;&nbsp;&nbsp;</span></div>
 <div class="text-label" id="trend-fitness-status">--</div>
 </div>
@@ -277,9 +291,9 @@
 <table id="violationsTable">
 <thead>
 <tr>
-<th>Layer <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
-<th>Severity <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Critical: Fails CI immediately.<br>High: Blocks if enabled.<br>Medium: Significant tech debt.<br>Low: Minor warning.</span></span></th>
-<th>Location <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1 violations point to an exact file:line.<br>Layers 2, 3, 4 are module-level checks with no single line — the module name is shown instead.</span></span></th>
+<th>Layer <span class="tooltip-container tooltip-hint" tabindex="0" role="note">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
+<th>Severity <span class="tooltip-container tooltip-hint" tabindex="0" role="note">(?)<span class="tooltip-text">Critical: Fails CI immediately.<br>High: Blocks if enabled.<br>Medium: Significant tech debt.<br>Low: Minor warning.</span></span></th>
+<th>Location <span class="tooltip-container tooltip-hint" tabindex="0" role="note">(?)<span class="tooltip-text">Layer 1 violations point to an exact file:line.<br>Layers 2, 3, 4 are module-level checks with no single line — the module name is shown instead.</span></span></th>
 <th>Message</th>
 <th>Action</th>
 </tr>
@@ -324,7 +338,7 @@
 <thead>
 <tr>
 <th>Module</th>
-<th>Layer <span class="tooltip-container tooltip-hint">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
+<th>Layer <span class="tooltip-container tooltip-hint" tabindex="0" role="note">(?)<span class="tooltip-text">Layer 1: Import Boundaries<br>Layer 2: Coupling Delta<br>Layer 3: Semantic Drift<br>Layer 4: Code Duplication</span></span></th>
 <th>Hash ID</th>
 <th>Reason</th>
 <th>Expires</th>

@@ -6,6 +6,10 @@
     <title>ArchGuard - Job Submission</title>
     
     <link rel="stylesheet" href="/index.css"/>
+    <!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
+         before the first paint, which is what stops a stored light preference
+         from flashing dark first. -->
+    <script src="/theme.js"></script>
 </head>
 <body class="page-index">
 
@@ -26,6 +30,18 @@
 
 <script src="/auth.js"></script>
     <div class="container" id="main-container">
+        <div class="theme-switch-row">
+            <div class="theme-switch" role="group" aria-label="Colour theme">
+                <button type="button" class="theme-option" data-theme-value="light" aria-pressed="false" title="Light">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+                    <span class="sr-only">Light</span>
+                </button>
+                <button type="button" class="theme-option" data-theme-value="dark" aria-pressed="true" title="Dark">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"/></svg>
+                    <span class="sr-only">Dark</span>
+                </button>
+            </div>
+        </div>
         <div class="glass-card">
             <div class="header">
                 <h1>ArchGuard</h1>
@@ -58,7 +74,7 @@
                     <div class="result-stat">
                         <span class="result-stat-val" id="res-score">--</span>
                         <span class="result-stat-label">Health Score</span>
-                        <div id="res-fallback-warning" style="display: none; color: var(--warning-color); font-size: 0.75rem; margin-top: 4px; text-align: center;">
+                        <div id="res-fallback-warning" style="display: none; color: var(--warn-color); font-size: 0.75rem; margin-top: 4px; text-align: center;">
                             ⚠️ Shallow history fallback
                         </div>
                     </div>

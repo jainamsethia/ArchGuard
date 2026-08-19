@@ -108,3 +108,7 @@ test-results/
 .claude/
 ARCHGUARD_AUDIT_FIX_PROMPT.md
 archguard_website_framework_v7_combined.md
+
+# Vendored agent skills (re-fetchable from source, see skills-lock.json)
+.agents/
+skills-lock.json

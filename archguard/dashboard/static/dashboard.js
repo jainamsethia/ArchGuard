@@ -157,8 +157,8 @@ function initActionButtons() {
         function renderEmptyState() {
             const mainContainer = document.querySelector('.metrics-grid').parentElement;
             mainContainer.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                    <h1 style="margin: 0; font-size: 2.5rem; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">ArchGuard Dashboard</h1>
+                <div class="header">
+                    <h1>ArchGuard Dashboard</h1>
                 </div>
                 <div class="empty-state">
                     <div class="empty-icon">🏗️</div>
@@ -185,7 +185,12 @@ function initActionButtons() {
         }
 
         async function fetchData() {
-            document.getElementById('refresh-loader').style.display = 'inline-block';
+            // Same null case hideRefreshLoader() guards against: renderEmptyState()
+            // replaces the container this lives in, so on any refresh after an
+            // empty state the loader is gone. Dereferencing it here threw before
+            // the try block, aborting the fetch and leaving the dashboard stuck.
+            const refreshLoader = document.getElementById('refresh-loader');
+            if (refreshLoader) refreshLoader.style.display = 'inline-block';
             try {
                 const [runsData, latestData, modulesData, evolutionData, gitEvoData] = await Promise.all([
                     safeFetch(`/api/v1/runs?limit=30${jobQueryAmp}`, { runs: [] }),
@@ -210,8 +215,8 @@ function initActionButtons() {
                             const banner = document.createElement('div');
                             banner.id = 'job-banner';
                             banner.className = 'glass-card job-banner';
-                            banner.style.background = 'rgba(16, 185, 129, 0.2)';
-                            banner.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                            banner.style.background = 'var(--tint-success-bg)';
+                            banner.style.borderColor = 'var(--success-color)';
 
                             const isSuccess = job && job.status === 'complete';
                             const repoLabel = job?.github_url
@@ -919,7 +924,7 @@ function initActionButtons() {
                 <tr>
                     <td>L${sanitize(v.layer || '?')}</td>
                     <td><span class="badge ${getSeverityClass(v.severity)}">${sanitize(v.severity || 'low')}</span> ${covered}</td>
-                    <td style="color: #cbd5e1; word-break: break-all;">${violationLocationCell(v)}</td>
+                    <td style="word-break: break-all;">${violationLocationCell(v)}</td>
                     <td>
                         <div class="violation-message">${sanitize(v.message || 'Unknown violation')}</div>
                         ${plainHtml}
@@ -1224,13 +1229,91 @@ function getEmptyStateHtml(icon, title, body) {
     `;
 }
 
+        // The selected-tab marker is a single element that slides between tabs.
+        // Its position is driven by CSS custom properties rather than a class
+        // per tab, so the movement is continuous and can be interrupted
+        // mid-flight when a second tab is clicked before the first settles.
+        function moveTabIndicator(tab, animate = true) {
+            const list = tab.closest('.tablist');
+            if (!list) return;
+            // On the first placement there is nothing to travel from, so skip
+            // the transition for one frame — otherwise the marker flies in
+            // from the left edge on page load.
+            if (!animate) list.classList.add('no-anim');
+            // Measure with rects, not offsetLeft/offsetWidth: those round to
+            // whole pixels, which leaves the thumb a pixel or two narrower
+            // than the label it is supposed to sit under.
+            const listRect = list.getBoundingClientRect();
+            const tabRect = tab.getBoundingClientRect();
+            list.style.setProperty('--tab-x', `${tabRect.left - listRect.left + list.scrollLeft}px`);
+            list.style.setProperty('--tab-w', `${tabRect.width}px`);
+            list.style.setProperty('--tab-o', '1');
+            if (!animate) {
+                // Force a reflow so the values above are committed with the
+                // transition still disabled, then re-enable it.
+                void list.offsetWidth;
+                list.classList.remove('no-anim');
+            }
+        }
+
+        function initTabChrome() {
+            const list = document.querySelector('.page-dashboard .tablist');
+            if (!list) return;
+
+            const reposition = (animate) => {
+                const current = list.querySelector('.tab[aria-selected="true"]');
+                if (current) moveTabIndicator(current, animate);
+            };
+
+            reposition(false);
+
+            // The label is measured before the web font loads, so its width is
+            // the fallback face's. When the real font swaps in the text
+            // reflows and the thumb is left mis-sized — re-measure once fonts
+            // have settled.
+            if (document.fonts && document.fonts.ready) {
+                document.fonts.ready.then(() => reposition(false));
+            }
+
+            // Re-measure on resize: tab widths change with the font size and
+            // the wrapping of the bar above them.
+            let raf = 0;
+            window.addEventListener('resize', () => {
+                cancelAnimationFrame(raf);
+                raf = requestAnimationFrame(() => reposition(false));
+            });
+
+            // Lift the control off the page only while content is actually
+            // passing beneath it. A sentinel is cheaper and smoother than a
+            // scroll handler, which would run every frame to recompute the
+            // same boolean. The root is inset by the control's own sticky
+            // offset so the shadow appears exactly as it pins, rather than a
+            // few pixels late.
+            const stickyTop = parseFloat(getComputedStyle(list).top) || 0;
+            const sentinel = document.createElement('div');
+            sentinel.setAttribute('aria-hidden', 'true');
+            sentinel.style.cssText = 'height:1px;margin-bottom:-1px;';
+            list.parentNode.insertBefore(sentinel, list);
+            new IntersectionObserver(
+                ([entry]) => list.classList.toggle('is-stuck', !entry.isIntersecting),
+                { threshold: 0, rootMargin: `-${stickyTop}px 0px 0px 0px` }
+            ).observe(sentinel);
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initTabChrome);
+        } else {
+            initTabChrome();
+        }
+
         function switchTab(name) {
             document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
             document.querySelectorAll('.tab-panel-main').forEach(p => p.classList.remove('active'));
-            
+
             const targetTab = document.querySelector(`.tab[aria-controls="${name}"]`);
             if (targetTab) {
                 targetTab.setAttribute('aria-selected', 'true');
+                moveTabIndicator(targetTab);
             }
             const targetPanel = document.getElementById(name);
             if (targetPanel) {
