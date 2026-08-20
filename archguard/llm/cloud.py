@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import replace
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.gemini import (
@@ -187,8 +187,8 @@ class CloudLLMExplainer:
 
 
 __all__ = [
-    "CloudLLMExplainer",
-    "PRIMARY_MODEL",
     "FALLBACK_MODEL",
+    "PRIMARY_MODEL",
+    "CloudLLMExplainer",
     "GeminiAuthError",
 ]

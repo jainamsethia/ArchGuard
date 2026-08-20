@@ -1,16 +1,17 @@
-import asyncio
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 import archguard.contract.llm_inference as li
-from archguard.llm.cloud import CloudLLMExplainer, PRIMARY_MODEL, FALLBACK_MODEL
+from archguard.llm.cloud import FALLBACK_MODEL, PRIMARY_MODEL, CloudLLMExplainer
+
 
 @pytest.mark.asyncio
 async def test_generate_contract_from_llm_fallback():
     """Verify that if PRIMARY_MODEL fails, it falls back to FALLBACK_MODEL via _call_api."""
     call_log = []
-    
+
     def side_effect(self, prompt, model, system=''):
         call_log.append(model)
         if model == PRIMARY_MODEL:
@@ -24,8 +25,8 @@ async def test_generate_contract_from_llm_fallback():
                  patch('archguard.contract.llm_inference._extract_module_docstrings', return_value=""), \
                  patch('archguard.contract.llm_inference._read_readme_excerpt', return_value=""), \
                  patch('archguard.contract.validator.validate_contract'):
-                
+
                 result = await li.generate_contract_from_llm(Path('.'))
-                
+
                 assert call_log == [PRIMARY_MODEL, FALLBACK_MODEL]
                 assert result == {"modules": []}

@@ -130,8 +130,8 @@ class RemediationEngine:
             raw_tasks = self.provider.generate_tasks(context)
         except RemediationUnavailableError:
             raise
-        except Exception as exc:  # noqa: BLE001
-            logger.error("RemediationProvider raised an unexpected error: %s", exc)
+        except Exception as exc:
+            logger.exception("RemediationProvider raised an unexpected error: %s", exc)
             return RemediationPlan()
 
         unique_tasks = self._deduplicate(raw_tasks)
@@ -312,7 +312,7 @@ class GeminiRemediationProvider(RemediationProvider):
             # needs to know it is a credentials problem, not an empty result.
             raise RemediationUnavailableError(str(exc)) from exc
         except GeminiError as exc:
-            logger.error("Gemini remediation call failed: %s", exc)
+            logger.exception("Gemini remediation call failed: %s", exc)
             raise RemediationUnavailableError(str(exc)) from exc
 
         return _parse_remediation_response(raw_content, finish_reason)
@@ -373,7 +373,7 @@ def _parse_remediation_response(
         msg = f"Failed to JSON-decode remediation response: {e} [{detail}]"
         # Full body at ERROR: without it the snippet alone is often not enough
         # to tell a truncation from a malformed field.
-        logger.error("%s\n--- RAW REMEDIATION RESPONSE ---\n%s\n--- END RAW ---", msg, raw)
+        logger.exception("%s\n--- RAW REMEDIATION RESPONSE ---\n%s\n--- END RAW ---", msg, raw)
         raise RemediationUnavailableError(msg)
 
     tasks_data = data.get("tasks", [])
@@ -510,5 +510,5 @@ async def generate_remediation_plan(
     except RemediationUnavailableError:
         raise
     except Exception as exc:
-        logger.error("generate_remediation_plan failed: %s", exc)
+        logger.exception("generate_remediation_plan failed: %s", exc)
         return {"tasks": []}

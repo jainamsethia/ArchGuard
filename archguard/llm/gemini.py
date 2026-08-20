@@ -24,7 +24,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import httpx
 
@@ -135,7 +136,7 @@ def _raise_for_status(response: httpx.Response) -> None:
 
     try:
         detail = response.text[:500]
-    except Exception:  # noqa: BLE001 - detail is best-effort only
+    except Exception:
         detail = ""
 
     if status in (401, 403):
@@ -299,17 +300,16 @@ class GeminiClient:
             self._messages(system, prompt), model, max_tokens, temperature, stream=True
         )
         try:
-            with httpx.Client(timeout=self.timeout) as client:
-                with client.stream(
-                    "POST", self._endpoint, json=payload, headers=self._headers()
-                ) as response:
-                    if response.status_code >= 400:
-                        response.read()
-                        _raise_for_status(response)
-                    for line in response.iter_lines():
-                        text = _delta_text(line)
-                        if text:
-                            yield text
+            with httpx.Client(timeout=self.timeout) as client, client.stream(
+                "POST", self._endpoint, json=payload, headers=self._headers()
+            ) as response:
+                if response.status_code >= 400:
+                    response.read()
+                    _raise_for_status(response)
+                for line in response.iter_lines():
+                    text = _delta_text(line)
+                    if text:
+                        yield text
         except httpx.TimeoutException as exc:
             raise GeminiConnectionError(f"Gemini stream timed out: {exc}") from exc
         except httpx.RequestError as exc:
@@ -361,17 +361,16 @@ class GeminiClient:
             self._messages(system, prompt), model, max_tokens, temperature, stream=True
         )
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream(
-                    "POST", self._endpoint, json=payload, headers=self._headers()
-                ) as response:
-                    if response.status_code >= 400:
-                        await response.aread()
-                        _raise_for_status(response)
-                    async for line in response.aiter_lines():
-                        text = _delta_text(line)
-                        if text:
-                            yield text
+            async with httpx.AsyncClient(timeout=self.timeout) as client, client.stream(
+                "POST", self._endpoint, json=payload, headers=self._headers()
+            ) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    _raise_for_status(response)
+                async for line in response.aiter_lines():
+                    text = _delta_text(line)
+                    if text:
+                        yield text
         except httpx.TimeoutException as exc:
             raise GeminiConnectionError(f"Gemini stream timed out: {exc}") from exc
         except httpx.RequestError as exc:

@@ -1,7 +1,7 @@
 import ast
-from pathlib import Path
-import typing
 import logging
+import typing
+from pathlib import Path
 
 CONTRACT_GENERATION_PROMPT = """
 You are an expert software architect analyzing a Python codebase.
@@ -108,8 +108,8 @@ def _read_readme_excerpt(repo_path: Path, max_chars: int = 2000) -> str:
 
 async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
     import asyncio
-    from archguard.llm.cloud import CloudLLMExplainer, PRIMARY_MODEL, FALLBACK_MODEL
 
+    from archguard.llm.cloud import FALLBACK_MODEL, PRIMARY_MODEL, CloudLLMExplainer
     from archguard.llm.gemini import resolve_api_key
 
     api_key = resolve_api_key()

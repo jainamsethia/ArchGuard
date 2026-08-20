@@ -1,18 +1,18 @@
 """Unit tests for the RemediationPlan engine (Phase 4 Step 15)."""
 
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import httpx
 import pytest
 
 from archguard.llm.remediation import (
+    GeminiRemediationProvider,
     RemediationEngine,
     RemediationProvider,
     RemediationTask,
-    GeminiRemediationProvider,
     RemediationUnavailableError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Mock provider for deterministic tests
@@ -408,6 +408,7 @@ def test_remediation_too_many_violations_returns_422() -> None:
     Verifies: a remediation request with 51 violations is rejected.
     """
     from fastapi.testclient import TestClient
+
     from archguard.dashboard.app import app
     client = TestClient(app)
 
@@ -420,7 +421,9 @@ def test_remediation_too_many_violations_returns_422() -> None:
 
 @pytest.mark.asyncio
 async def test_remediation_job_id_filter(monkeypatch):
-    import tempfile, pathlib
+    import pathlib
+    import tempfile
+
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import remediation
 
@@ -434,9 +437,9 @@ async def test_remediation_job_id_filter(monkeypatch):
         logger = AuditLogger(log_path)
         logger.log("analysis_run", job_id="job-A", timestamp="2026-01-01T00:00:00Z", violations=[{"id": "v1"}])
         logger.log("analysis_run", job_id="job-B", timestamp="2026-01-02T00:00:00Z", violations=[{"id": "v2"}])
-        
+
         monkeypatch.setattr(remediation, "get_audit_path", lambda jid: log_path)
-        
+
         # Capture what the endpoint actually forwards. The mock returns the real
         # function's shape (a dict with "tasks"), not the violations list: the
         # route now attaches selection metadata to that result, so a mock
