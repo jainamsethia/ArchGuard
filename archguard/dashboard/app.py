@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from archguard.config import AUDIT_LOG_FILENAME
 from archguard.dashboard._auth import _real_client_ip
 from archguard.dashboard._rate_limit import rate_limiter
+from archguard.observability.logger import configure_logging, correlation_id_var
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -70,6 +71,13 @@ async def _periodic_workspace_cleanup() -> None:
 
 @asynccontextmanager
 async def _lifespan(app_instance: FastAPI) -> Any:
+    # Must be the first statement here. Until this ran, uvicorn configured only
+    # its own loggers, so every archguard.* INFO record -- including the access
+    # log below -- was dropped by a root logger sitting at WARNING with no
+    # handler, and WARNING/ERROR reached stderr through logging.lastResort with
+    # no timestamp, level or logger name. Nothing in this package logs at module
+    # scope, so the lifespan is early enough to catch the whole process.
+    configure_logging()
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
     recommended = {
@@ -210,21 +218,30 @@ _request_logger = logging.getLogger("archguard.http")
 @app.middleware("http")
 async def _log_requests(request: Request, call_next: Any) -> Any:
     correlation_id = str(uuid.uuid4())[:8]
-    client_ip = _real_client_ip(request)
-    start = time.monotonic()
-    response = await call_next(request)
-    duration_ms = round((time.monotonic() - start) * 1000)
-    _request_logger.info(
-        "[%s] %s %s -> %d (%dms) ip=%s",
-        correlation_id,
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-        client_ip,
-    )
-    response.headers["X-Correlation-ID"] = correlation_id
-    return response
+    # Bound before call_next so the downstream task inherits it: a task copies
+    # the context at creation, which is how every record emitted while handling
+    # this request -- not just the line below -- carries the same id.
+    token = correlation_id_var.set(correlation_id)
+    try:
+        client_ip = _real_client_ip(request)
+        start = time.monotonic()
+        response = await call_next(request)
+        duration_ms = round((time.monotonic() - start) * 1000)
+        _request_logger.info(
+            "%s %s -> %d (%dms) ip=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            client_ip,
+        )
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
+    finally:
+        # Reset rather than leave it bound: this coroutine runs in the server's
+        # context, so an unreset value would be visible to whatever the worker
+        # handles next.
+        correlation_id_var.reset(token)
 
 @app.middleware("http")
 async def _deprecation_headers(request: Request, call_next: Any) -> Any:

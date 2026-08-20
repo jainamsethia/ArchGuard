@@ -145,8 +145,6 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
 
     logger.info("Cloning with git=%s", git_exe)
 
-    loop = asyncio.get_running_loop()
-
     def _do_clone() -> None:
         try:
             proc = subprocess.run(
@@ -168,7 +166,7 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
                 f"git clone failed (exit {proc.returncode}): {error_msg[:500]}"
             )
 
-    await loop.run_in_executor(None, _do_clone)
+    await asyncio.to_thread(_do_clone)
     logger.info("Clone completed: %s -> %s", clone_url, dest)
 
 
@@ -223,7 +221,12 @@ def _sweep_stale_workspaces(max_age_seconds: int, active: set[str]) -> int:
             continue
         if age > max_age_seconds:
             shutil.rmtree(candidate, ignore_errors=True)
-            logger.info("Removed stale workspace %s (age: %ds)", candidate, int(age))
+            # DEBUG, not INFO: the callers already log the count, and this fires
+            # once per directory. A first start after a busy period swept 79 of
+            # them, which was invisible only because archguard.* INFO records
+            # were being discarded entirely; now that they are not, one line per
+            # removal would bury the rest of startup.
+            logger.debug("Removed stale workspace %s (age: %ds)", candidate, int(age))
             removed += 1
 
     return removed

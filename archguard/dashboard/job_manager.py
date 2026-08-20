@@ -156,6 +156,14 @@ class JobManager:
         """
         from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
         from archguard.dashboard.workspace import temp_workspace
+        from archguard.observability.logger import correlation_id_var
+
+        # asyncio.create_task copies the caller's context, so without this the
+        # job inherits the correlation id of the HTTP request that merely
+        # queued it -- and keeps it for the whole analysis, minutes after that
+        # request returned. Re-bind to the job's own id. No reset: the task's
+        # context is a copy, discarded when the task ends.
+        correlation_id_var.set(job.id[:8])
 
         async def send_progress(msg: str) -> None:
             job.progress_messages.append(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {msg}")

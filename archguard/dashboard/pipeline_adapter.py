@@ -2,7 +2,10 @@
 
 Key design decisions:
 - AnalysisOrchestrator.run() is synchronous and blocking; we wrap it in
-  asyncio.get_running_loop().run_in_executor(None, ...) to avoid blocking FastAPI.
+  asyncio.to_thread(...) to avoid blocking FastAPI. to_thread rather than
+  loop.run_in_executor(None, ...): both use the same default executor, but only
+  to_thread copies the context across the boundary, which is what lets the
+  correlation id reach the log records the analysis itself emits.
 - If .archguard.yml is absent, we call _run_init_cli() programmatically
   with confirm_all=True and force_ci=True to auto-generate it.
 - 'changed_files' for a fresh clone = all .py files in the repo, since every
@@ -157,9 +160,7 @@ async def run_analysis_on_repo(
     if not archguard_yml.exists():
         await _emit("No .archguard.yml found - generating contract...")
         try:
-            await asyncio.get_running_loop().run_in_executor(
-                None, _generate_contract_sync, repo_path
-            )
+            await asyncio.to_thread(_generate_contract_sync, repo_path)
             contract_auto_generated = True
 
             import yaml
@@ -218,10 +219,8 @@ async def run_analysis_on_repo(
 
     # -- Step 3: Run analysis in thread pool -----------------------------
     try:
-        loop = asyncio.get_running_loop()
         result = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
+            asyncio.to_thread(
                 _run_analysis_sync,
                 repo_path,
                 py_files,

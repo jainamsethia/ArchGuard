@@ -112,7 +112,14 @@ class TestAnalyzeCommand:
             )
 
         assert result.exit_code == 0
-        data = json.loads(result.output)
+        # result.stdout, not result.output: Click's Result.output is stdout and
+        # stderr merged, and --json writes the machine-readable document to
+        # stdout while log records go to stderr. Parsing the merged stream only
+        # worked while logging was silently misconfigured -- configure_logging
+        # was built on basicConfig(handlers=[...]), a documented no-op once root
+        # has a handler, which under pytest it always does. Every other
+        # JSON-parsing CLI test in this suite already reads result.stdout.
+        data = json.loads(result.stdout)
         assert "score" in data
         assert "grade" in data
         assert "timestamp" in data

@@ -209,11 +209,8 @@ async def validate_repo_url(request: RepoURLRequest) -> Any:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    loop = asyncio.get_running_loop()
     try:
-        data = await loop.run_in_executor(
-            None, fetch_repo_metadata_public, owner, repo_name
-        )
+        data = await asyncio.to_thread(fetch_repo_metadata_public, owner, repo_name)
     except GitHubRateLimitError as exc:
         # Surface the GitHub rate-limit reset so the UI can tell the user how
         # long to wait, rather than a hardcoded "60 seconds" guess.
@@ -284,14 +281,11 @@ async def submit_analysis_job(
     # This prevents wasting the semaphore slot on a 120s git clone timeout.
     # fetch_repo_metadata_public is a synchronous, blocking httpx.Client call
     # (confirmed: it uses `with httpx.Client(timeout=10.0) as client:`, not
-    # httpx.AsyncClient) - it must be wrapped in run_in_executor to avoid
-    # blocking the FastAPI event loop for up to 10 seconds.
-    loop = asyncio.get_running_loop()
+    # httpx.AsyncClient) - it must be offloaded to a thread to avoid blocking
+    # the FastAPI event loop for up to 10 seconds.
     rate_limit_hit = False
     try:
-        await loop.run_in_executor(
-            None, fetch_repo_metadata_public, owner, repo_name
-        )
+        await asyncio.to_thread(fetch_repo_metadata_public, owner, repo_name)
     except GitHubRateLimitError:
         # Rate limit hit - allow the job through rather than blocking the user.
         # The clone will reveal the real state; this is acceptable degraded behaviour.
