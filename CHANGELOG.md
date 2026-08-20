@@ -1,3 +1,171 @@
+## [Unreleased] - 2026-08-19
+
+### Security
+
+- **RCE via the dependency scanner (critical).** `GET /api/v1/deps` ran
+  `pip-audit --format=json <repo_root>` when the analysed repository had a
+  non-Poetry `pyproject.toml`. Auditing a *project* makes pip-audit resolve it,
+  and resolving a source tree builds it — executing the repository's own
+  `setup.py` / PEP 517 backend. On the dashboard that repository is an arbitrary
+  GitHub URL submitted by a user, so this was arbitrary code execution on the
+  analysis host as the server user. `deps.py` now passes only already-pinned
+  requirement files to `pip-audit -r`; a bare `pyproject.toml` is skipped with an
+  explicit reason. ADR-006 revised, and both skip paths are covered by tests that
+  assert `subprocess.run` is never called.
+- **Raw exception text no longer reaches the browser.** `job.error` and
+  `AnalysisJobResult.error` are rendered in the UI but were being set from
+  `str(exc)` on arbitrary pipeline failures, leaking server filesystem paths,
+  temp directory names and internal module structure. Both now carry only
+  messages ArchGuard composed; the real exception goes to the server log with a
+  traceback. A malformed-URL rejection no longer echoes the submitted URL back.
+- **`parse_github_url` accepted dot segments.** `[A-Za-z0-9_.-]+` matched `.`
+  and `..`, so `https://github.com/../..` parsed cleanly and produced the API
+  request `/repos/../..`, which the HTTP client normalises to the GitHub API
+  root — returning 200 for a repository that does not exist. Owner and repo
+  patterns are now anchored to a non-dot first character and length-bounded.
+- **Audit-log signatures were unverifiable.** The HMAC was computed over
+  `json.dumps(entry, sort_keys=True)` while the line was written with
+  `json.dumps(entry, default=str)` — different bytes, so no entry could ever be
+  verified. Signing and writing now share one serialisation, and a public
+  `verify_entry()` plus round-trip and tamper-detection tests make the control
+  real rather than decorative. As a side effect, entries containing a `Path` or
+  `datetime` are no longer silently dropped (they raised `TypeError` during
+  signing and were swallowed by the non-fatal handler).
+- **Rate limiting was bypassable behind a proxy.** `_real_client_ip` took the
+  *leftmost* `X-Forwarded-For` entry. A proxy appends what it saw and never
+  validates what is already in the header, so the leftmost entry is whatever
+  the caller typed. With `ARCHGUARD_TRUSTED_PROXY_IPS="*"` — which is what
+  `render.yaml` and `railway.toml` configure — rotating that header produced a
+  fresh rate-limit bucket on every request, removing the limiter from the
+  billable LLM endpoints entirely. The client IP is now read as the Nth entry
+  from the right, with `ARCHGUARD_TRUSTED_PROXY_HOPS` (default 1) naming N; a
+  chain shorter than N falls back to the direct peer rather than to a
+  client-chosen value. Auth was never affected — it already used the direct
+  peer address.
+- **Unbounded rate-limit store.** `_rate_limit.py` fell back to a plain `dict`
+  subclass that ignored `maxsize`/`ttl` if `cachetools` was missing, turning the
+  per-IP limiter into a memory leak. `cachetools` is a core dependency; the
+  fallback is deleted.
+- Docker builds are reproducible again: the builder ran `poetry lock`, throwing
+  away the committed pins, so images could ship different — and unaudited —
+  versions than CI's `pip-audit` ever saw. Now `poetry check --lock`.
+
+### Fixed
+
+- **`analyze --json` / `--out-file` produced nothing when nothing changed.**
+  `analyze` diffs against `HEAD~1`; on a clean checkout that set is empty and
+  the command returned exit 0 having written no file and printed no JSON, so
+  every consuming pipeline crashed on a missing file. It now always emits a
+  well-formed result carrying `skipped` / `skip_reason`, so "nothing was
+  analysed" is distinguishable from "analysed, all clean" (previously both
+  looked like score 100, grade A).
+- **`--full` was an advertised no-op.** The flag was accepted, documented as
+  "Force full corpus rebuild", and never read. It now analyses every Python file
+  in the repository. CI's self-analysis job depended on `actions/checkout`'s
+  shallow clone having no `HEAD~1` to fall into a whole-tree scan by accident;
+  it now passes `--full` explicitly.
+- **Skipped layers were reported as passing.** The CLI report tested
+  `"boundaries" in skipped` / `"coupling"` / `"semantic"` / `"duplication"`,
+  but the values recorded are `"Layer 1".."Layer 4"`. No layer ever matched, so
+  a skipped layer rendered as PASS with score 0.00.
+- **Two divergent copies of the "directories to skip" set.** `parser.py` and
+  the init wizard each carried their own, so a repository containing `build/` or
+  `.tox/` had its module boundaries computed over a different file set than its
+  violations. Both now use `archguard.utils.paths.SKIP_DIRS`. `parser.py` also
+  skipped any path component starting with `tmp_`, silently excluding legitimate
+  user directories; that and a stale one-off entry are gone.
+- **`AuditLogger.log()` could raise from its own error handler.** The non-strict
+  path called `os.getenv` where `os` was imported *inside* the `try` block, so
+  any failure before that import raised `UnboundLocalError` from the handler
+  that exists to keep audit logging non-fatal.
+- **Duplication analysis broke on NumPy 2.** The divide-by-zero guard in the
+  unit-normalisation step used a bare `1.0`, which under NEP 50 promotion
+  upcasts the embedding matrix to float64 — a dtype FAISS indexes reject.
+  Normalisation is now a single float32-preserving helper.
+- **The dashboard's run history could record a non-run.** The per-job to global
+  audit-log merge copied the literal last line of the source log, which may be a
+  dependency scan or a skip record. It now uses `read_last_run()`, which filters
+  on the `analysis_run` event.
+- Blocking I/O removed from the event loop: the recursive repository walk, the
+  audit-log merge, the generated-contract read and the stale-workspace sweep all
+  ran inline in `async def` and stalled every other request for their duration.
+  The workspace sweep also no longer crashes when a directory disappears between
+  the glob and the stat.
+- SSE stream connections were charged twice against the caller's rate limit
+  (`rate_limiter` appeared in both the decorator's `dependencies=` and the
+  signature).
+- `shutil.rmtree(onerror=...)` is deprecated from Python 3.12; worktree cleanup
+  now uses `onexc` there. The two copy-pasted handlers are one shared
+  `force_rmtree`, and their bare `raise` — which only worked by accident of
+  where `shutil` calls the handler — re-raises the exception explicitly.
+- `pip-audit` failures that produced no JSON were reported as a generic "no
+  output" skip; the actual stderr was discarded by a no-op `if ... : pass`.
+- The global exception handler used `logger.exception()` outside an `except`
+  block, where `sys.exc_info()` is not guaranteed to hold the error, so 500s
+  could be logged without a traceback.
+- Twelve `logging.warning(...)` calls went to the root logger, so they were
+  attributed to `root` rather than their module and could install a duplicate
+  handler via implicit `basicConfig()`.
+- `zip()` calls that must consume equal-length sequences are now
+  `strict=True`; the one that legitimately truncates says so.
+
+- **The GitHub Action did nothing.** `action/entrypoint.sh` had been reduced to
+  `exec archguard "$@"`. A `docker` action with no `args:` in `action.yml`
+  passes no arguments, so this ran the bare CLI, which printed its help text
+  and exited 0 — every one of the eleven declared inputs (`repo-root`,
+  `pr-number`, `skip-explanation`, `fail-on-warn`, `fail-fast`, `dry-run`,
+  `extra-args`, `github-sha`, `slack-webhook`, `run-fitness-check`,
+  `fitness-as-warning`) was ignored, and neither declared output was ever set.
+  The entrypoint now maps each input to its flag, allowlists `extra-args`
+  tokens, and publishes the score, band, grade and skip state to
+  `$GITHUB_OUTPUT`. `tests/test_entrypoint_security.sh` — which already
+  encoded this contract but was run by nothing — is now a CI step, and two new
+  unit tests fail if `action.yml` declares an input or output the entrypoint
+  does not touch. The output descriptions were corrected too: `archdebt-score`
+  is a 0-100 health score, not a 0.0-1.0 composite, and the band values are
+  PASS/WATCH/WARN/FAIL, not Healthy/Watch/Warn/Critical.
+
+### Removed
+
+- `archguard/llm/openai_provider.py` and `archguard/llm/local.py` (~400 lines),
+  plus the `AdvisorProvider` / `Recommendation` / `analyze()` / `_prioritize()`
+  layer in `llm/advisor.py`. Nothing in production ever instantiated a provider
+  — the dashboard's only advisor route is the streaming one — so this was dead
+  code that the README advertised as a working Ollama backend. The README FAQ
+  and `.env.example` no longer describe `OLLAMA_*` variables nothing reads.
+- Six audit event-name constants no events were ever logged under.
+- The 20-argument `_run_analyze_cli()` signature, which duplicated every field
+  of the `AnalyzeOptions` it was already given. Monorepo sub-package runs now
+  use `dataclasses.replace`, so `--metrics` and `--fail-threshold` reach them
+  (they were silently dropped by the hand-maintained argument list).
+
+### Tooling
+
+- **The lint gate had no configuration.** With no `[tool.ruff]` section and a
+  `ruff = ">=0.1"` floor, `ruff check` ran whatever default rule set the
+  installed ruff happened to have — so the gate's meaning changed with every
+  release (0.16 reports 341 findings where 0.1 reported none). Rules are now
+  pinned explicitly, every suppression carries its reason, and ruff is floored
+  at `>=0.15,<0.17`. `archguard/`, `tests/` and `scripts/` all pass.
+- **`tests/fixtures/` is excluded from linting, with `force-exclude`.** The
+  pre-commit hook ran `ruff --fix --unsafe-fixes` over everything on every
+  commit; fixture repositories exist to hold deliberately-planted unused imports
+  and forbidden cross-module imports, and autofixing deleted the very violations
+  the correctness tests assert on. `--unsafe-fixes` is also gone from the hook.
+- `ruff-format` is no longer in pre-commit: 80 of 131 source files predate it,
+  so enabling it made the next contributor's first commit a whole-repo
+  reformat. Adopt it as its own commit, then re-enable it with a CI check.
+- The repo-hygiene test now derives its file list from `git ls-files --cached
+  --others --exclude-standard` instead of a hand-maintained allowlist, so
+  gitignored local tooling state no longer fails the suite, and a second test
+  keeps the allowlist itself from rotting.
+- README corrected: it claimed `archguard analyze` "analyzes the full repository
+  by default" and that `--incremental` was the narrower mode. The opposite is
+  true, and following the documented Quick Start on a clean checkout analysed
+  nothing.
+- Phase sign-off documents are banner-marked as historical snapshots; they
+  described env vars and modules that no longer exist as though current.
+
 ## [Unreleased] - 2026-07-25
 
 ### Gemini as the sole LLM provider

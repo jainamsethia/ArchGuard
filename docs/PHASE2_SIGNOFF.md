@@ -1,5 +1,11 @@
 # Phase 2 Signoff Verification
 
+> **Historical record.** This is a point-in-time audit snapshot, kept for
+> provenance. It describes the codebase as it was on the date below and is
+> *not* maintained as current reference — env vars, module names and file
+> paths here may no longer exist. For current documentation see the README
+> and `docs/DEPLOYMENT.md`.
+
 ## SECTION 1: UNIT TESTS
 
 **Check 1.1 — Full unit test suite**

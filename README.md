@@ -49,7 +49,7 @@ L1["Layer 1: Import Boundaries\n(tree-sitter AST)"]
 L2["Layer 2: Coupling Delta\n(NetworkX fan-out)"]
 L3["Layer 3: Semantic Drift\n(MiniLM embeddings)"]
 L4["Layer 4: Duplication\n(FAISS vector search)"]
-EXPLAIN["LLM Explanation\n(Claude)"]
+EXPLAIN["LLM Explanation\n(Gemini)"]
 SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
 end
 subgraph Cache["💾 Cache Layer"]
@@ -108,7 +108,7 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 - **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
 - **Louvain community detection** on commit co-change graph for automatic contract generation
 - **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
-- **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls. A local-model (Ollama) backend exists in `archguard.llm.local` but is not yet wired into the CLI's explanation path — tracked for a future release.
+- **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls.
 - **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
 ## Phase 3: Architecture Intelligence
@@ -138,7 +138,8 @@ Native integration with `pip-audit` to evaluate real-time third-party vulnerabil
 The core commands include:
 ```bash
 archguard init                  # Auto-detect architecture and create .archguard.yml
-archguard analyze               # Run full 4-layer drift analysis
+archguard analyze               # 4-layer analysis of files changed since HEAD~1
+archguard analyze --full        # ...of every Python file in the repo
 archguard fitness check         # Evaluate configured fitness functions
 archguard fitness check --json  # Return fitness results as JSON
 archguard history --format json # Output history trend as JSON
@@ -160,10 +161,18 @@ pip install -e .
 ```bash
 cd your-python-project/
 archguard init           # Auto-detect architecture
-archguard analyze        # Check for violations
+archguard analyze --full # Check the whole repository for violations
 ```
 
-> **Note:** `archguard analyze` analyzes the full repository by default. For faster PR-level runs, use `archguard analyze --incremental` to only check changed files.
+> **Note:** `archguard analyze` is a *delta* command by default: it analyses the
+> files changed between `HEAD~1` and your working tree, which is what you want
+> in CI on a pull request. On a clean checkout that set is empty and the run is
+> a no-op. Pass `--full` to analyse every Python file in the repository — that
+> is what you want for a first look, a baseline, or a scheduled scan.
+>
+> `--incremental` is a further optimisation on top of the delta: it consults the
+> content-hash cache and re-uses the previous run's findings for files whose
+> contents are unchanged.
 
 ## Sample Output
 ```text
@@ -320,10 +329,10 @@ See `.env.example` for a copy-pasteable template. Full reference:
 | `ARCHGUARD_PRIMARY_MODEL` | `gemini-3.6-flash` | Primary model for L4 explanations and contract inference. |
 | `ARCHGUARD_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Cheaper/faster model used when the primary is rate-limited or unreachable. |
 | `OPENAI_API_KEY` | _(none)_ | **Deprecated alias** for `GEMINI_API_KEY`, read only if the latter is unset so existing deployments keep working. It must hold a *Gemini* key — an OpenAI key will not work. Warns on use. |
-| `OLLAMA_MODEL` | `llama3` | Local-model name (implemented but not yet reachable from the CLI — see FAQ). |
 | `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. When `ARCHGUARD_DASHBOARD_TOKEN` is set, visiting the dashboard URL in a browser displays a one-time token-entry form. After entering the token, a 24-hour session cookie is issued and the dashboard is fully functional. The session TTL is configurable via `ARCHGUARD_SESSION_COOKIE_TTL` (seconds; default 86400). API and CLI clients continue to use `Authorization: Bearer <token>` as before. |
 | `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
-| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | IP ranges of trusted proxies. Required if running the dashboard behind a load balancer to ensure auth restrictions work. |
+| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | IP ranges of trusted proxies. Required if running the dashboard behind a load balancer to ensure auth restrictions work. `*` trusts any peer's `X-Forwarded-For` and is only safe when the app is reachable solely through your platform's proxy. |
+| `ARCHGUARD_TRUSTED_PROXY_HOPS` | `1` | Number of trusted proxies in front of the app. The client IP is taken as the Nth `X-Forwarded-For` entry from the **right**, since entries further left are attacker-controlled. Raise it if you add a CDN in front of your platform proxy. |
 | `ARCHGUARD_AUDIT_SECRET` | _(auto-generated)_ | HMAC key for the tamper-evident audit log. See "Audit Log Security" below. |
 | `ARCHGUARD_AUDIT_STRICT` | `false` | Require a secure secret to be present; refuse to auto-generate one. |
 | `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |
@@ -345,8 +354,8 @@ make smoke-test
 
 ## FAQ
 
-**How do I use a local LLM instead of Claude?**
-Local-model support (via Ollama) is implemented in `archguard.llm.local.LocalLLMExplainer` but is not currently wired into the `archguard analyze` command path — only the Anthropic Claude backend is reachable today. Setting `ARCHGUARD_LLM_PROVIDER` has no effect. If you want to skip LLM explanations entirely without Ollama, run `archguard analyze --no-llm`.
+**How do I use a local LLM instead of Gemini?**
+You can't. Gemini is the only LLM backend ArchGuard supports. An unwired Ollama backend used to ship in `archguard.llm.local`; it was never reachable from any command, so it has been removed rather than left as a feature the docs implied existed. `ARCHGUARD_LLM_PROVIDER` is not read anywhere. To run with no LLM at all, use `archguard analyze --no-llm` (or set `ARCHGUARD_SKIP_LLM=1`).
 
 **How do I suppress a false positive?**
 Run `archguard suppress add <violation-message>` to explicitly whitelist specific violations.

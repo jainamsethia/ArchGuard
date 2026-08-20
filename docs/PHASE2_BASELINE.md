@@ -1,5 +1,11 @@
 # Phase 2 — Deployment Baseline Audit
 
+> **Historical record.** This is a point-in-time audit snapshot, kept for
+> provenance. It describes the codebase as it was on the date below and is
+> *not* maintained as current reference — env vars, module names and file
+> paths here may no longer exist. For current documentation see the README
+> and `docs/DEPLOYMENT.md`.
+
 **Date:** 2026-06-23  
 **Auditor:** Automated (Antigravity)  
 **Scope:** Install, dashboard startup, env-var inventory, Docker build, docker-compose, frontend load
