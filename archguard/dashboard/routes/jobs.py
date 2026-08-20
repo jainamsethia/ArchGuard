@@ -24,6 +24,18 @@ logger = logging.getLogger(__name__)
 
 GITHUB_API_BASE = "https://api.github.com"
 
+#: Largest repository accepted for analysis, in kilobytes -- the unit the GitHub
+#: API reports `size` in. Default 500 MB.
+#:
+#: This value was already being fetched on every submission and then thrown
+#: away. Nothing bounded the size of a clone, and because workspaces are created
+#: with keep_alive=True and the age sweep exempts every job the manager still
+#: knows about, a few large repositories filled the host's disk.
+#:
+#: Set to 0 to disable the ceiling (self-hosted deployments with their own disk
+#: budget).
+MAX_REPO_SIZE_KB: int = int(os.environ.get("ARCHGUARD_MAX_REPO_SIZE_KB", "512000"))
+
 
 # --------------------------------------------------------------------------
 # Pydantic models
@@ -247,6 +259,46 @@ async def validate_repo_url(request: RepoURLRequest) -> Any:
 # --------------------------------------------------------------------------
 
 
+def _reject_if_too_large(
+    metadata: dict[str, Any], owner: str, repo_name: str
+) -> None:
+    """Refuse a repository whose clone would not fit the disk budget.
+
+    A missing or non-numeric ``size`` is treated as unknown and allowed
+    through. Refusing on a payload we failed to parse would turn an upstream
+    GitHub API change into an outage, and the clone timeout remains a backstop.
+    """
+    if MAX_REPO_SIZE_KB <= 0:
+        return
+
+    raw_size = metadata.get("size")
+    try:
+        size_kb = int(raw_size)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        logger.warning(
+            "GitHub reported a non-numeric size %r for %s/%s; size limit not applied",
+            raw_size, owner, repo_name,
+        )
+        return
+
+    if size_kb <= MAX_REPO_SIZE_KB:
+        return
+
+    logger.info(
+        "Rejected %s/%s: %d KB exceeds the %d KB limit",
+        owner, repo_name, size_kb, MAX_REPO_SIZE_KB,
+    )
+    raise HTTPException(
+        status_code=413,
+        detail=(
+            f"Repository {owner}/{repo_name} is {size_kb / 1024:.0f} MB, which "
+            f"exceeds the {MAX_REPO_SIZE_KB / 1024:.0f} MB limit for analysis. "
+            "Analyse a smaller repository, or raise ARCHGUARD_MAX_REPO_SIZE_KB "
+            "if you host this instance."
+        ),
+    )
+
+
 @app.post(
     "/api/v1/jobs",
     status_code=202,
@@ -284,8 +336,9 @@ async def submit_analysis_job(
     # httpx.AsyncClient) - it must be offloaded to a thread to avoid blocking
     # the FastAPI event loop for up to 10 seconds.
     rate_limit_hit = False
+    metadata: dict[str, Any] | None = None
     try:
-        await asyncio.to_thread(fetch_repo_metadata_public, owner, repo_name)
+        metadata = await asyncio.to_thread(fetch_repo_metadata_public, owner, repo_name)
     except GitHubRateLimitError:
         # Rate limit hit - allow the job through rather than blocking the user.
         # The clone will reveal the real state; this is acceptable degraded behaviour.
@@ -295,6 +348,9 @@ async def submit_analysis_job(
     except RuntimeError as exc:
         logger.exception("GitHub API error fetching repo metadata: %s", exc)
         raise HTTPException(status_code=502, detail="Could not reach GitHub API. Check your network connection.")
+
+    if metadata is not None:
+        _reject_if_too_large(metadata, owner, repo_name)
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)

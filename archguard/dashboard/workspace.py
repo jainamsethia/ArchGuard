@@ -27,6 +27,16 @@ logger = logging.getLogger(__name__)
 
 CLONE_TIMEOUT_SECONDS: int = int(os.environ.get("ARCHGUARD_CLONE_TIMEOUT", "120"))
 
+#: Ceiling on the total bytes held by all analysis workspaces. Default 5 GiB.
+#:
+#: The age sweep below does not bound disk on its own: it exempts every job the
+#: manager still knows about, up to MAX_STORED_JOBS (50), so fifty completed
+#: jobs holding large clones sit on disk indefinitely. This is the ceiling that
+#: actually binds. Set to 0 to disable it.
+MAX_WORKSPACE_BYTES: int = int(
+    os.environ.get("ARCHGUARD_MAX_WORKSPACE_BYTES", str(5 * 1024**3))
+)
+
 
 @asynccontextmanager
 async def temp_workspace(
@@ -196,6 +206,100 @@ async def cleanup_stale_workspaces(
     # this runs on a 15-minute timer inside the event loop.
     return await asyncio.to_thread(
         _sweep_stale_workspaces, max_age_seconds, active_job_ids or set()
+    )
+
+
+def _dir_size_bytes(path: Path) -> int:
+    """Bytes held under *path*, tolerating entries that vanish mid-walk."""
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path, onerror=lambda _exc: None):
+        for name in filenames:
+            try:
+                total += os.lstat(os.path.join(dirpath, name)).st_size
+            except OSError:
+                # A concurrent sweep, or the owning job, removed it. Not worth
+                # logging once per file.
+                continue
+    return total
+
+
+def _sweep_to_budget(max_bytes: int, active: set[str]) -> tuple[int, int]:
+    """Evict oldest evictable workspaces until the total fits *max_bytes*.
+
+    Returns ``(evicted_count, bytes_reclaimed)``. Blocking; call in a thread.
+
+    *active* should hold only the jobs that are still **running**, not every job
+    the manager remembers. A finished job's clone is a cache for browsing
+    results -- every read endpoint already falls back to the persisted run when
+    the workspace is gone -- so under real disk pressure it is the right thing
+    to give up. Protecting all remembered jobs, the way the age sweep does,
+    would leave nothing evictable and make this ceiling decorative.
+
+    ponytail: walks every file under every workspace on each call, which is
+    O(files on disk) once per job. Fine at a 5 GiB ceiling and one call per
+    analysis; if that stops holding, record each workspace's size at creation
+    and keep a running total instead.
+    """
+    if max_bytes <= 0:
+        return 0, 0
+
+    tmp = Path(tempfile.gettempdir())
+    total = 0
+    evictable: list[tuple[float, Path, int]] = []
+
+    for candidate in tmp.glob("archguard-*"):
+        try:
+            if not candidate.is_dir():
+                continue
+            mtime = candidate.stat().st_mtime
+        except OSError:
+            continue
+        size = _dir_size_bytes(candidate)
+        total += size
+        if candidate.name[len("archguard-") :] not in active:
+            evictable.append((mtime, candidate, size))
+
+    if total <= max_bytes:
+        return 0, 0
+
+    evictable.sort(key=lambda entry: entry[0])  # oldest first
+
+    evicted = 0
+    reclaimed = 0
+    for _mtime, path, size in evictable:
+        if total - reclaimed <= max_bytes:
+            break
+        shutil.rmtree(path, ignore_errors=True)
+        reclaimed += size
+        evicted += 1
+        logger.info(
+            "Evicted workspace %s (%d bytes) to stay within the disk budget", path, size
+        )
+
+    if total - reclaimed > max_bytes:
+        logger.warning(
+            "Workspace disk usage is still over budget after evicting %d workspace(s): "
+            "%d bytes held against a %d byte ceiling. The remainder belongs to "
+            "running jobs and cannot be reclaimed.",
+            evicted,
+            total - reclaimed,
+            max_bytes,
+        )
+
+    return evicted, reclaimed
+
+
+async def enforce_workspace_budget(
+    max_bytes: int | None = None, active_job_ids: set[str] | None = None
+) -> tuple[int, int]:
+    """Bring total workspace disk usage under the configured ceiling.
+
+    Returns ``(evicted_count, bytes_reclaimed)``.
+    """
+    return await asyncio.to_thread(
+        _sweep_to_budget,
+        MAX_WORKSPACE_BYTES if max_bytes is None else max_bytes,
+        active_job_ids or set(),
     )
 
 

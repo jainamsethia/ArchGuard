@@ -155,7 +155,7 @@ class JobManager:
         Acquires the semaphore to limit concurrent analyses.
         """
         from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
-        from archguard.dashboard.workspace import temp_workspace
+        from archguard.dashboard.workspace import enforce_workspace_budget, temp_workspace
         from archguard.observability.logger import correlation_id_var
 
         # asyncio.create_task copies the caller's context, so without this the
@@ -174,6 +174,27 @@ class JobManager:
             try:
                 # -- Clone phase ----------------------------------------
                 job.status = JobStatus.CLONING
+
+                # Reclaim disk before adding to it. Only jobs that are still
+                # running are protected: a finished job's clone is a cache for
+                # browsing results, and the read endpoints already fall back to
+                # the persisted run once it is gone.
+                running = {
+                    j.id
+                    for j in self.list_jobs()
+                    if j.status
+                    in (JobStatus.QUEUED, JobStatus.CLONING, JobStatus.ANALYSING)
+                }
+                evicted, reclaimed = await enforce_workspace_budget(
+                    active_job_ids=running
+                )
+                if evicted:
+                    logger.info(
+                        "Evicted %d workspace(s) reclaiming %d bytes before cloning",
+                        evicted,
+                        reclaimed,
+                    )
+
                 await send_progress(f"Cloning {job.github_url}...")
 
                 # Reconstruct safe URL from validated parts - never clone raw user input
