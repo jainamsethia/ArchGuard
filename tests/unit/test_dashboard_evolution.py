@@ -42,9 +42,9 @@ def mock_audit_logger_empty():
 
 def test_api_evolution_summary(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._rate_limit import RATE_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    RATE_LIMITS.clear()
+    reset_rate_limits()
 
     response = client.get("/api/evolution/summary")
     assert response.status_code == 200
@@ -57,9 +57,9 @@ def test_api_evolution_summary(mock_audit_logger, monkeypatch):
 
 def test_api_evolution_history(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._rate_limit import RATE_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    RATE_LIMITS.clear()
+    reset_rate_limits()
 
     response = client.get("/api/evolution/history")
     assert response.status_code == 200
@@ -71,9 +71,9 @@ def test_api_evolution_history(mock_audit_logger, monkeypatch):
 
 def test_api_evolution_trends(mock_audit_logger, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._rate_limit import RATE_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    RATE_LIMITS.clear()
+    reset_rate_limits()
 
     response = client.get("/api/evolution/trends")
     assert response.status_code == 200
@@ -86,9 +86,9 @@ def test_api_evolution_trends(mock_audit_logger, monkeypatch):
 
 def test_api_evolution_empty(mock_audit_logger_empty, monkeypatch):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._rate_limit import RATE_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    RATE_LIMITS.clear()
+    reset_rate_limits()
 
     response = client.get("/api/evolution/summary")
     assert response.status_code == 200

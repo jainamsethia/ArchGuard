@@ -9,7 +9,6 @@ def test_rate_limiter_calls_real_client_ip_not_request_client_host():
     """Regression for HIGH-01: rate_limiter must call _real_client_ip(), not request.client.host."""
     # Arrange
     with patch("archguard.dashboard._rate_limit._real_client_ip", return_value="1.2.3.4") as mock_rci, \
-         patch("archguard.dashboard._rate_limit.RATE_LIMITS", {}), \
          patch("archguard.dashboard._rate_limit.RATE_LIMIT_WINDOW", 60), \
          patch("archguard.dashboard._rate_limit.RATE_LIMIT_MAX_REQUESTS", 100):
         req = MagicMock(spec=Request)

@@ -126,9 +126,9 @@ def test_evolution_endpoint():
 def test_advisor_ask_stream_endpoint_exists():
     """POST /api/v1/advisor/ask must exist and return 200 (even without API key)."""
     # With no GEMINI_API_KEY set, ask_stream() yields a single error chunk.
-    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    _LLM_LIMITS.clear()
+    reset_rate_limits()
     saved = os.environ.pop("GEMINI_API_KEY", None)
     try:
         response = client.post(
@@ -143,9 +143,9 @@ def test_advisor_ask_stream_endpoint_exists():
 
 def test_advisor_ask_stream_content_type():
     """POST /api/v1/advisor/ask must return text/event-stream content type."""
-    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    _LLM_LIMITS.clear()
+    reset_rate_limits()
     saved = os.environ.pop("GEMINI_API_KEY", None)
     try:
         response = client.post(
@@ -165,9 +165,9 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
     Pins the provider story: the Advisor streams via Gemini, so the
     missing-key message must name GEMINI_API_KEY.
     """
-    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    _LLM_LIMITS.clear()
+    reset_rate_limits()
     saved_key = os.environ.pop("GEMINI_API_KEY", None)
     saved_legacy = os.environ.pop("OPENAI_API_KEY", None)
     # This test pins the *missing key* message. CI sets ARCHGUARD_MOCK_LLM=1,
@@ -196,9 +196,9 @@ def test_advisor_ask_stream_no_key_yields_error_chunk():
 
 def test_advisor_ask_stream_empty_question_rejected():
     """POST /api/v1/advisor/ask with empty question must return 422."""
-    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    _LLM_LIMITS.clear()
+    reset_rate_limits()
     response = client.post(
         "/api/v1/advisor/ask",
         json={"question": "   "},
@@ -208,9 +208,9 @@ def test_advisor_ask_stream_empty_question_rejected():
 
 def test_advisor_ask_stream_missing_question_rejected():
     """POST /api/v1/advisor/ask with no question field must return 422."""
-    from archguard.dashboard._rate_limit import _LLM_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    _LLM_LIMITS.clear()
+    reset_rate_limits()
     response = client.post(
         "/api/v1/advisor/ask",
         json={},

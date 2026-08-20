@@ -116,19 +116,39 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     except Exception as exc:
         _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
 
-    # Multi-instance guard - document the in-memory state constraint at startup
-    _startup_logger.warning(
-        "ArchGuard dashboard uses in-memory job/session/rate-limit state. "
-        "Multi-instance deployments (load balancers, autoscaling) will lose "
-        "state across instances. Enable Redis (MOD-001) for multi-instance support."
-    )
+    # State that is still process-local, named precisely. A blanket warning
+    # that stayed constant while the facts changed under it is worse than none:
+    # rate limits and the evolution cache now live in Redis when it is
+    # configured, and saying otherwise trains operators to ignore this line.
+    from archguard.redis_client import is_configured as _redis_configured
+
+    still_local = ["analysis jobs", "login sessions"]
+    if not _redis_configured():
+        still_local += ["rate limits", "evolution cache"]
+        _startup_logger.warning(
+            "REDIS_URL is not set. %s are kept in this process only: they are "
+            "lost on restart and not shared between instances.",
+            ", ".join(still_local).capitalize(),
+        )
+    else:
+        _startup_logger.warning(
+            "%s are still held in this process and are lost on restart. "
+            "Running more than one instance will not share them.",
+            ", ".join(still_local).capitalize(),
+        )
 
     _startup_logger.info("Dashboard ready.")
     yield
     if task:
         task.cancel()
 
+    # Release the connection pools before the loop closes. Without this the
+    # engine's sockets are torn down by garbage collection at interpreter exit,
+    # which surfaces as "Event loop is closed" noise on every restart.
     from archguard.dashboard.job_manager import job_manager
+    from archguard.db.session import dispose_engine
+    from archguard.redis_client import close_redis
+
     cancelled = await job_manager.cancel_all_running(timeout=5.0)
     if cancelled:
         _startup_logger.warning(
@@ -136,6 +156,12 @@ async def _lifespan(app_instance: FastAPI) -> Any:
             "will be swept by the next startup's stale-workspace cleanup.",
             cancelled,
         )
+
+    try:
+        await dispose_engine()
+        close_redis()
+    except Exception as exc:
+        _startup_logger.warning("Error releasing datastore connections: %s", exc)
 
     _startup_logger.info("ArchGuard Dashboard shutting down.")
 

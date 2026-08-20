@@ -1,5 +1,6 @@
 """Git-history evolution analysis endpoints."""
 
+import json
 import logging
 import threading
 from typing import Any
@@ -139,7 +140,55 @@ def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: J
 # -----------------------------------------------------------------------------
 
 _EVO_LOCK = threading.Lock()
-_EVO_CACHE: dict[str, Any] = {}
+
+#: Last completed git-history report, per job.
+#:
+#: Was an unbounded module-level dict (D5): nothing ever evicted from it, each
+#: entry holds up to 100 commit snapshots, and it was lost on restart anyway.
+#: Redis gives it both a bound and durability; the in-process fallback keeps a
+#: hard cap so the leak cannot come back when Redis is absent.
+_EVO_TTL_SECONDS = 3600
+_EVO_LOCAL_MAX = 100
+_EVO_LOCAL: dict[str, Any] = {}
+
+
+def _evo_key(job_id: str | None) -> str:
+    return f"evolution:{job_id or '_no_job_id'}"
+
+
+def _evo_store(job_id: str | None, report: dict[str, Any]) -> None:
+    from archguard.redis_client import get_redis
+
+    key = _evo_key(job_id)
+    client = get_redis()
+    if client is not None:
+        try:
+            # set(ex=) rather than setex(): redis-py deprecated the latter in 2.6.
+            client.set(key, json.dumps(report, default=str), ex=_EVO_TTL_SECONDS)
+            return
+        except Exception as exc:
+            logger.warning("Could not cache evolution report in Redis: %s", exc)
+    with _EVO_LOCK:
+        if len(_EVO_LOCAL) >= _EVO_LOCAL_MAX:
+            _EVO_LOCAL.pop(next(iter(_EVO_LOCAL)))
+        _EVO_LOCAL[key] = report
+
+
+def _evo_load(job_id: str | None) -> dict[str, Any] | None:
+    from archguard.redis_client import get_redis
+
+    key = _evo_key(job_id)
+    client = get_redis()
+    if client is not None:
+        try:
+            raw = client.get(key)
+            if raw is not None:
+                loaded: dict[str, Any] = json.loads(raw)
+                return loaded
+        except Exception as exc:
+            logger.warning("Could not read evolution report from Redis: %s", exc)
+    with _EVO_LOCK:
+        return _EVO_LOCAL.get(key)
 
 
 class EvolutionAnalyzeRequest(BaseModel):
@@ -230,9 +279,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
             "failure_reason": report.failure_summary,
         }
 
-        with _EVO_LOCK:
-            cache_key = job_id or "_no_job_id"
-            _EVO_CACHE[cache_key] = result
+        _evo_store(job_id, result)
 
         return result
     except Exception as exc:
@@ -248,8 +295,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
 )
 def get_latest_evolution(job_id: JobIdQuery = None) -> Any:
     """Get the latest completed architecture evolution report."""
-    with _EVO_LOCK:
-        cache_key = job_id or "_no_job_id"
-        if cache_key in _EVO_CACHE:
-            return _EVO_CACHE[cache_key]
+    cached = _evo_load(job_id)
+    if cached is not None:
+        return cached
     return {"available": False}

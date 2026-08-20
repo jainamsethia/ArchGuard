@@ -17,5 +17,5 @@ def reset_rate_limit_state() -> None:
         from archguard.dashboard import _rate_limit
     except ImportError:  # dashboard extra not installed
         return
-    _rate_limit.RATE_LIMITS.clear()
-    _rate_limit._LLM_LIMITS.clear()
+    _rate_limit.reset_rate_limits()
+    _rate_limit.reset_rate_limits()

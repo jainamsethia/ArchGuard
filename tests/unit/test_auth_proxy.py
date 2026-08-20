@@ -9,9 +9,9 @@ from archguard.dashboard.app import app
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
-    from archguard.dashboard._rate_limit import RATE_LIMITS
+    from archguard.dashboard._rate_limit import reset_rate_limits
 
-    RATE_LIMITS.clear()
+    reset_rate_limits()
     return TestClient(app)
 
 
