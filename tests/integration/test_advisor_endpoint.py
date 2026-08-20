@@ -1,5 +1,7 @@
 import os
+
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
 
 client = TestClient(app)
@@ -61,12 +63,11 @@ def test_deps_endpoint_success(monkeypatch):
     get_target_path resolves it, and mocks analyze_dependencies at the
     subprocess level to avoid requiring pip-audit in the test environment.
     """
-    import uuid
-    import tempfile
     import json
     import shutil
+    import tempfile
+    import uuid
     from pathlib import Path
-    from unittest.mock import patch
 
     job_id = str(uuid.uuid4())
     workspace = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"

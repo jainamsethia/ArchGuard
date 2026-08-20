@@ -1,11 +1,11 @@
 import asyncio
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from archguard.dashboard.job_manager import JobManager, JobStatus
+
 
 @pytest.fixture
 def manager():
@@ -20,7 +20,7 @@ async def test_concurrent_semaphore_creation_yields_single_instance() -> None:
     instance with the correct concurrency limit — not multiple competing
     instances.
     """
-    from archguard.dashboard.job_manager import JobManager, MAX_CONCURRENT_ANALYSES
+    from archguard.dashboard.job_manager import MAX_CONCURRENT_ANALYSES, JobManager
 
     manager = JobManager()
 
@@ -80,7 +80,7 @@ async def test_run_job_success_lifecycle(manager):
     from archguard.dashboard.pipeline_adapter import AnalysisJobResult
     job = manager.create_job("https://github.com/owner/repo")
     assert job.status == JobStatus.QUEUED
-    
+
     mock_result = AnalysisJobResult(
         job_id="dummy",
         repo_url="dummy",
@@ -93,18 +93,18 @@ async def test_run_job_success_lifecycle(manager):
         error=None,
         layer_results=[]
     )
-    
+
     from contextlib import asynccontextmanager
-    
+
     @asynccontextmanager
     async def mock_ctx(url, branch="HEAD"):
         yield Path("/tmp/fake-repo")
 
     with patch("archguard.dashboard.workspace.temp_workspace", side_effect=lambda url, **kw: mock_ctx(url)) as mock_ws, \
          patch("archguard.dashboard.pipeline_adapter.run_analysis_on_repo", return_value=mock_result) as mock_analysis:
-        
+
         await manager.run_job(job)
-        
+
         assert job.status == JobStatus.COMPLETE
         assert job.result is mock_result
         assert job.completed_at is not None
@@ -113,10 +113,10 @@ async def test_run_job_success_lifecycle(manager):
 async def test_run_job_failed_on_timeout(manager):
     """TimeoutError → job.status = FAILED with error message."""
     job = manager.create_job("https://github.com/owner/repo")
-    
+
     with patch("archguard.dashboard.workspace.temp_workspace", side_effect=TimeoutError("clone timed out")):
         await manager.run_job(job)
-        
+
     assert job.status == JobStatus.FAILED
     assert "timed out" in job.error
 
@@ -126,9 +126,9 @@ async def test_semaphore_limits_concurrency(manager):
     from archguard.dashboard.job_manager import MAX_CONCURRENT_ANALYSES
     concurrent_count = 0
     max_seen = 0
-    
+
     from contextlib import asynccontextmanager
-    
+
     @asynccontextmanager
     async def slow_job(*args, **kwargs):
         nonlocal concurrent_count, max_seen
@@ -139,16 +139,16 @@ async def test_semaphore_limits_concurrency(manager):
         concurrent_count -= 1
 
     jobs = [manager.create_job(f"https://github.com/x/r{i}") for i in range(5)]
-    
+
     from archguard.dashboard.pipeline_adapter import AnalysisJobResult
     mock_res = AnalysisJobResult(job_id="x", repo_url="y", health_score=80.0, health_grade="B", composite_score=0.1, total_violations=0, duration_seconds=0.1, skipped=False, error=None, layer_results=[])
-    
+
     with patch("archguard.dashboard.workspace.temp_workspace", side_effect=slow_job), \
          patch("archguard.dashboard.pipeline_adapter.run_analysis_on_repo", return_value=mock_res):
-        
+
         tasks = [asyncio.create_task(manager.run_job(j)) for j in jobs]
         await asyncio.gather(*tasks)
-        
+
     assert max_seen <= MAX_CONCURRENT_ANALYSES
 
 
@@ -161,9 +161,10 @@ async def test_run_job_uses_safe_reconstructed_clone_url(monkeypatch) -> None:
     even when job.github_url contains a trailing slash or missing .git
     suffix that would previously have been hand-patched in run_job itself.
     """
-    from archguard.dashboard.job_manager import JobManager, AnalysisJob
     from contextlib import asynccontextmanager
     from pathlib import Path
+
+    from archguard.dashboard.job_manager import AnalysisJob, JobManager
 
     captured_clone_url = {}
 
@@ -196,7 +197,7 @@ async def test_run_job_rejects_malformed_github_url_safely() -> None:
     FAILED with a clear error rather than the malformed URL ever reaching
     a clone call.
     """
-    from archguard.dashboard.job_manager import JobManager, AnalysisJob, JobStatus
+    from archguard.dashboard.job_manager import AnalysisJob, JobManager, JobStatus
 
     manager = JobManager()
     job = AnalysisJob(github_url="not-a-valid-url-at-all")
@@ -208,6 +209,8 @@ async def test_run_job_rejects_malformed_github_url_safely() -> None:
     assert job.status == JobStatus.FAILED
     assert job.error is not None
     assert "Cannot parse GitHub URL" in job.error
+    # The message must not echo the submitted URL back into the page.
+    assert "not-a-valid-url-at-all" not in job.error
 
 @pytest.mark.asyncio
 async def test_shutdown_cancel_all_running(manager):

@@ -1,7 +1,5 @@
 """Regression test for CRIT-04: get_job_status must not crash when a token is set."""
-import os
 import pytest
-from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
 

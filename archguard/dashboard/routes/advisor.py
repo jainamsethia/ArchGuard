@@ -4,30 +4,20 @@ Both the analyze() path and the streaming ask endpoint now run on Gemini, so
 this module no longer straddles two providers."""
 
 import logging
-from typing import Any, Generator
-from pydantic import BaseModel, Field
+from collections.abc import Generator
+from typing import Any
+
 from fastapi import Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-
-from archguard.dashboard.app import app
-from archguard.dashboard._auth import check_token
-from archguard.dashboard._rate_limit import _llm_rate_limit
+from pydantic import BaseModel, Field
 
 from archguard.audit.logger import AuditLogger
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import _llm_rate_limit
+from archguard.dashboard.app import app
 from archguard.llm.advisor import ArchitectureAdvisor
 
-def _message_for_reason(reason: str) -> str:
-    if reason == "no_api_key":
-        return "AI Advisor is not configured. Please set GEMINI_API_KEY."
-    elif reason == "api_error":
-        return "AI Advisor is temporarily unavailable due to an API error."
-    return f"AI Advisor is unavailable: {reason}"
-
-MAX_HISTORY_TURNS = 20  # cap on conversation turns serialised into each LLM prompt
-
-# -----------------------------------------------------------------------------
-# Advisor session models
-# -----------------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 class AdvisorAskRequest(BaseModel):
@@ -149,7 +139,7 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
             for chunk in advisor.ask_stream(question=question, context=prompt_context):
                 yield _sse_event(chunk)
         except Exception as exc:  # pragma: no cover
-            logging.warning("advisor_ask_stream error: %s", exc)
+            logger.warning("advisor_ask_stream error: %s", exc)
             yield _sse_event(
                 "An internal error occurred while streaming. "
                 "Check server logs for details."

@@ -3,12 +3,15 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from fastapi import Path as FastAPIPath, Depends, Query, HTTPException
-from archguard.dashboard.app import app, get_audit_path, JobIdQuery
-from archguard.dashboard._auth import check_token
-from archguard.dashboard._rate_limit import rate_limiter
+
+from fastapi import Depends, HTTPException, Query
+from fastapi import Path as FastAPIPath
+
 from archguard.audit.logger import AuditLogger
 from archguard.config import AUDIT_LOG_FILENAME
+from archguard.dashboard._auth import check_token
+from archguard.dashboard._rate_limit import rate_limiter
+from archguard.dashboard.app import JobIdQuery, app, get_audit_path
 
 _logger = logging.getLogger(__name__)
 
@@ -75,7 +78,7 @@ def _with_plain_language(run: dict[str, Any], job_id: str | None = None) -> dict
         from archguard.dashboard._selection import select_findings, selection_summary
 
         out["remediation_selection"] = selection_summary(select_findings(run, job_id))
-    except Exception as exc:  # noqa: BLE001 - counts must never break the run view
+    except Exception as exc:
         _logger.warning("Could not compute remediation selection: %s", exc)
     return out
 
@@ -122,11 +125,11 @@ def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
     if cached is not None:
         return cached
 
-    from archguard.analysis.parser import ImportParser
-    from archguard.dashboard.app import get_target_path
-    from archguard.contract.loader import load_contract
     from archguard.analysis._orchestrator_utils import _get_module_paths
     from archguard.analysis.coupling import _assign_file_to_module
+    from archguard.analysis.parser import ImportParser
+    from archguard.contract.loader import load_contract
+    from archguard.dashboard.app import get_target_path
     from archguard.utils.paths import path_belongs_to_module
 
     try:
@@ -197,7 +200,7 @@ def get_modules(job_id: JobIdQuery = None) -> Any:
     for run in runs:
         for module, score in run.get("module_scores", {}).items():
             modules[module] = score  # latest score wins
-            
+
     edges = [
         {"from": e.importer_module, "to": e.imported_module}
         for e in get_import_edges(job_id)

@@ -4,30 +4,31 @@
 # modules (archguard.config, _cookie_auth) read os.environ at import time, so
 # hoisting these imports above it would silently ignore the operator's .env.
 
-import sys
 import asyncio
-import os
-import logging
-import time
 import importlib.metadata
+import logging
+import os
 import secrets
+import sys
+import time
 import uuid
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from archguard.dashboard._auth import _real_client_ip
-from pathlib import Path
-from typing import Any, Annotated
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Request, Query, HTTPException, Form, Response, Depends
 import re as _re
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated, Any
+
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from archguard.config import AUDIT_LOG_FILENAME
+from archguard.dashboard._auth import _real_client_ip
 from archguard.dashboard._rate_limit import rate_limiter
 
 if sys.platform == "win32":
@@ -45,6 +46,7 @@ _startup_logger = logging.getLogger("archguard.startup")
 async def _periodic_workspace_cleanup() -> None:
     """Remove stale workspaces every 15 minutes as defense-in-depth for crash scenarios."""
     import asyncio as _asyncio
+
     from archguard.dashboard.workspace import cleanup_stale_workspaces
     while True:
         await _asyncio.sleep(900)  # 15 minutes
@@ -117,7 +119,7 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     yield
     if task:
         task.cancel()
-        
+
     from archguard.dashboard.job_manager import job_manager
     cancelled = await job_manager.cancel_all_running(timeout=5.0)
     if cancelled:
@@ -126,7 +128,7 @@ async def _lifespan(app_instance: FastAPI) -> Any:
             "will be swept by the next startup's stale-workspace cleanup.",
             cancelled,
         )
-        
+
     _startup_logger.info("ArchGuard Dashboard shutting down.")
 
 app = FastAPI(
@@ -147,7 +149,7 @@ async def _limit_body_size(request: Request, call_next: Any) -> Any:
             status_code=413,
             content={"error": "Request body too large (max 1 MB)"},
         )
-    
+
     # A lying or absent Content-Length must not get a free pass, so also cap at
     # read time. Stop feeding the body and flag it once the cap is crossed: the
     # route's own body parsing turns the truncated stream into its own error
@@ -251,7 +253,7 @@ async def _security_headers(request: Request, call_next: Any) -> Any:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    
+
     if os.environ.get("ENVIRONMENT") == "production":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
@@ -261,8 +263,14 @@ _exc_logger = logging.getLogger("archguard.exceptions")
 
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    _exc_logger.exception(
-        "Unhandled exception on %s %s", request.method, request.url.path
+    # exc_info=exc, not .exception(): this handler runs outside the `except`
+    # block that caught the error, so sys.exc_info() is not guaranteed to still
+    # hold it -- and a 500 logged without its traceback is close to useless.
+    _exc_logger.error(
+        "Unhandled exception on %s %s",
+        request.method,
+        request.url.path,
+        exc_info=exc,
     )
     return JSONResponse(
         status_code=500,
@@ -313,9 +321,17 @@ def get_audit_path(job_id: str | None = None) -> Path:
 # All new routes MUST use the /api/v1/ prefix.
 # Existing /api/ routes are maintained for backward compatibility.
 # A future migration to /api/v1/ for all routes will include redirect aliases.
-from archguard.dashboard.routes import advisor, evolution, jobs, remediation, runs, suppression, risk  # noqa: E402, F401
+from fastapi.templating import Jinja2Templates
 
-from fastapi.templating import Jinja2Templates  # noqa: E402
+from archguard.dashboard.routes import (  # noqa: F401
+    advisor,
+    evolution,
+    jobs,
+    remediation,
+    risk,
+    runs,
+    suppression,
+)
 
 _templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -335,15 +351,16 @@ async def serve_dashboard(request: Request) -> Response:
         {"csp_nonce": getattr(request.state, "csp_nonce", "")}
     )
 
-from archguard.dashboard._cookie_auth import issue_session, revoke_session, COOKIE_NAME as _COOKIE_NAME  # noqa: E402
+from archguard.dashboard._cookie_auth import COOKIE_NAME as _COOKIE_NAME
+from archguard.dashboard._cookie_auth import issue_session, revoke_session
 
 
 @app.post("/api/v1/auth/login", include_in_schema=False, dependencies=[Depends(rate_limiter)])
 @app.post("/api/auth/login", include_in_schema=False, deprecated=True, dependencies=[Depends(rate_limiter)])
 async def login(response: Response, token: str = Form(...)) -> dict[str, bool]:
     """Exchange the dashboard token for a session cookie."""
-    import os as _os
     import hmac as _hmac
+    import os as _os
     stored = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
     if not stored or not _hmac.compare_digest(token, stored):
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -379,6 +396,7 @@ async def auth_status(request: Request) -> dict[str, bool]:
     This endpoint intentionally bypasses check_token so it is always reachable.
     """
     import os as _os
+
     from archguard.dashboard._cookie_auth import validate_session_cookie
     stored = _os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
     token_required = bool(stored)

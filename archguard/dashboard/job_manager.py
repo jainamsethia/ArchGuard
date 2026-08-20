@@ -8,12 +8,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
-from archguard.dashboard.routes.jobs import parse_github_url, build_safe_clone_url
+from archguard.dashboard.routes.jobs import build_safe_clone_url, parse_github_url
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,45 @@ class AnalysisJob:
     github_url: str = ""
     status: JobStatus = JobStatus.QUEUED
     progress_messages: list[str] = field(default_factory=list)
-    result: Any = None           
+    result: Any = None
     error: str | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     completed_at: datetime | None = None
     _cached_result_dict: dict | None = field(default=None, repr=False)  # type: ignore[type-arg]
+
+def _merge_run_into_global_log(job: AnalysisJob, repo_path: Path) -> None:
+    """Copy this job's newest analysis run into the server-wide dashboard log.
+
+    Blocking; call via ``asyncio.to_thread``. Never raises -- a failure here
+    costs the run its place in the cross-repository history, not the analysis.
+    """
+    import json
+
+    from archguard.audit.logger import read_last_run
+    from archguard.dashboard.app import get_audit_path
+
+    source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
+    if not source_runs.exists():
+        return
+    try:
+        # read_last_run filters on the analysis_run event. Taking the literal
+        # last line instead (the previous behaviour) copied whichever entry
+        # happened to be written most recently -- a dependency scan or a
+        # skip record -- into the run history as though it were a run.
+        last_run = read_last_run(source_runs)
+        if last_run is None:
+            return
+        last_run["project_name"] = job.github_url.rstrip("/").split("/")[-1].removesuffix(".git")
+        last_run["repo_url"] = job.github_url
+        last_run["job_id"] = job.id
+
+        global_runs = get_audit_path()
+        global_runs.parent.mkdir(parents=True, exist_ok=True)
+        with open(global_runs, "a", encoding="utf-8") as f_dest:
+            f_dest.write(json.dumps(last_run, default=str) + "\n")
+    except Exception:
+        logger.exception("Failed to copy run %s to the global dashboard log", job.id)
+
 
 class JobManager:
     """Thread-safe in-memory job store with asyncio background execution.
@@ -55,7 +90,7 @@ class JobManager:
         self._semaphore: asyncio.Semaphore | None = None
         self._semaphore_lock: asyncio.Lock | None = None
 
-    def track_task(self, job_id: str, task: "asyncio.Task[None]") -> None:
+    def track_task(self, job_id: str, task: asyncio.Task[None]) -> None:
         """Record the running task for a job so it can be cancelled on shutdown."""
         self._tasks[job_id] = task
         task.add_done_callback(lambda _t: self._tasks.pop(job_id, None))
@@ -96,8 +131,8 @@ class JobManager:
                 del self._jobs[oldest_id]
                 logger.debug("Evicted old job %s", oldest_id)
                 # Immediately reclaim disk space
-                import tempfile
                 import shutil
+                import tempfile
                 from pathlib import Path
                 workspace_dir = Path(tempfile.gettempdir()) / f"archguard-{oldest_id}"
                 if workspace_dir.exists():
@@ -115,15 +150,15 @@ class JobManager:
 
     async def run_job(self, job: AnalysisJob) -> None:
         """Execute the full clone + analysis pipeline for a job.
-        
+
         Call via asyncio.create_task() or FastAPI BackgroundTasks.
         Acquires the semaphore to limit concurrent analyses.
         """
-        from archguard.dashboard.workspace import temp_workspace
         from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
+        from archguard.dashboard.workspace import temp_workspace
 
         async def send_progress(msg: str) -> None:
-            job.progress_messages.append(f"[{datetime.now(timezone.utc).strftime('%H:%M:%S')}] {msg}")
+            job.progress_messages.append(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {msg}")
             logger.debug("[job %s] %s", job.id, msg)
 
         semaphore = await self._ensure_semaphore()
@@ -151,28 +186,16 @@ class JobManager:
                     )
 
                     # -- Merge temporary run into global dashboard ------
-                    from archguard.dashboard.app import get_audit_path
-                    import json
-                    source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
-                    if source_runs.exists():
-                        global_runs = get_audit_path()
-                        global_runs.parent.mkdir(parents=True, exist_ok=True)
-                        with open(source_runs, "r", encoding="utf-8") as f_src:
-                            lines = [line for line in f_src if line.strip()]
-                            if lines:
-                                try:
-                                    last_run = json.loads(lines[-1])
-                                    last_run["project_name"] = job.github_url.split("/")[-1].replace(".git", "")
-                                    last_run["repo_url"] = job.github_url
-                                    last_run["job_id"] = job.id
-                                    with open(global_runs, "a", encoding="utf-8") as f_dest:
-                                        f_dest.write(json.dumps(last_run) + "\n")
-                                except Exception as e:
-                                    logger.error("Failed to copy run to global dashboard: %s", e)
+                    # Off the event loop: the per-job log is small but the
+                    # global one is capped at 10 MB, and reading/appending it
+                    # inline stalled every other request on the server.
+                    await asyncio.to_thread(
+                        _merge_run_into_global_log, job, repo_path
+                    )
 
                     job.result = result
                     job.status = JobStatus.COMPLETE
-                    job.completed_at = datetime.now(timezone.utc)
+                    job.completed_at = datetime.now(UTC)
                     job._cached_result_dict = asdict(job.result)
                     await send_progress(
                         f"Done. Health: {result.health_score:.1f}/100 "
@@ -184,17 +207,41 @@ class JobManager:
             except TimeoutError as exc:
                 job.status = JobStatus.FAILED
                 job.error = str(exc)
-                job.completed_at = datetime.now(timezone.utc)
-                logger.error("[job %s] Clone timeout: %s", job.id, exc)
+                job.completed_at = datetime.now(UTC)
+                logger.exception("[job %s] Clone timeout: %s", job.id, exc)
+
+            except ValueError:
+                # parse_github_url. A user input error, so say what is wrong --
+                # but without echoing the input back into the page.
+                job.status = JobStatus.FAILED
+                job.error = (
+                    "Cannot parse GitHub URL. "
+                    "Expected format: https://github.com/owner/repo"
+                )
+                job.completed_at = datetime.now(UTC)
+                logger.warning("[job %s] Malformed GitHub URL rejected", job.id)
 
             except Exception as exc:
                 job.status = JobStatus.FAILED
-                err_msg = str(exc)
-                if "git clone failed" in err_msg.lower() or getattr(exc, "returncode", None) is not None:
-                    err_msg = "Repository cloning failed. Ensure the URL is correct, public, and reachable."
-                job.error = err_msg
-                job.completed_at = datetime.now(timezone.utc)
-                logger.exception("[job %s] Unexpected failure (orig: %s)", job.id, str(exc))
+                # job.error is rendered verbatim in the browser. Only messages
+                # this code composed are safe to put there; an arbitrary
+                # exception string carries server filesystem paths, temp
+                # directory names and internal module structure.
+                if (
+                    "git clone failed" in str(exc).lower()
+                    or getattr(exc, "returncode", None) is not None
+                ):
+                    job.error = (
+                        "Repository cloning failed. Ensure the URL is correct, "
+                        "public, and reachable."
+                    )
+                else:
+                    job.error = (
+                        "Analysis failed unexpectedly. The server logs record "
+                        f"the cause under job {job.id}."
+                    )
+                job.completed_at = datetime.now(UTC)
+                logger.exception("[job %s] Unexpected failure", job.id)
 
 
 # Module-level singleton - imported by routes

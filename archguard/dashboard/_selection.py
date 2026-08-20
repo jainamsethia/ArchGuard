@@ -40,7 +40,7 @@ def select_findings(run: dict[str, Any], job_id: str | None) -> Selection:
     """
     try:
         store = _suppression_store_for(job_id)
-    except Exception as exc:  # noqa: BLE001 - suppression must never block a plan
+    except Exception as exc:
         logger.warning("Suppression store unavailable (%s); ranking without it.", exc)
         store = None
 

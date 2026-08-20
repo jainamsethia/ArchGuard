@@ -1,14 +1,14 @@
-import asyncio
-from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import patch
+
 import pytest
 
 from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
 
+
 def _mock_analysis_result():
     """Build a minimal mock AnalysisResult."""
-    from archguard.analysis.scoring import ArchDebtResult, LayerScores, ArchDebtBand
     from archguard.analysis._models import AnalysisResult
+    from archguard.analysis.scoring import ArchDebtBand, ArchDebtResult, LayerScores
 
     scores = LayerScores(0.1, 0.2, 0.1, 0.05)
     debt = ArchDebtResult(
@@ -60,15 +60,24 @@ async def test_run_analysis_skips_contract_generation_if_exists(tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_analysis_handles_orchestrator_exception(tmp_path):
-    """Orchestrator exception → result.error is set; no exception propagates."""
+    """Orchestrator exception → result.error is set; no exception propagates.
+
+    The error string is rendered in the browser, so it must be one this module
+    composed. Leaking ``str(exc)`` exposed server paths and internal module
+    names to whoever submitted the repository.
+    """
     (tmp_path / ".archguard.yml").write_text("version: '3.0'\nmodules: []\n")
     (tmp_path / "module.py").write_text("# empty")
 
-    with patch("archguard.dashboard.pipeline_adapter._run_analysis_sync", side_effect=RuntimeError("analysis exploded")):
+    with patch(
+        "archguard.dashboard.pipeline_adapter._run_analysis_sync",
+        side_effect=RuntimeError("analysis exploded at C:/srv/secret/path.py"),
+    ):
         result = await run_analysis_on_repo(
             repo_path=tmp_path, job_id="test-3", repo_url="https://github.com/x/y"
         )
-        assert result.error == "analysis exploded"
+        assert result.error == "Analysis failed. See server logs for details."
+        assert "secret" not in (result.error or "")
         assert result.health_score == 0.0
         assert result.health_grade == "F"
 

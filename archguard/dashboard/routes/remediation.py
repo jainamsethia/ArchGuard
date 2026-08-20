@@ -2,12 +2,16 @@
 
 import logging
 from typing import Any
-from pydantic import BaseModel, Field
+
 from fastapi import Depends, Query
-from archguard.dashboard.app import app, get_audit_path
+from pydantic import BaseModel, Field
+
+from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import _llm_rate_limit
-from archguard.audit.logger import AuditLogger
+from archguard.dashboard.app import app, get_audit_path
+
+logger = logging.getLogger(__name__)
 
 
 class RemediationRequest(BaseModel):
@@ -55,7 +59,7 @@ async def remediation_plan(body: RemediationRequest) -> Any:
         return _mock_remediation_response(body.violations)
 
     from archguard.analysis.ranking import select_for_remediation
-    from archguard.llm.remediation import generate_remediation_plan, RemediationUnavailableError
+    from archguard.llm.remediation import RemediationUnavailableError, generate_remediation_plan
 
     # Rank and cap even when the caller supplies the list. Without this the LLM
     # receives whatever order the caller happened to send, and a LOW-severity
@@ -72,7 +76,7 @@ async def remediation_plan(body: RemediationRequest) -> Any:
     except RemediationUnavailableError as exc:
         return {"tasks": [], "error": str(exc)}
     except Exception as exc:
-        logging.warning("Remediation endpoint error: %s", exc)
+        logger.warning("Remediation endpoint error: %s", exc)
         return {"tasks": [], "error": "An unexpected error occurred generating the remediation plan."}
 
 
@@ -94,7 +98,7 @@ async def remediation_plan_from_audit(
     if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
         return _mock_remediation_response(f"Audit job_id={job_id}")
 
-    from archguard.llm.remediation import generate_remediation_plan, RemediationUnavailableError
+    from archguard.llm.remediation import RemediationUnavailableError, generate_remediation_plan
 
     audit = AuditLogger(get_audit_path(job_id))
     if job_id:
@@ -118,5 +122,5 @@ async def remediation_plan_from_audit(
     except RemediationUnavailableError as exc:
         return {"tasks": [], "error": str(exc)}
     except Exception as exc:
-        logging.warning("Remediation endpoint error: %s", exc)
+        logger.warning("Remediation endpoint error: %s", exc)
         return {"tasks": [], "error": "An unexpected error occurred generating the remediation plan."}

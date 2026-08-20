@@ -1,12 +1,14 @@
 import logging
-from typing import Any
+from datetime import UTC
 from pathlib import Path
+from typing import Any
+
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from archguard.dashboard.app import app, JobIdQuery
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
+from archguard.dashboard.app import JobIdQuery, app
 from archguard.suppression.store import SuppressionStore
 
 
@@ -27,17 +29,17 @@ def repo_url_for_job(job_id: str | None) -> str | None:
         job = job_manager.get_job(job_id)
         if job is not None and job.github_url:
             return str(job.github_url)
-    except Exception as exc:  # noqa: BLE001 - fall through to the durable source
+    except Exception as exc:
         logging.getLogger(__name__).debug("Job lookup failed for %s: %s", job_id, exc)
 
     try:
-        from archguard.dashboard.app import get_audit_path
         from archguard.audit.logger import AuditLogger
+        from archguard.dashboard.app import get_audit_path
 
         for run in reversed(AuditLogger(get_audit_path(job_id)).read_last_n_runs(n=200)):
             if run.get("job_id") == job_id and run.get("repo_url"):
                 return str(run["repo_url"])
-    except Exception as exc:  # noqa: BLE001 - absence is handled by the caller
+    except Exception as exc:
         logging.getLogger(__name__).debug("Audit lookup failed for %s: %s", job_id, exc)
 
     return None
@@ -101,8 +103,8 @@ def add_suppression(req: AddSuppressionRequest, job_id: JobIdQuery = None) -> An
 
     expires_at = None
     if req.expires_in_days:
-        from datetime import datetime, timedelta, timezone
-        expires_at = (datetime.now(timezone.utc) + timedelta(days=req.expires_in_days)).isoformat()
+        from datetime import datetime, timedelta
+        expires_at = (datetime.now(UTC) + timedelta(days=req.expires_in_days)).isoformat()
 
     try:
         store.add(

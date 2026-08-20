@@ -8,21 +8,16 @@ Covers:
 
 from __future__ import annotations
 
+# ── cleanup_stale_workspaces ────────────────────────────────────────────────
+import asyncio
 import os
-import time
 import tempfile
+import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
 from archguard.dashboard.workspace import cleanup_stale_workspaces
-
-
-# ── cleanup_stale_workspaces ────────────────────────────────────────────────
-
-
-import asyncio
 
 
 def _cleanup(max_age_seconds=3600):
@@ -128,9 +123,9 @@ def test_cleanup_without_active_ids_still_reaps_everything_stale():
 
 def test_get_target_path_with_valid_job_id(tmp_path):
     """get_target_path returns workspace path when directory exists."""
-    from archguard.dashboard.app import get_target_path
-
     import uuid
+
+    from archguard.dashboard.app import get_target_path
     job_id = str(uuid.uuid4())
     workspace = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -152,8 +147,9 @@ def test_get_target_path_without_job_id():
 
 def test_get_target_path_invalid_uuid_rejected():
     """get_target_path raises 400 for malformed job_id strings."""
-    from archguard.dashboard.app import get_target_path
     from fastapi import HTTPException
+
+    from archguard.dashboard.app import get_target_path
 
     with pytest.raises(HTTPException) as excinfo:
         get_target_path("../../../etc/passwd")

@@ -1,7 +1,7 @@
-import os
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
-import pytest
+
 
 def test_get_job_status_bearer_auth(monkeypatch):
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "test-token-123")

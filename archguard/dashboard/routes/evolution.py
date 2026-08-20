@@ -3,13 +3,16 @@
 import logging
 import threading
 from typing import Any
+
+from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from fastapi import Depends, Query, HTTPException
-from archguard.dashboard.app import app, get_audit_path, JobIdQuery
+
+from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.audit.logger import AuditLogger
+from archguard.dashboard.app import JobIdQuery, app, get_audit_path
 
+logger = logging.getLogger(__name__)
 
 MIN_RUNS_FOR_HISTORY = 2
 
@@ -36,7 +39,7 @@ def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], str | 
         from archguard.dashboard.routes.suppression import repo_url_for_job
 
         repo_url = repo_url_for_job(job_id)
-    except Exception:  # noqa: BLE001 - scoping is best-effort, never fatal
+    except Exception:
         repo_url = None
 
     if repo_url:
@@ -151,8 +154,8 @@ class EvolutionAnalyzeRequest(BaseModel):
 )
 def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
-    from archguard.evolution.tracker import ArchitectureEvolutionTracker
     from archguard.dashboard.app import get_target_path
+    from archguard.evolution.tracker import ArchitectureEvolutionTracker
 
     try:
         target = get_target_path(job_id)
@@ -186,7 +189,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
         # worktree checked out at an old commit has no .archguard.yml.
         if report.all_failed:
             reason = report.failure_summary
-            logging.warning(
+            logger.warning(
                 "Git-history analysis measured nothing: %d/%d commits failed (%s)",
                 report.failure_count, report.commits_attempted, reason,
             )
@@ -233,7 +236,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
 
         return result
     except Exception as exc:
-        logging.error("Evolution analysis failed: %s", exc)
+        logger.exception("Evolution analysis failed: %s", exc)
         return {"error": "analysis_failed", "message": "Could not analyze git history.", "snapshots": [], "commits_analyzed": 0}
 
 

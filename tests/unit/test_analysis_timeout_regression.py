@@ -1,8 +1,9 @@
-import asyncio
-from pathlib import Path
-import pytest
 from unittest.mock import patch
-from archguard.dashboard.pipeline_adapter import run_analysis_on_repo, AnalysisJobResult
+
+import pytest
+
+from archguard.dashboard.pipeline_adapter import AnalysisJobResult, run_analysis_on_repo
+
 
 @pytest.mark.asyncio
 async def test_analysis_timeout(tmp_path):
@@ -10,7 +11,6 @@ async def test_analysis_timeout(tmp_path):
     def mock_run_analysis_sync(*args, **kwargs):
         import time
         time.sleep(2)
-        return None
 
     # Patch the timeout value to be very short
     with patch("archguard.dashboard.pipeline_adapter.ANALYSIS_TIMEOUT_SECONDS", 0.5):
@@ -19,7 +19,7 @@ async def test_analysis_timeout(tmp_path):
             (repo_path / "dummy.py").touch()
             # Run the analysis
             result = await run_analysis_on_repo(repo_path, "test_job", "http://dummy")
-            
+
             assert isinstance(result, AnalysisJobResult)
             # Should have an error because of the timeout
             assert result.error is not None

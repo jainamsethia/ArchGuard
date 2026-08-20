@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-import os
-from typing import Awaitable, Callable, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +86,24 @@ def _dashboard_suppression_path(repo_url: str) -> Path | None:
         from archguard.suppression.scope import suppression_path_for_repo
 
         return suppression_path_for_repo(suppression_base_dir(), repo_url)
-    except Exception as exc:  # noqa: BLE001 - never block analysis on this
+    except Exception as exc:
         logger.warning(
             "Could not resolve suppression store for %s (%s); "
             "suppressions will not be applied to this run.", repo_url, exc,
         )
         return None
+
+
+def _collect_python_files(repo_path: Path) -> list[Path]:
+    """Every analysable ``.py`` file in the clone. Blocking; run in a thread."""
+    from archguard.utils.paths import is_vendored
+
+    return [
+        f
+        for f in repo_path.rglob("*.py")
+        if not is_vendored(f, repo_path)
+        and not any(part.startswith(".") for part in f.relative_to(repo_path).parts)
+    ]
 
 
 def _log_skip_or_error(job_id: str, repo_path: Path, reason: str) -> None:
@@ -151,22 +164,24 @@ async def run_analysis_on_repo(
 
             import yaml
             if archguard_yml.exists():
-                with open(archguard_yml, "r", encoding="utf-8") as f:
-                    try:
-                        yml_content = yaml.safe_load(f)
-                        if isinstance(yml_content, dict):
-                            gen_by = str(yml_content.get("generated_by", ""))
-                            if "fallback" in gen_by:
-                                fallback_heuristic = True
-                                fallback_reason = gen_by
-                    except yaml.YAMLError as yaml_exc:
-                        # Don't swallow this: failing to read generated_by is
-                        # exactly how a heuristic-fallback run gets reported as
-                        # a measured one.
-                        logger.warning(
-                            "[job %s] Could not parse generated contract to detect "
-                            "heuristic fallback: %s", job_id, yaml_exc,
-                        )
+                try:
+                    raw = await asyncio.to_thread(
+                        archguard_yml.read_text, encoding="utf-8"
+                    )
+                    yml_content = yaml.safe_load(raw)
+                    if isinstance(yml_content, dict):
+                        gen_by = str(yml_content.get("generated_by", ""))
+                        if "fallback" in gen_by:
+                            fallback_heuristic = True
+                            fallback_reason = gen_by
+                except (OSError, yaml.YAMLError) as yaml_exc:
+                    # Don't swallow this: failing to read generated_by is
+                    # exactly how a heuristic-fallback run gets reported as
+                    # a measured one.
+                    logger.warning(
+                        "[job %s] Could not parse generated contract to detect "
+                        "heuristic fallback: %s", job_id, yaml_exc,
+                    )
 
             if fallback_heuristic:
                 await _emit(
@@ -180,12 +195,10 @@ async def run_analysis_on_repo(
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
 
     # -- Step 2: Collect all Python files (fresh clone = all files changed) --
-    py_files = list(repo_path.rglob("*.py"))
-    # Exclude hidden dirs and __pycache__
-    py_files = [
-        f for f in py_files
-        if not any(part.startswith(".") or part == "__pycache__" for part in f.relative_to(repo_path).parts)
-    ]
+    # In a thread: a recursive walk of an arbitrary cloned repository takes
+    # seconds on a large tree, and it was running directly on the event loop,
+    # stalling every other request on the server for its duration.
+    py_files = await asyncio.to_thread(_collect_python_files, repo_path)
 
     if not py_files:
         elapsed = round(time.monotonic() - start, 1)
@@ -225,8 +238,15 @@ async def run_analysis_on_repo(
         # asyncio.TimeoutError is a subclass of Exception in 3.11+, caught here
         elapsed = round(time.monotonic() - start, 1)
         logger.exception("[job %s] Analysis failed", job_id)
-        err_str = "Analysis timed out" if isinstance(exc, TimeoutError) else str(exc)
-        _log_skip_or_error(job_id, repo_path, reason=err_str)
+        # This string reaches the browser. str(exc) on an arbitrary pipeline
+        # failure carries server paths and internal module names, so only the
+        # timeout -- a message this module composed -- is passed through.
+        err_str = (
+            f"Analysis timed out after {ANALYSIS_TIMEOUT_SECONDS}s"
+            if isinstance(exc, TimeoutError)
+            else "Analysis failed. See server logs for details."
+        )
+        _log_skip_or_error(job_id, repo_path, reason=f"{type(exc).__name__}: {exc}")
         return AnalysisJobResult(
             job_id=job_id, repo_url=repo_url,
             health_score=0.0, health_grade="F",
@@ -288,6 +308,7 @@ def _generate_contract_sync(repo_path: Path) -> None:
     """
     import typer
     from rich.console import Console
+
     from archguard.cli._init_dispatch import _run_init_cli
 
     # Create a minimal Context to satisfy the Typer signature
@@ -349,13 +370,17 @@ def _run_analysis_sync(
 
     # -- Log the result for the dashboard context --
     try:
+        from archguard.analysis._orchestrator_utils import _get_module_paths
+        from archguard.analysis.coupling import _assign_file_to_module
+        from archguard.analysis.parser import ImportParser
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_EVENT_ANALYSIS
-        from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
         from archguard.contract.loader import load_contract
-        from archguard.analysis._orchestrator_utils import _get_module_paths
-        from archguard.analysis.parser import ImportParser
-        from archguard.analysis.coupling import _assign_file_to_module
+        from archguard.dashboard._result_schema import (
+            AnalysisResultPayload,
+            LayerResultPayload,
+            ViolationPayload,
+        )
         from archguard.utils.paths import path_belongs_to_module
 
         audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")

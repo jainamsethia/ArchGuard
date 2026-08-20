@@ -1,6 +1,7 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
 
 from archguard.dashboard.app import app
 from archguard.evolution.snapshots import CommitHealthSnapshot, EvolutionReport

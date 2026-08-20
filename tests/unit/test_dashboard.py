@@ -1,7 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
-from unittest.mock import patch, MagicMock
 
 # Create a TestClient for our app
 client = TestClient(app)
@@ -9,6 +11,7 @@ client = TestClient(app)
 
 def test_dashboard_version_matches_package_version():
     import importlib.metadata
+
     from archguard.dashboard.app import app
 
     try:
@@ -130,6 +133,7 @@ def test_response_includes_csp_header_without_hardcoded_localhost(monkeypatch) -
     hardcoded http://localhost:8000 origin that broke production deployments.
     """
     from fastapi.testclient import TestClient
+
     from archguard.dashboard.app import app
 
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
@@ -155,8 +159,9 @@ def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
 
     RATE_LIMITS.clear()
 
-    from archguard.dashboard._rate_limit import RATE_LIMITS
     from cachetools import TTLCache
+
+    from archguard.dashboard._rate_limit import RATE_LIMITS
 
     # Confirm it's a TTLCache instance
     assert isinstance(RATE_LIMITS, TTLCache)
@@ -242,7 +247,7 @@ def test_index_html_script_tag_carries_nonce():
 
     html = response.text
     assert f'nonce="{expected_nonce}"' in html, (
-        f"index.html script tag does not carry the request-scoped nonce."
+        "index.html script tag does not carry the request-scoped nonce."
     )
 
 def test_script_without_nonce_is_rejected_by_csp():

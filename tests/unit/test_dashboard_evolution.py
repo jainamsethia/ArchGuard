@@ -1,7 +1,9 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
-from unittest.mock import patch, MagicMock
 
 client = TestClient(app)
 

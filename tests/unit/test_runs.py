@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from archguard.dashboard.routes import runs
 
+
 def test_get_deps_unknown_job_returns_410(monkeypatch):
     """A syntactically valid job_id whose workspace is gone -> 410, not a crash."""
     with pytest.raises(HTTPException) as exc:
@@ -64,8 +65,9 @@ def test_persisted_deps_does_not_pollute_run_history(tmp_path):
 
 
 def test_runs_job_id_filter(monkeypatch):
-    import tempfile
     import pathlib
+    import tempfile
+
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import runs
 
@@ -74,9 +76,9 @@ def test_runs_job_id_filter(monkeypatch):
         logger = AuditLogger(log_path)
         logger.log("analysis_run", job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", timestamp="2026-01-01T00:00:00Z", module_scores={"auth": 0.9})
         logger.log("analysis_run", job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", timestamp="2026-01-02T00:00:00Z", module_scores={"utils": 0.8})
-        
+
         monkeypatch.setattr(runs, "get_audit_path", lambda jid: log_path)
-        
+
         res = runs.get_runs(limit=50, job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
         assert len(res["runs"]) == 1
         assert res["runs"][0]["job_id"] == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -87,13 +89,14 @@ def test_runs_job_id_filter(monkeypatch):
 
         res = runs.get_module_trends(module="auth", limit=30, job_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
         assert len(res["trend"]) == 0
-        
+
         res2 = runs.get_module_trends(module="auth", limit=30, job_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
         assert len(res2["trend"]) == 1
 
 def test_repo_runs(monkeypatch):
-    import tempfile
     import pathlib
+    import tempfile
+
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import runs
 
@@ -119,8 +122,9 @@ def test_runs_by_job_id_returns_violations_for_compare(monkeypatch):
     runs fetched via /api/v1/runs?job_id=. This pins the contract: each run
     returns its violations so the frontend can compute added/resolved/unchanged.
     """
-    import tempfile
     import pathlib
+    import tempfile
+
     from archguard.audit.logger import AuditLogger
     from archguard.dashboard.routes import runs
 

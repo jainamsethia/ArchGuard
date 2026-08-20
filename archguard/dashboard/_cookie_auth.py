@@ -8,8 +8,8 @@ Cookie value format: <session_id>.<hmac-sha256>
 where session_id is random 32-byte hex and the HMAC key is ARCHGUARD_DASHBOARD_TOKEN.
 Sessions expire after ARCHGUARD_SESSION_COOKIE_TTL seconds (default: 86400 / 24h).
 """
-import hmac
 import hashlib
+import hmac
 import os
 import secrets
 import time

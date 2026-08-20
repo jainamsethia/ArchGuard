@@ -1,8 +1,8 @@
-import pytest
-import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -30,7 +30,9 @@ async def test_workspace_keep_alive_false_does_not_raise():
 @pytest.mark.asyncio
 async def test_cleanup_stale_workspaces_removes_old_dirs():
     """Regression for MED-01/IMPROVEMENT-02: stale workspaces older than max_age are removed."""
-    import time, os
+    import os
+    import time
+
     from archguard.dashboard.workspace import cleanup_stale_workspaces
     with tempfile.TemporaryDirectory() as tmpdir:
         stale_ws = Path(tmpdir) / "archguard-stale-job"

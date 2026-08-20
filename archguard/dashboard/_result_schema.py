@@ -1,7 +1,9 @@
 """Single source of truth for analysis-result JSON shape, used by both
 pipeline_adapter.py (live tracking) and audit/logger.py (persisted history)."""
 from typing import Any
+
 from pydantic import BaseModel, Field
+
 
 class ViolationPayload(BaseModel):
     file: str | None = None

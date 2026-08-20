@@ -1,12 +1,13 @@
-from typing import Any
-from collections import deque
-from fastapi import Depends, HTTPException
 import logging
+from collections import deque
+from typing import Any
 
-from archguard.dashboard.app import app, get_target_path, get_audit_path, JobIdQuery
+from fastapi import Depends, HTTPException
+
+from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.audit.logger import AuditLogger
+from archguard.dashboard.app import JobIdQuery, app, get_audit_path, get_target_path
 
 _logger = logging.getLogger(__name__)
 
@@ -85,9 +86,9 @@ def get_pr_risk(job_id: JobIdQuery = None) -> Any:
             )
 
         try:
-            from archguard.fitness.evaluator import FitnessFunctionEvaluator
             from archguard.analysis._orchestrator_utils import _get_module_paths
             from archguard.contract.loader import load_contract
+            from archguard.fitness.evaluator import FitnessFunctionEvaluator
 
             contract = load_contract(target)
             module_paths = {

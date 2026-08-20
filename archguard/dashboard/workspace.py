@@ -19,9 +19,9 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ async def temp_workspace(
         workspace_dir.mkdir(parents=True, exist_ok=True)
     else:
         workspace_dir = Path(tempfile.mkdtemp(prefix="archguard-"))
-    
+
     repo_path = workspace_dir / "repo"
     try:
         logger.info("Cloning %s (branch=%s) into %s", clone_url, branch, repo_path)
@@ -194,25 +194,36 @@ async def cleanup_stale_workspaces(
 
     Returns the number of directories removed.
     """
+    # The glob, the stat per candidate and the rmtree are all blocking, and
+    # this runs on a 15-minute timer inside the event loop.
+    return await asyncio.to_thread(
+        _sweep_stale_workspaces, max_age_seconds, active_job_ids or set()
+    )
+
+
+def _sweep_stale_workspaces(max_age_seconds: int, active: set[str]) -> int:
     import time
 
     tmp = Path(tempfile.gettempdir())
     removed = 0
     now = time.time()
-    active = active_job_ids or set()
 
     for candidate in tmp.glob("archguard-*"):
-        if candidate.is_dir():
-            # Directory name is archguard-<job_id> for job-scoped workspaces.
-            job_id = candidate.name[len("archguard-"):]
-            if job_id in active:
+        # Directory name is archguard-<job_id> for job-scoped workspaces.
+        job_id = candidate.name[len("archguard-"):]
+        if job_id in active:
+            continue
+        try:
+            if not candidate.is_dir():
                 continue
             age = now - candidate.stat().st_mtime
-            if age > max_age_seconds:
-                shutil.rmtree(candidate, ignore_errors=True)
-                logger.info(
-                    "Removed stale workspace %s (age: %ds)", candidate, int(age)
-                )
-                removed += 1
+        except OSError:
+            # Another sweep, or the job itself, removed it between the glob and
+            # the stat. Nothing to do, and nothing worth logging.
+            continue
+        if age > max_age_seconds:
+            shutil.rmtree(candidate, ignore_errors=True)
+            logger.info("Removed stale workspace %s (age: %ds)", candidate, int(age))
+            removed += 1
 
     return removed

@@ -1,8 +1,10 @@
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import patch
 
+import pytest
+from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
+
 
 @pytest.fixture
 def client():
@@ -42,16 +44,16 @@ def test_get_job_not_found(client):
 def test_get_job_status_queued(client):
     """Freshly created job shows queued status."""
     from archguard.dashboard.job_manager import AnalysisJob, JobStatus
-    
+
     fake_job = AnalysisJob(
         id="test-uuid",
         github_url="https://github.com/pallets/flask",
         status=JobStatus.QUEUED,
     )
-    
+
     with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=fake_job):
         resp = client.get("/api/jobs/test-uuid")
-        
+
     assert resp.status_code == 200
     assert resp.json()["status"] == "queued"
 
@@ -59,7 +61,7 @@ def test_list_jobs_empty(client):
     """Empty job store returns empty list."""
     from archguard.dashboard.job_manager import job_manager
     job_manager._jobs.clear()
-    
+
     resp = client.get("/api/jobs")
     assert resp.status_code == 200
     assert resp.json()["jobs"] == []
@@ -122,8 +124,9 @@ def test_validate_repo_url_rate_limited_returns_retry_after(client):
     Retry-After header and body field, so the UI can show a real wait time
     instead of a hardcoded guess. Pins the P0 429-handling fix.
     """
-    from archguard.dashboard.routes.jobs import GitHubRateLimitError
     import time
+
+    from archguard.dashboard.routes.jobs import GitHubRateLimitError
 
     reset_epoch = time.time() + 90
     with patch(

@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
+
 
 def test_api_routes_take_precedence_over_static_mount():
     """Regression guard for WEB-03: StaticFiles must never shadow an explicit API route."""
