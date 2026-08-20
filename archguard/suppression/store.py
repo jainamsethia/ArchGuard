@@ -273,38 +273,6 @@ class SuppressionStore:
 
         return count
 
-    def to_columnar_table(self, suppressions: list[Suppression]) -> str:
-        """Return Rich-formatted table string."""
-        from io import StringIO
-
-        from rich.console import Console
-        from rich.table import Table
-
-        table = Table(show_header=True, header_style="bold")
-        table.add_column("ID", width=8)
-        table.add_column("Module")
-        table.add_column("Layer", width=5)
-        table.add_column("Reason", max_width=40)
-        table.add_column("Expires")
-        table.add_column("Created")
-
-        for s in suppressions:
-            reason_display = s.reason[:40] + "..." if len(s.reason) > 40 else s.reason
-            expires_str = s.expires_at or "never"
-            table.add_row(
-                s.id[:8],
-                s.module,
-                str(s.layer),
-                reason_display,
-                expires_str,
-                s.created_at[:10],
-            )
-
-        buf = StringIO()
-        console = Console(file=buf, force_terminal=True, width=120)
-        console.print(table)
-        return buf.getvalue()
-
     def to_json(self, suppressions: list[Suppression]) -> str:
         """Return JSON array string of all suppressions."""
         items = [json.loads(suppression_to_jsonl(s)) for s in suppressions]

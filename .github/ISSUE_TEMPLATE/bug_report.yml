@@ -21,4 +21,4 @@ body:
   - type: textarea
     id: logs
     attributes:
-      label: archguard analyze --verbose output
+      label: Relevant server log output

@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck benchmark benchmark-check smoke-test
+.PHONY: test lint typecheck smoke-test
 
 test:
 	poetry run pytest tests/unit -v --tb=short
@@ -9,15 +9,8 @@ lint:
 typecheck:
 	poetry run mypy archguard/ --ignore-missing-imports
 
-benchmark:
-	poetry run pytest tests/benchmarks/ --benchmark-only --benchmark-json=benchmark-results.json -v
-	python3 scripts/check_benchmarks.py benchmark-results.json
-
-benchmark-check:
-	python3 scripts/check_benchmarks.py benchmark-results.json
-
 smoke-test:
-	bash scripts/smoke_test_docker.sh
+	BASE_URL=http://localhost:8000 bash scripts/smoke_test.sh
 
 # ── Phase 2: Dashboard & Docker ──────────────────────────────────────────
 

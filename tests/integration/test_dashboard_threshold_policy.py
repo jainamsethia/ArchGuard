@@ -228,26 +228,14 @@ def test_cli_init_path_keeps_its_own_policy(tangled_repo, tmp_path):
     """
     import math
 
-    import typer
-    from rich.console import Console
+    from archguard.contract.generation import generate_contract
 
-    from archguard.cli._init_dispatch import _run_init_cli
-
-    out = tmp_path / "cli.archguard.yml"
-    app = typer.Typer()
-
-    @app.command()
-    def _fake() -> None:  # pragma: no cover - only satisfies the Typer signature
-        pass
-
-    ctx = typer.Context(command=typer.main.get_command(app))
-    ctx.obj = {"quiet": True, "verbose": False}
-
-    _run_init_cli(
-        ctx=ctx, repo_root=tangled_repo, output=out, confirm_all=True, force_ci=True,
-        resume=False, no_llm=True, min_history_commits=1, llm_init=False,
-        wizard=False, force=True, _console=Console(quiet=True),
-        threshold_profile=None,  # the archguard init default
+    out = tmp_path / "baseline.archguard.yml"
+    generate_contract(
+        repo_root=tangled_repo,
+        output=out,
+        min_history_commits=1,
+        threshold_profile=None,  # the self-referential baseline
     )
     contract = yaml.safe_load(out.read_text(encoding="utf-8"))
 
@@ -258,7 +246,7 @@ def test_cli_init_path_keeps_its_own_policy(tangled_repo, tmp_path):
     for module in contract["modules"]:
         assert module["coupling_budget"] == max(
             3, math.ceil(module["fan_out_at_init"] * 1.5)
-        ), "CLI budgets must stay self-referential"
+        ), "the baseline policy must stay self-referential"
 
 
 @pytest.mark.integration

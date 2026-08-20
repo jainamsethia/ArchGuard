@@ -1,23 +1,19 @@
 [tool.poetry]
 name = "archguard"
 version = "0.3.0"
-description = "Architectural drift detector for Python codebases."
+description = "Architectural drift detection for Python repositories, as a web application."
 authors = ["Jainam Sethia <jainamsethia8@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 packages = [{include = "archguard"}]
 include = [
-    {path = "archguard/templates/*"},
+    {path = "archguard/dashboard/static/**/*"},
+    {path = "archguard/dashboard/templates/*"},
     {path = "archguard/py.typed"}
 ]
 
-[tool.poetry.scripts]
-archguard = "archguard.cli.main:main"
-
 [tool.poetry.dependencies]
 python = "^3.11"
-typer = ">=0.9,<1.0"
-rich = ">=13.0"
 pyyaml = ">=6.0"
 jsonschema = ">=4.17"
 ruamel-yaml = ">=0.18"
@@ -30,7 +26,6 @@ pydriller = ">=2.5"
 # advisories (GHSA-2f96-g7mh-g2hx and others) that pip-audit hard-fails CI on.
 gitpython = ">=3.1.58"
 httpx = ">=0.25"
-watchdog = ">=3.0.0"
 pydantic = ">=2.0,<3.0"
 numpy = {version = ">=1.24,<2.0.0", optional = true}
 scipy = {version = ">=1.10", optional = true}
@@ -42,24 +37,19 @@ torch = {version = ">=2.13.0", optional = true}
 # Floored here because < 83.0.0 carries PYSEC-2026-3447.
 setuptools = {version = ">=83.0.0", optional = true}
 faiss-cpu = {version = ">=1.7", optional = true}
-boto3 = {version = ">=1.28.0", optional = true}
-fastapi = {version = ">=0.100.0", optional = true}
-uvicorn = {version = ">=0.23.0", optional = true}
-python-multipart = {version = ">=0.0.9", optional = true}
-jinja2 = {version = ">=3.1,<4.0.0", optional = true}
+fastapi = ">=0.100.0"
+uvicorn = ">=0.23.0"
+python-multipart = ">=0.0.9"
+jinja2 = ">=3.1,<4.0.0"
 
 cachetools = ">=5.0"
 python-dotenv = "^1.2.2"
 
 [tool.poetry.extras]
-ml = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools"]
-# NOTE: "cloud" now means S3 sync (boto3) only. LLM support is no longer an
-# extra: Gemini is reached over HTTP with httpx, which is a core dependency,
-# so AI features work from a plain `pip install archguard`.
-cloud = ["boto3"]
-
-dashboard = ["fastapi", "uvicorn", "python-multipart", "jinja2"]
-all = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools", "boto3", "fastapi", "uvicorn", "python-multipart"]
+# Layers 3 and 4 only. These belong to the analysis worker image, never the web
+# image: torch alone is larger than everything else combined, and the web
+# process never loads a model. See the worker split in the deployment plan.
+worker = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
@@ -174,7 +164,6 @@ module = [
     "pydriller.*",
     "jsonschema.*",
     "networkx.*",
-    "boto3.*",
     "scipy.*",
 ]
 ignore_missing_imports = true

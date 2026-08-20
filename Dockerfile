@@ -15,11 +15,11 @@ COPY README.md ./
 # on a stale lock instead -- a stale lock is a repo problem to fix in the repo.
 RUN pip install --no-cache-dir "poetry==2.4.1" "poetry-plugin-export>=1.8.0" && \
     poetry check --lock && \
-    poetry export -f requirements.txt --output requirements.txt --without-hashes --extras "dashboard cloud ml" && \
+    poetry export -f requirements.txt --output requirements.txt --without-hashes --extras "worker" && \
     pip install --no-cache-dir --target /deps -r requirements.txt
 
 COPY archguard/ ./archguard/
-RUN pip install --no-cache-dir --no-deps --target /deps ".[dashboard,cloud,ml]"
+RUN pip install --no-cache-dir --no-deps --target /deps ".[worker]"
 
 # --- Runtime stage --
 FROM python:3.12-slim AS runtime
@@ -49,9 +49,7 @@ ENV PYTHONUNBUFFERED=1
 # THIS IS THE LINE THAT WAS COMMENTED OUT - now uncommented
 USER archguard
 
-# The default command starts the web dashboard.
-# To run the CLI instead: docker run archguard archguard analyze --help
-# To start the dashboard explicitly: docker run -p 8000:8000 archguard
+# The default command starts the web application.
 # HEALTHCHECK probes port 8000 — correct for local docker run and docker-compose
 # (port 8000 is always mapped in those contexts). Railway overrides CMD with
 # startCommand and uses its own healthcheckPath setting, so this HEALTHCHECK

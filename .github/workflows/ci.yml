@@ -38,13 +38,7 @@ jobs:
       - name: Run shellcheck
         uses: ludeeus/action-shellcheck@master
         with:
-          scandir: './action'
-      # This test defines the action entrypoint's contract (input mapping,
-      # argument allowlisting, step outputs). It existed but nothing ran it,
-      # which is how the entrypoint got reduced to `exec archguard "$@"` --
-      # ignoring all 11 declared inputs -- without anything failing.
-      - name: Verify action entrypoint contract
-        run: bash tests/test_entrypoint_security.sh
+          scandir: './scripts'
 
   security:
     name: Security Scan
@@ -118,50 +112,6 @@ jobs:
           poetry run uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 &
           sleep 3
           ./scripts/smoke_test.sh
-
-  self-analysis:
-    name: Self Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install ML dependencies for full analysis
-        run: |
-          pip install "poetry==2.4.1"
-          poetry install --extras ml --with dev
-      # --full is required. Without it `analyze` diffs against HEAD~1, so on a
-      # clean checkout it analyses nothing, exits 0, and (before the --json fix)
-      # never wrote self-analysis.json at all. This job only ever appeared to
-      # work because actions/checkout defaults to a shallow clone with no
-      # HEAD~1, which fell back to "analyse everything".
-      - name: Run full 4-layer self-analysis
-        id: analyze
-        run: |
-          poetry run archguard analyze --repo . --full --no-llm --json \
-            --out-file self-analysis.json
-        env:
-          GEMINI_API_KEY: ""
-      - name: Verify fitness functions pass
-        run: |
-          poetry run archguard fitness check --repo .
-      - name: Print analysis summary
-        run: |
-          echo "## Self-Analysis Results" >> $GITHUB_STEP_SUMMARY
-          python3 -c "
-          import json
-          d = json.load(open('self-analysis.json'))
-          print(f'**Score**: {d[\"score\"]}/100  **Grade**: {d[\"grade\"]}')
-          print(f'**Violations**: {d[\"violations\"]}')
-          print(f'**Layers**: L1={d.get(\"layer1_score\",\"?\")} L2={d.get(\"layer2_score\",\"?\")} '
-                f'L3={d.get(\"layer3_score\",\"?\")} L4={d.get(\"layer4_score\",\"?\")}')
-          " >> $GITHUB_STEP_SUMMARY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: self-analysis
-          path: self-analysis.json
-          retention-days: 30
 
   docker-build:
     name: Docker Build & Health Check
@@ -240,33 +190,3 @@ jobs:
         with:
           name: visual-diff
           path: test-results/
-
-  install-matrix:
-    name: Install Matrix & Docker Smoke
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        extras: ["dashboard", "cloud", "ml", "dashboard,cloud,ml"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: Install and smoke test extras
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-          pip install ".[${{ matrix.extras }}]"
-          
-          if [[ "${{ matrix.extras }}" == *"dashboard"* ]]; then
-            python -c "import archguard.dashboard.app"
-          fi
-          if [[ "${{ matrix.extras }}" == *"cloud"* ]]; then
-            python -c "import archguard.llm.cloud"
-          fi
-          if [[ "${{ matrix.extras }}" == *"ml"* ]]; then
-            python -c "import archguard.analysis.semantic"
-          fi
-      - name: Docker build
-        run: docker build .

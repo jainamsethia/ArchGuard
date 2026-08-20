@@ -20,11 +20,15 @@ from pathlib import Path
 
 import pytest
 
-from archguard.cli._init_phases import (
+from archguard.contract._discovery import (
     HISTORY_OK,
     HISTORY_UNAVAILABLE,
-    _phase2_commits,
-    _phase3_communities,
+)
+from archguard.contract._discovery import (
+    detect_module_communities as _phase3_communities,
+)
+from archguard.contract._discovery import (
+    scan_commit_history as _phase2_commits,
 )
 
 

@@ -2,20 +2,7 @@
 
 from typing import Any
 
-import typer
-
 from archguard.config import EXIT_ANALYSIS_ERROR, EXIT_CONFIG_ERROR, EXIT_LLM_ERROR
-
-
-class ContractGenerationError(typer.Exit):
-    """Raised when contract generation fails with a specific message."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(1)
-        self.message = message
-
-    def __str__(self) -> str:
-        return self.message
 
 
 class ArchGuardError(Exception):
@@ -76,13 +63,3 @@ class LLMError(ArchGuardError):
 
     def __init__(self, message: str, cause: Exception | None = None) -> None:
         super().__init__(message=message, exit_code=EXIT_LLM_ERROR, cause=cause)
-
-
-def format_error(msg: str) -> str:
-    """Format an error message with Rich markup."""
-    return f"[red]Error:[/red] {msg}"
-
-
-def format_warning(msg: str) -> str:
-    """Format a warning message with Rich markup."""
-    return f"[yellow]Warning:[/yellow] {msg}"

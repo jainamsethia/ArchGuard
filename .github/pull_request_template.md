@@ -10,7 +10,7 @@
 ## Testing
 - [ ] Unit tests added/updated
 - [ ] Integration test passes
-- [ ] Manually tested with: `archguard analyze --repo [repo]`
+- [ ] Manually tested against a running instance (`make dev`)
 
 ## Checklist
 - [ ] ruff check passes
