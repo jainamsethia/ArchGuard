@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,12 @@ from archguard.analysis._orchestrator_layer4 import _run_layer_4
 from archguard.analysis._orchestrator_stages import _run_layer_1_2, _run_layer_3
 from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
 from archguard.analysis.scoring import LayerScores, compute_archdebt
+
+logger = logging.getLogger(__name__)
+
+#: Reports a stage transition. The analysis engine runs inside a web request, a
+#: queue worker and a test; none of them have a terminal to draw a spinner on.
+EmitFn = Callable[[str], None]
 
 
 def _finalize_result(
@@ -84,7 +91,7 @@ def _finalize_result(
 
 
 def _evaluate_fitness_helper(
-    orchestrator: Any, res: AnalysisResult, progress: Any, quiet: bool
+    orchestrator: Any, res: AnalysisResult, emit: EmitFn
 ) -> None:
     from archguard.config import parse_fitness_functions
     from archguard.fitness.evaluator import FitnessFunctionEvaluator
@@ -93,10 +100,7 @@ def _evaluate_fitness_helper(
     if not fitness_configs:
         return
 
-    desc_fit = "Fitness Functions Evaluation..."
-    task_fit = progress.add_task(desc_fit, total=None) if progress else None
-    if not progress and not quiet:
-        print(desc_fit)
+    emit("Evaluating fitness functions...")
 
     evaluator = FitnessFunctionEvaluator(orchestrator.repo_root, orchestrator.contract)
     rules = [c.rule for c in fitness_configs]
@@ -109,17 +113,12 @@ def _evaluate_fitness_helper(
         fitness_results, fitness_configs
     )
 
-    if progress:
-        failures = sum(1 for r in fitness_results if not getattr(r, "passed", True))
-        desc = (
-            f"[bold red][X] Fitness Functions:[/bold red] {failures} failures"
-            if failures > 0
-            else "[green][OK] Fitness Functions:[/green] all passed"
-        )
-        progress.update(task_fit, description=desc)
-        progress.stop_task(task_fit)
-    elif not quiet:
-        print("[OK] Fitness Functions complete")
+    failures = sum(1 for r in fitness_results if not getattr(r, "passed", True))
+    emit(
+        f"Fitness functions: {failures} failure(s)."
+        if failures
+        else "Fitness functions: all passed."
+    )
 
 
 def _run_orchestrator(
@@ -155,82 +154,73 @@ def _run_orchestrator(
         orchestrator.repo_root, orchestrator.contract, py_files
     )
 
-    import sys
+    def emit(message: str) -> None:
+        """Report a stage transition.
 
-    is_tty = sys.stdout.isatty() and not quiet
-    progress = None
-    if is_tty:
-        from rich.console import Console
-        from rich.progress import Progress, SpinnerColumn, TextColumn
-
-        progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=Console(),
-            transient=True,
-        )
-        progress.start()
+        Always logged; forwarded to the caller's callback unless it asked to be
+        quiet. This replaces a rich.Progress spinner and a scattering of bare
+        print() calls, which assumed a terminal that a web request and a queue
+        worker do not have. progress_callback was already threaded here from
+        AnalysisOrchestrator.run() and simply never read.
+        """
+        logger.info("%s", message)
+        if progress_callback is not None and not quiet:
+            progress_callback(message)
 
     def _eval_fitness(res: AnalysisResult) -> None:
-        _evaluate_fitness_helper(orchestrator, res, progress, quiet)
+        _evaluate_fitness_helper(orchestrator, res, emit)
 
-    try:
-        from archguard.observability.metrics import AnalysisMetrics
+    from archguard.observability.metrics import AnalysisMetrics
 
-        metrics = AnalysisMetrics()
+    metrics = AnalysisMetrics()
 
-        v1_2, l1, l2, f_1_2, res1_2 = _run_layer_1_2(
-            orchestrator,
-            py_files,
-            affected,
-            progress,
-            quiet,
-            fail_fast,
-            _eval_fitness,
-            metrics,
-            commit_sha,
-            rel_files,
-        )
-        if res1_2:
-            return res1_2
+    v1_2, l1, l2, f_1_2, res1_2 = _run_layer_1_2(
+        orchestrator,
+        py_files,
+        affected,
+        emit,
+        fail_fast,
+        _eval_fitness,
+        metrics,
+        commit_sha,
+        rel_files,
+    )
+    if res1_2:
+        return res1_2
 
-        v3, l3, res3 = _run_layer_3(
-            orchestrator,
-            py_files,
-            v1_2,
-            affected,
-            progress,
-            quiet,
-            fail_fast,
-            _eval_fitness,
-            metrics,
-            commit_sha,
-            rel_files,
-            l1,
-            l2,
-            f_1_2,
-        )
-        if res3:
-            return res3
+    v3, l3, res3 = _run_layer_3(
+        orchestrator,
+        py_files,
+        v1_2,
+        affected,
+        emit,
+        fail_fast,
+        _eval_fitness,
+        metrics,
+        commit_sha,
+        rel_files,
+        l1,
+        l2,
+        f_1_2,
+    )
+    if res3:
+        return res3
 
-        v4, l4 = _run_layer_4(
-            orchestrator, v3, affected, progress, quiet, metrics, commit_sha
-        )
+    v4, l4 = _run_layer_4(
+        orchestrator, v3, affected, emit, metrics, commit_sha
+    )
 
-        return _finalize_result(
-            orchestrator,
-            v4,
-            commit_sha,
-            metrics,
-            _eval_fitness,
-            l1,
-            l2,
-            l3,
-            l4,
-            affected,
-            rel_files,
-            f_1_2,
-        )
-    finally:
-        if progress:
-            progress.stop()
+    return _finalize_result(
+        orchestrator,
+        v4,
+        commit_sha,
+        metrics,
+        _eval_fitness,
+        l1,
+        l2,
+        l3,
+        l4,
+        affected,
+        rel_files,
+        f_1_2,
+    )

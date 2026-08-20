@@ -9,8 +9,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
 from archguard.analysis._orchestrator_utils import (
     _build_partial_result as _build_partial_result_fn,
 )
@@ -22,23 +20,20 @@ from archguard.analysis.layers import AnalysisResult, ViolationDetail
 
 logger = logging.getLogger(__name__)
 
+#: See _orchestrator_run.EmitFn -- reports a stage transition.
+EmitFn = Callable[[str], None]
+
 
 def _execute_l1_l2_concurrently(
     orchestrator: Any,
     py_files: list[Path],
     affected: Any,
-    progress: Any,
-    quiet: bool,
+    emit: EmitFn,
     metrics: Any,
     commit_sha: str,
 ) -> tuple[float, list[ViolationDetail], float, list[ViolationDetail], list[Any]]:
     with ThreadPoolExecutor(max_workers=2) as executor:
-        desc1, desc2 = "Layer 1: Boundary Analysis...", "Layer 2: Coupling Analysis..."
-        task1 = progress.add_task(desc1, total=None) if progress else None
-        task2 = progress.add_task(desc2, total=None) if progress else None
-        if not progress and not quiet:
-            print(desc1)
-            print(desc2)
+        emit("Layer 1: import boundaries, Layer 2: coupling...")
 
         l1_failures: list[Any] = []
         l2_failures: list[Any] = []
@@ -70,24 +65,10 @@ def _execute_l1_l2_concurrently(
 
         f_l1, f_l2 = executor.submit(run_l1), executor.submit(run_l2)
         layer1, l1_viols = f_l1.result()
-        if progress:
-            progress.update(
-                task1,
-                description=f"[green][OK] Layer 1:[/green] {len(l1_viols)} violations",
-            )
-            progress.stop_task(task1)
-        elif not quiet:
-            print(f"[OK] Layer 1 complete ({len(l1_viols)} violations)")
+        emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
 
         layer2, l2_viols = f_l2.result()
-        if progress:
-            progress.update(
-                task2,
-                description=f"[green][OK] Layer 2:[/green] {len(l2_viols)} violations",
-            )
-            progress.stop_task(task2)
-        elif not quiet:
-            print(f"[OK] Layer 2 complete ({len(l2_viols)} violations)")
+        emit(f"Layer 2 complete: {len(l2_viols)} violation(s).")
 
         return layer1, l1_viols, layer2, l2_viols, l1_failures + l2_failures
 
@@ -97,7 +78,7 @@ def _handle_l1_l2_fail_fast(
     layer1: float,
     layer2: float,
     fail_threshold: float,
-    progress: Any,
+    emit: EmitFn,
     violations: list[ViolationDetail],
     affected: Any,
     rel_files: list[str],
@@ -107,14 +88,13 @@ def _handle_l1_l2_fail_fast(
     evaluate_fitness: Callable[[AnalysisResult], None],
 ) -> AnalysisResult | None:
     if layer1 >= fail_threshold or layer2 >= fail_threshold:
-        if progress:
-            progress.stop()
         layer_name = (
             "Layer 1 (Boundaries)" if layer1 >= fail_threshold else "Layer 2 (Coupling)"
         )
         score = layer1 if layer1 >= fail_threshold else layer2
-        Console().print(
-            f"[bold red][X] FAIL-FAST:[/bold red] {layer_name} score {score:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+        emit(
+            f"FAIL-FAST: {layer_name} score {score:.2f} exceeds fail threshold "
+            f"{fail_threshold}. Skipping remaining layers."
         )
 
         res = _build_partial_result_fn(
@@ -144,8 +124,7 @@ def _run_layer_1_2(
     orchestrator: Any,
     py_files: list[Path],
     affected: Any,
-    progress: Any,
-    quiet: bool,
+    emit: EmitFn,
     fail_fast: bool,
     evaluate_fitness: Callable[[AnalysisResult], None],
     metrics: Any,
@@ -154,7 +133,7 @@ def _run_layer_1_2(
 ) -> tuple[list[ViolationDetail], float, float, list[Any], AnalysisResult | None]:
     fail_threshold = float(orchestrator.contract.get("fail_threshold", 0.75))
     layer1, l1_viols, layer2, l2_viols, parse_failures = _execute_l1_l2_concurrently(
-        orchestrator, py_files, affected, progress, quiet, metrics, commit_sha
+        orchestrator, py_files, affected, emit, metrics, commit_sha
     )
 
     violations = l1_viols + l2_viols
@@ -197,7 +176,7 @@ def _run_layer_1_2(
             layer1,
             layer2,
             fail_threshold,
-            progress,
+            emit,
             violations,
             affected,
             rel_files,
@@ -216,15 +195,11 @@ def _execute_layer_3(
     orchestrator: Any,
     py_files: list[Path],
     affected: Any,
-    progress: Any,
-    quiet: bool,
+    emit: EmitFn,
     metrics: Any,
     commit_sha: str,
 ) -> tuple[float, dict[str, float], list[ViolationDetail]]:
-    desc3 = "Layer 3: Semantic Cohesion..."
-    task3 = progress.add_task(desc3, total=None) if progress else None
-    if not progress and not quiet:
-        print(desc3)
+    emit("Layer 3: semantic cohesion...")
 
     try:
         with metrics.time_layer("layer3"):
@@ -241,26 +216,11 @@ def _execute_layer_3(
         if l3_skip_reason:
             metrics.extra["layer3_skipped"] = True
             metrics.extra["layer3_skip_reason"] = l3_skip_reason
-            if progress:
-                progress.update(
-                    task3,
-                    description=f"[yellow][!] {l3_skip_reason}[/yellow]",
-                )
-                progress.stop_task(task3)
-            elif not quiet:
-                print(f"[WARN] {l3_skip_reason}")
-        elif progress:
-            progress.update(
-                task3,
-                description=f"[green][OK] Layer 3:[/green] {len(l3_viols)} violations",
-            )
-            progress.stop_task(task3)
-        elif not quiet:
-            print(f"[OK] Layer 3 complete ({len(l3_viols)} violations)")
+            emit(f"Layer 3 skipped: {l3_skip_reason}")
+        else:
+            emit(f"Layer 3 complete: {len(l3_viols)} violation(s).")
         return layer3, module_drifts, l3_viols
     except Exception as e:
-        if progress:
-            progress.stop_task(task3)
         raise RuntimeError(f"Layer 3 analysis failed: {e}") from e
 
 
@@ -270,7 +230,7 @@ def _handle_l3_fail_fast(
     layer2: float,
     layer3: float,
     fail_threshold: float,
-    progress: Any,
+    emit: EmitFn,
     violations: list[ViolationDetail],
     affected: Any,
     rel_files: list[str],
@@ -280,10 +240,9 @@ def _handle_l3_fail_fast(
     evaluate_fitness: Callable[[AnalysisResult], None],
 ) -> AnalysisResult | None:
     if layer3 >= fail_threshold:
-        if progress:
-            progress.stop()
-        Console().print(
-            f"[bold red][X] FAIL-FAST:[/bold red] Layer 3 (Semantic) score {layer3:.2f} exceeds fail threshold {fail_threshold}. Skipping remaining layers."
+        emit(
+            f"FAIL-FAST: Layer 3 (Semantic) score {layer3:.2f} exceeds fail "
+            f"threshold {fail_threshold}. Skipping remaining layers."
         )
         res = _build_partial_result_fn(
             orchestrator.repo_root,
@@ -313,8 +272,7 @@ def _run_layer_3(
     py_files: list[Path],
     violations: list[ViolationDetail],
     affected: Any,
-    progress: Any,
-    quiet: bool,
+    emit: EmitFn,
     fail_fast: bool,
     evaluate_fitness: Callable[[AnalysisResult], None],
     metrics: Any,
@@ -341,17 +299,10 @@ def _run_layer_3(
         metrics.extra["layer3_skip_reason"] = (
             "semantic drift not run (ARCHGUARD_SKIP_ML or contract skip_layers)"
         )
-        if progress:
-            t = progress.add_task("Layer 3: Semantic Cohesion...", total=None)
-            progress.update(
-                t, description="[yellow][!] Layer 3: Skipped (config)[/yellow]"
-            )
-            progress.stop_task(t)
-        elif not quiet:
-            print("[WARN] Layer 3 Skipped (config)")
+        emit("Layer 3 skipped (ARCHGUARD_SKIP_ML or contract skip_layers).")
     else:
         layer3, module_drifts, l3_viols = _execute_layer_3(
-            orchestrator, py_files, affected, progress, quiet, metrics, commit_sha
+            orchestrator, py_files, affected, emit, metrics, commit_sha
         )
         violations.extend(l3_viols)
 
@@ -362,7 +313,7 @@ def _run_layer_3(
             layer2,
             layer3,
             fail_threshold,
-            progress,
+            emit,
             violations,
             affected,
             rel_files,

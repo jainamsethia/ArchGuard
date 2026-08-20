@@ -68,7 +68,16 @@ def test_full_analysis_detects_boundary_violation(tmp_path, sample_repo):
         env={"ARCHGUARD_SKIP_ML": "1"},
     )
     assert result.exit_code == 1  # violations found
-    assert "boundary" in result.output.lower()
+    # Assert on the report, not on incidental progress output. This previously
+    # matched the word "boundary" anywhere in the merged stdout+stderr, which
+    # was satisfied by a "Layer 1: Boundary Analysis..." banner the engine
+    # print()ed. The engine now reports stage transitions through a callback
+    # instead of a terminal, so that banner is gone -- but the finding itself,
+    # which is what the test is actually about, is unchanged.
+    report = result.stdout
+    assert "L1 Boundaries" in report
+    assert "FAIL" in report
+    assert "module_b" in report  # the disallowed import is named in the row
 
 
 def test_full_analysis_clean_repo_exits_zero(tmp_path, clean_repo):
