@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -115,7 +115,7 @@ class TestIsSuppressed:
         tmp_path: Path,
     ) -> None:
         store = _make_store(tmp_path)
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         store.add(
             "payments",
             1,
@@ -137,8 +137,9 @@ class TestIsSuppressed:
     def test_is_suppressed_reads_file_once_for_multiple_violations(
         self, tmp_path: Path
     ) -> None:
-        from unittest.mock import patch
         import builtins
+        from unittest.mock import patch
+
         from archguard.config import SUPPRESSION_FILE
 
         store = _make_store(tmp_path)
@@ -290,13 +291,14 @@ class TestConcurrency:
             # Thread A acquiring the lock and reading/writing the data!
             # Since Thread B is "another process", we just append to the file.
             with store._path.open("a", encoding="utf-8") as f:
-                from archguard.suppression.models import (
-                    suppression_to_jsonl,
-                    Suppression,
-                )
                 import uuid
-                from datetime import datetime, timezone
-                from archguard.suppression.models import make_violation_hash
+                from datetime import datetime
+
+                from archguard.suppression.models import (
+                    Suppression,
+                    make_violation_hash,
+                    suppression_to_jsonl,
+                )
 
                 s2 = Suppression(
                     id=str(uuid.uuid4()),
@@ -304,7 +306,7 @@ class TestConcurrency:
                     layer=1,
                     violation_hash=make_violation_hash("mod2", 1, "msg2"),
                     reason="r2",
-                    created_at=datetime.now(timezone.utc).isoformat(),
+                    created_at=datetime.now(UTC).isoformat(),
                     created_by="test",
                     expires_at=None,
                     pr_number=None,

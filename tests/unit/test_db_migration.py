@@ -1,4 +1,5 @@
 import sqlite3
+
 from archguard.cache.db import EmbeddingDB
 
 

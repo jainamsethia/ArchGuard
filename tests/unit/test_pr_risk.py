@@ -1,10 +1,9 @@
 """Regression tests for archguard.risk.pr_risk (LOW-004 coverage)."""
 
-import pytest
 
 def test_pr_risk_module_imports() -> None:
     """Verifies the risk module is importable after LOW-001's __init__.py fix."""
-    import archguard.risk.pr_risk as pr_risk
+    from archguard.risk import pr_risk
     assert pr_risk is not None
 
 def test_calculate_pr_risk_returns_score_for_empty_diff() -> None:
@@ -36,7 +35,7 @@ def test_calculate_pr_risk_increases_with_more_changes() -> None:
         changed_files=["src/modA/file1.py"],
         module_paths={"modA": ["src/modA"]},
     )
-    
+
     # High risk (3 files in 3 different modules)
     high_risk_report = analyzer.analyze(
         changed_files=["src/modA/file1.py", "src/modB/file2.py", "src/modC/file3.py"],

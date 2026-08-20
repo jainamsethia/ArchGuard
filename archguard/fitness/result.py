@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -8,5 +7,5 @@ class FitnessFunctionResult:
 
     rule: str
     passed: bool
-    details: Optional[str] = None
-    error: Optional[str] = None
+    details: str | None = None
+    error: str | None = None

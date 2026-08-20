@@ -1,7 +1,8 @@
 import pytest
-from archguard.utils.url_validator import validate_webhook_url
-from archguard.alerting.webhooks import send_slack_alert
+
 from archguard.alerting.trend_detector import TrendAlert
+from archguard.alerting.webhooks import send_slack_alert
+from archguard.utils.url_validator import validate_webhook_url
 
 
 def test_valid_webhook_url():

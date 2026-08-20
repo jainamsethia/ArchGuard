@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import typing
 from pathlib import Path
 from typing import Any
-import typing
 
 if typing.TYPE_CHECKING:
     from archguard.analysis.layers import AnalysisResult
@@ -33,7 +33,7 @@ logger: logging.Logger = logging.getLogger(__name__)
 def _build_partial_result(
     repo_root: Path,
     contract: dict[str, Any],
-    filter_fn: "SuppressionFilter",
+    filter_fn: SuppressionFilter,
     l1: float,
     l2: float,
     l3: float,
@@ -45,7 +45,7 @@ def _build_partial_result(
     commit_sha: str,
     metrics: dict[str, Any],
     suppression_path: Path | None = None,
-) -> "AnalysisResult":
+) -> AnalysisResult:
     """Build a partial AnalysisResult for fail-fast scenarios."""
     from archguard.analysis.layers import AnalysisResult
 

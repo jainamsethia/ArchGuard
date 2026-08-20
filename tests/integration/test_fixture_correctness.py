@@ -45,8 +45,8 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 import os
 
 try:
-    import sentence_transformers  # noqa: F401,E402
-    import faiss  # noqa: F401,E402
+    import faiss  # noqa: F401
+    import sentence_transformers  # noqa: F401
 
     _ML_INSTALLED = True
 except ImportError:

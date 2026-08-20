@@ -1,6 +1,7 @@
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from archguard.analysis._reinference import _run_reinference
 from archguard.utils.errors import AnalysisError

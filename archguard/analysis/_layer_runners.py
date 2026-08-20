@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from archguard.analysis import violation_kinds
 from archguard.analysis.layers import ViolationDetail, _get_module_paths
 from archguard.utils.paths import normalize_path, path_belongs_to_module
 from archguard.utils.severity import Severity
-from archguard.analysis import violation_kinds
 
 
 def _analyze_file_imports(
@@ -325,7 +325,7 @@ def _run_layer4(
             )
             if not mod_paths and mod_name == "misc":
                 mod_paths = ["./"]
-            
+
             result = analyzer.analyze_module(mod_name, rel_files, mod_paths)
             if result.skipped:
                 skip_reason = result.skip_reason

@@ -2,13 +2,14 @@
 
 import json
 from pathlib import Path
+
 from archguard.cache.incremental import (
+    INCREMENTAL_CACHE_FILE,
     FileRecord,
     compute_hash,
     get_changed_files,
     load_cache,
     save_cache,
-    INCREMENTAL_CACHE_FILE,
 )
 
 
@@ -81,6 +82,7 @@ def test_save_and_load_cache(tmp_path: Path) -> None:
 def test_save_cache_atomic(tmp_path: Path, monkeypatch) -> None:
     """Simulate crash during write — cache file should not be corrupted."""
     import os
+
     import pytest
 
     cache_file = tmp_path / INCREMENTAL_CACHE_FILE

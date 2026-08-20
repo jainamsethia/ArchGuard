@@ -1,4 +1,5 @@
 import httpx
+
 from archguard.alerting.trend_detector import TrendAlert
 from archguard.utils.url_validator import validate_webhook_url
 

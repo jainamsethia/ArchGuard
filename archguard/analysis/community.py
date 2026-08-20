@@ -59,7 +59,7 @@ def get_seed_from_repo(repo_root: Path) -> int:
         commits = list(repo.traverse_commits())
         if commits:
             return int(commits[0].hash[:8], 16)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         import logging
 
         logging.getLogger(__name__).warning(

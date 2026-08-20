@@ -1,6 +1,8 @@
 import os
 from typing import Any
+
 from archguard.analysis.layers import ViolationDetail
+
 
 def _run_layer_4(
     orchestrator: Any,
@@ -19,9 +21,8 @@ def _run_layer_4(
     desc4 = "Layer 4: Duplication Detection..."
     if progress:
         task4 = progress.add_task(desc4, total=None)
-    else:
-        if not quiet:
-            print(desc4)
+    elif not quiet:
+        print(desc4)
 
     if "duplication" in skip_layers:
         layer4 = 0.0
@@ -36,9 +37,8 @@ def _run_layer_4(
                 description="[yellow][!] Layer 4: Skipped (config)[/yellow]",
             )
             progress.stop_task(task4)
-        else:
-            if not quiet:
-                print("[WARN] Layer 4 Skipped (config)")
+        elif not quiet:
+            print("[WARN] Layer 4 Skipped (config)")
     else:
         try:
             with metrics.time_layer("layer4"):
@@ -53,7 +53,7 @@ def _run_layer_4(
                 )
                 violations.extend(l4_viols)
             l4_violations = len(l4_viols)
-            
+
             if l4_skip_reason:
                 metrics.extra["layer4_skipped"] = True
                 metrics.extra["layer4_skip_reason"] = l4_skip_reason
@@ -65,16 +65,14 @@ def _run_layer_4(
                     progress.stop_task(task4)
                 elif not quiet:
                     print(f"[WARN] {l4_skip_reason}")
-            else:
-                if progress:
-                    progress.update(
-                        task4,
-                        description=f"[green][OK] Layer 4:[/green] {l4_violations} violations",
-                    )
-                    progress.stop_task(task4)
-                else:
-                    if not quiet:
-                        print(f"[OK] Layer 4 complete ({l4_violations} violations)")
+            elif progress:
+                progress.update(
+                    task4,
+                    description=f"[green][OK] Layer 4:[/green] {l4_violations} violations",
+                )
+                progress.stop_task(task4)
+            elif not quiet:
+                print(f"[OK] Layer 4 complete ({l4_violations} violations)")
 
         except Exception as e:
             if progress:

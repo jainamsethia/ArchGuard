@@ -1,13 +1,30 @@
 from __future__ import annotations
+
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
+from pydriller import Repository
+
 from archguard.evolution.models import (
-    EvolutionSnapshot,
     EvolutionReport,
+    EvolutionSnapshot,
     MetricTrend,
-    TrendClassification
+    TrendClassification,
 )
+from archguard.evolution.snapshots import (
+    CommitAnalysisFailure,
+    CommitHealthSnapshot,
+)
+from archguard.evolution.snapshots import (
+    EvolutionReport as ArchEvolutionReport,
+)
+from archguard.evolution.worktree import git_worktree
+
+logger = logging.getLogger(__name__)
+
 
 class EvolutionTracker:
     """Tracks architecture metrics evolution over time."""
@@ -15,25 +32,25 @@ class EvolutionTracker:
     def __init__(self, raw_snapshots: list[dict[str, Any]]) -> None:
         """Initialize with a list of raw dictionaries (e.g. from audit log)."""
         self.snapshots = self._parse_snapshots(raw_snapshots)
-        
+
     def _parse_snapshots(self, raw_snapshots: list[dict[str, Any]]) -> list[EvolutionSnapshot]:
         parsed = []
         for raw in raw_snapshots:
             if "timestamp" not in raw:
                 continue
-            
+
             try:
                 ts_str = raw["timestamp"].replace("Z", "+00:00")
                 ts = datetime.fromisoformat(ts_str)
             except ValueError:
                 continue
-                
+
             score = float(raw.get("score", 0.0))
             debt_score = 1.0 - (score / 100.0)
-            
+
             violations = raw.get("violations", [])
             v_count = len(violations)
-            
+
             fitness_passed = None
             fitness_total = None
             metrics = raw.get("metrics", {})
@@ -41,7 +58,7 @@ class EvolutionTracker:
                 fitness_results = metrics["fitness_results"]
                 fitness_total = len(fitness_results)
                 fitness_passed = sum(1 for fr in fitness_results if fr.get("passed", True))
-                
+
             parsed.append(EvolutionSnapshot(
                 timestamp=ts,
                 health_score=score,
@@ -50,7 +67,7 @@ class EvolutionTracker:
                 fitness_passed=fitness_passed,
                 fitness_total=fitness_total
             ))
-            
+
         # Sort chronologically (oldest first)
         return sorted(parsed, key=lambda s: s.timestamp)
 
@@ -64,10 +81,10 @@ class EvolutionTracker:
                 debt_trend=self._neutral_trend("debt_score", 1.0),
                 fitness_trend=None
             )
-            
+
         current = self.snapshots[-1]
         previous = self.snapshots[-2] if len(self.snapshots) > 1 else None
-        
+
         return EvolutionReport(
             snapshots=self.snapshots,
             health_trend=self._calc_trend("health_score", current.health_score, previous.health_score if previous else None, higher_is_better=True),
@@ -75,7 +92,7 @@ class EvolutionTracker:
             debt_trend=self._calc_trend("debt_score", current.debt_score, previous.debt_score if previous else None, higher_is_better=False),
             fitness_trend=self._calc_fitness_trend(current, previous)
         )
-        
+
     def _neutral_trend(self, name: str, current: float) -> MetricTrend:
         return MetricTrend(
             name=name,
@@ -84,20 +101,20 @@ class EvolutionTracker:
             classification=TrendClassification.INSUFFICIENT,
             delta=None
         )
-        
+
     def _calc_trend(self, name: str, current: float, previous: float | None, higher_is_better: bool) -> MetricTrend:
         if previous is None:
             return self._neutral_trend(name, current)
-            
+
         delta = current - previous
-        
+
         if abs(delta) < 0.0001:
             classification = TrendClassification.STABLE
         elif (delta > 0 and higher_is_better) or (delta < 0 and not higher_is_better):
             classification = TrendClassification.IMPROVING
         else:
             classification = TrendClassification.DECLINING
-            
+
         return MetricTrend(
             name=name,
             current_value=current,
@@ -105,32 +122,19 @@ class EvolutionTracker:
             classification=classification,
             delta=delta
         )
-        
+
     def _calc_fitness_trend(self, current: EvolutionSnapshot, previous: EvolutionSnapshot | None) -> MetricTrend | None:
         if current.fitness_total is None or current.fitness_passed is None or current.fitness_total == 0:
             return None
-            
+
         current_ratio = current.fitness_passed / current.fitness_total
-        
+
         if previous is None or previous.fitness_total is None or previous.fitness_passed is None or previous.fitness_total == 0:
             return self._calc_trend("fitness_score", current_ratio, None, higher_is_better=True)
-            
+
         previous_ratio = previous.fitness_passed / previous.fitness_total
         return self._calc_trend("fitness_score", current_ratio, previous_ratio, higher_is_better=True)
 
-import logging  # noqa: E402
-from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: E402
-from pathlib import Path  # noqa: E402
-from pydriller import Repository  # noqa: E402
-
-from archguard.evolution.snapshots import (  # noqa: E402
-    CommitAnalysisFailure,
-    CommitHealthSnapshot,
-    EvolutionReport as ArchEvolutionReport,
-)
-from archguard.evolution.worktree import git_worktree  # noqa: E402
-
-logger = logging.getLogger(__name__)
 
 class ArchitectureEvolutionTracker:
     def __init__(self, repo_path: Path | str):
@@ -171,7 +175,7 @@ class ArchitectureEvolutionTracker:
                             )
                         )
                 except Exception as e:
-                    logger.error(f"Failed to analyze commit: {e}")
+                    logger.exception(f"Failed to analyze commit: {e}")
                     failures.append(CommitAnalysisFailure(sha=sha, reason=str(e)))
         snapshots.sort(key=lambda s: s.committed_at)
         return ArchEvolutionReport(
@@ -203,7 +207,7 @@ class ArchitectureEvolutionTracker:
                         message=message
                     )
             except Exception as e:
-                logger.error(f"Failed to analyze commit {sha}: {e}")
+                logger.exception(f"Failed to analyze commit {sha}: {e}")
                 # Recorded so analyze_history can report *why*, not merely that
                 # the count was zero.
                 self._failure_reasons[sha] = str(e)

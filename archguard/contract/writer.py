@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
 import tempfile
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -34,7 +35,9 @@ def _infer_path(files: list[str]) -> str:
     # Find common path prefix by comparing parts
     parts_list = [PurePosixPath(p).parts for p in parents]
     common_parts: list[str] = []
-    for parts in zip(*parts_list):
+    # Paths legitimately differ in depth; the common prefix ends at the
+    # shallowest, so truncation is the intended behaviour here.
+    for parts in zip(*parts_list, strict=False):
         if len(set(parts)) == 1:
             common_parts.append(parts[0])
         else:
@@ -53,7 +56,7 @@ def _infer_path(files: list[str]) -> str:
 
 def _model_weights_version() -> str:
     """Compute model weights version string: ``{year}-Q{quarter}``."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     quarter = (now.month - 1) // 3 + 1
     return f"{now.year}-Q{quarter}"
 
@@ -72,7 +75,7 @@ def write_contract(
     """
     from archguard.contract.validator import validate_contract
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     modules: list[dict[str, Any]] = []
     for name, files in communities.items():
@@ -117,8 +120,6 @@ def write_contract(
         os.replace(tmp_name, str(output_path))
     except BaseException:
         # Clean up temp file on any error
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_name)
-        except OSError:
-            pass
         raise

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
-from datetime import datetime, timezone
 import sqlite3
-from typing import Iterator
+from collections.abc import Iterator
+from datetime import UTC, datetime
 
 try:
     import numpy as np
@@ -85,7 +85,7 @@ class EmbeddingCache:
             )
         try:
             blob = embedding.astype(np.float32).tobytes()
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             self._db._conn.execute(
                 "INSERT OR REPLACE INTO embeddings "
                 "(file_path, function_name, embedding, content_hash, model_name, created_at) "
@@ -138,7 +138,7 @@ class EmbeddingCache:
             )
         try:
             blob = centroid.astype(np.float32).tobytes()
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             self._db._conn.execute(
                 "INSERT OR REPLACE INTO module_centroids "
                 "(module_name, centroid, content_hash, updated_at) "
@@ -165,7 +165,7 @@ class EmbeddingCache:
         if not keys:
             return {}
 
-        result: dict[str, npt.NDArray[np.float32] | None] = {k: None for k in keys}
+        result: dict[str, npt.NDArray[np.float32] | None] = dict.fromkeys(keys)
 
         lookup_keys = []
         hash_map = {}
@@ -181,10 +181,16 @@ class EmbeddingCache:
             return result
 
         try:
+            # The only interpolation is `placeholders`, a run of "?" whose
+            # length comes from len(lookup_keys); every value is bound as a
+            # query parameter in the execute() below, so no caller-controlled
+            # text reaches the SQL. bandit cannot see that, hence the nosec --
+            # which must sit on the `query = (` line it reports, not on one of
+            # the string fragments inside the parentheses.
             placeholders = ",".join("?" * len(lookup_keys))
             query = (
-                f"SELECT file_path || '::' || function_name, content_hash, embedding "  # nosec B608
-                f"FROM embeddings "
+                "SELECT file_path || '::' || function_name, content_hash, embedding "  # nosec B608
+                "FROM embeddings "
                 f"WHERE file_path || '::' || function_name IN ({placeholders})"
             )
             cursor = self._db._conn.execute(query, lookup_keys)
@@ -214,14 +220,15 @@ class EmbeddingCache:
         if not items:
             return
 
-        from archguard.cache.locking import file_lock
         from pathlib import Path
+
+        from archguard.cache.locking import file_lock
 
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
         lock_path = Path(db_file).with_suffix(".lock")
 
         rows = []
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         for k, emb in items.items():
             parts = k.split("::")
             if len(parts) >= 4:
@@ -255,8 +262,9 @@ class EmbeddingCache:
             raise RuntimeError(
                 "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
-        from archguard.cache.locking import file_lock
         from pathlib import Path
+
+        from archguard.cache.locking import file_lock
 
         db_file = self._db._conn.execute("PRAGMA database_list").fetchall()[0][2]
         lock_path = Path(db_file).with_suffix(".lock")
@@ -316,7 +324,7 @@ class EmbeddingCache:
                 return False
             updated_str: str = row[0]
             updated_at = datetime.fromisoformat(updated_str)
-            age = datetime.now(timezone.utc) - updated_at
+            age = datetime.now(UTC) - updated_at
             return age.total_seconds() > max_age_hours * 3600
         except (sqlite3.OperationalError, sqlite3.DatabaseError, json.JSONDecodeError, ValueError):
             logger.warning("Failed to check staleness for %s", module_name)

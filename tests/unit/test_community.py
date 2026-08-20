@@ -88,9 +88,10 @@ class TestGetSeedFromRepo:
     def test_get_seed_from_repo_success(
         self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from archguard.analysis.community import get_seed_from_repo
-        from unittest.mock import MagicMock
         import sys
+        from unittest.mock import MagicMock
+
+        from archguard.analysis.community import get_seed_from_repo
 
         mock_pydriller = MagicMock()
         mock_commit = MagicMock()
@@ -106,9 +107,10 @@ class TestGetSeedFromRepo:
     def test_get_seed_from_repo_fallback(
         self, tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from archguard.analysis.community import get_seed_from_repo
-        from unittest.mock import MagicMock
         import sys
+        from unittest.mock import MagicMock
+
+        from archguard.analysis.community import get_seed_from_repo
 
         mock_pydriller = MagicMock()
         mock_pydriller.Repository.side_effect = Exception("No repo")

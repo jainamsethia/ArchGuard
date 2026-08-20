@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from archguard.contract.reinference import ReinferenceEngine
 
 
@@ -42,6 +43,7 @@ def test_accept_proposal_preserves_comments(tmp_path: Path):
 
 from unittest.mock import MagicMock
 
+
 def test_accept_proposal_github(tmp_path: Path):
     engine = ReinferenceEngine(tmp_path)
     pending_dir = tmp_path / ".archguard-pending-contracts"
@@ -78,7 +80,7 @@ def test_accept_proposal_github_create(tmp_path: Path):
     mock_client = MagicMock()
     mock_repo = MagicMock()
     mock_client.get_repo.return_value = mock_repo
-    
+
     # raise exception for get_contents
     mock_repo.get_contents.side_effect = Exception("Not found")
 
@@ -122,7 +124,7 @@ def test_check_staleness(tmp_path: Path):
         "module_name": "payments",
         "proposal_timestamp": "2020-01-01T00:00:00Z"
     }), encoding="utf-8")
-    
+
     expired = engine.check_staleness()
     assert len(expired) == 1
     assert "payments" in expired

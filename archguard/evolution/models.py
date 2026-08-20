@@ -1,7 +1,8 @@
 from __future__ import annotations
-from enum import Enum
-from typing import List, Optional
+
 from datetime import datetime
+from enum import Enum
+
 from pydantic import BaseModel
 
 
@@ -15,9 +16,9 @@ class TrendClassification(str, Enum):
 class MetricTrend(BaseModel):
     name: str
     current_value: float
-    previous_value: Optional[float]
+    previous_value: float | None
     classification: TrendClassification
-    delta: Optional[float]
+    delta: float | None
 
 
 class EvolutionSnapshot(BaseModel):
@@ -25,13 +26,13 @@ class EvolutionSnapshot(BaseModel):
     health_score: float
     debt_score: float
     violation_count: int
-    fitness_passed: Optional[int] = None
-    fitness_total: Optional[int] = None
+    fitness_passed: int | None = None
+    fitness_total: int | None = None
 
 
 class EvolutionReport(BaseModel):
-    snapshots: List[EvolutionSnapshot]
+    snapshots: list[EvolutionSnapshot]
     health_trend: MetricTrend
     violation_trend: MetricTrend
     debt_trend: MetricTrend
-    fitness_trend: Optional[MetricTrend] = None
+    fitness_trend: MetricTrend | None = None

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -79,7 +79,7 @@ class TestEmbeddingCache:
         c = np.random.rand(384).astype(np.float32)
         cache.store_centroid("mod", c, "h")
         # Manually backdate the updated_at
-        old_time = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        old_time = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         cache._db._conn.execute(
             "UPDATE module_centroids SET updated_at = ? WHERE module_name = ?",
             (old_time, "mod"),

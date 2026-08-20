@@ -1,7 +1,9 @@
-import subprocess
 import shutil
-import pytest
+import subprocess
 from pathlib import Path
+
+import pytest
+
 from archguard.evolution.worktree import GitWorktreeManager
 
 

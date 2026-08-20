@@ -1,5 +1,5 @@
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from archguard.evolution.snapshots import CommitHealthSnapshot, EvolutionReport
 from archguard.evolution.tracker import ArchitectureEvolutionTracker

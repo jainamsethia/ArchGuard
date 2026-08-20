@@ -1,9 +1,11 @@
 import os
+
 import pytest
+
 from archguard.utils.validation import (
-    validate_repo_path,
-    validate_output_path,
     PathTraversalError,
+    validate_output_path,
+    validate_repo_path,
 )
 
 

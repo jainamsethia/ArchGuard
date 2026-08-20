@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import random
 
-import pytest
-
 from archguard.analysis import violation_kinds
 from archguard.analysis.ranking import (
     DEFAULT_REMEDIATION_LIMIT,

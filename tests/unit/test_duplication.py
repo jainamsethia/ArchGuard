@@ -14,7 +14,7 @@ def patch_ml_available(monkeypatch):
 
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -79,7 +79,7 @@ class TestDuplicationAnalyzer:
         # Store centroid with old timestamp
         c = np.random.rand(384).astype(np.float32)
         cache.store_centroid("mod", c, "h")
-        old = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        old = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         cache._db._conn.execute(
             "UPDATE module_centroids SET updated_at = ? WHERE module_name = ?",
             (old, "mod"),

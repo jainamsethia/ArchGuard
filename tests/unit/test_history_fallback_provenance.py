@@ -171,8 +171,8 @@ def test_payload_carries_provenance_fields():
 def test_fallback_flag_is_visible_in_runs_api(monkeypatch, tmp_path):
     """The flag must reach /api/v1/runs, not stop at the pipeline adapter."""
     from archguard.audit.logger import AuditLogger
-    from archguard.dashboard.routes import runs as runs_route
     from archguard.dashboard._result_schema import AnalysisResultPayload
+    from archguard.dashboard.routes import runs as runs_route
 
     job_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     log_path = tmp_path / "audit.jsonl"

@@ -1,7 +1,7 @@
 import typing
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from time import perf_counter
-from contextlib import contextmanager
 
 
 @dataclass

@@ -1,12 +1,13 @@
-from typing import Any, Callable
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from archguard.analysis._models import AnalysisResult, ViolationDetail
-from archguard.analysis.scoring import LayerScores
-from archguard.analysis.scoring import compute_archdebt
-from archguard.analysis._orchestrator_stages import _run_layer_1_2, _run_layer_3
 from archguard.analysis._orchestrator_layer4 import _run_layer_4
+from archguard.analysis._orchestrator_stages import _run_layer_1_2, _run_layer_3
 from archguard.analysis._suppression_filter import _filter_suppressed as _filter_suppressed_fn
+from archguard.analysis.scoring import LayerScores, compute_archdebt
+
 
 def _finalize_result(
     orchestrator: Any,
@@ -159,8 +160,8 @@ def _run_orchestrator(
     is_tty = sys.stdout.isatty() and not quiet
     progress = None
     if is_tty:
-        from rich.progress import Progress, SpinnerColumn, TextColumn
         from rich.console import Console
+        from rich.progress import Progress, SpinnerColumn, TextColumn
 
         progress = Progress(
             SpinnerColumn(),

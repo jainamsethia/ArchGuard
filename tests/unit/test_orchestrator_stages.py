@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from archguard.analysis.layers import ViolationDetail
-from archguard.analysis._orchestrator_stages import _run_layer_3
+import pytest
+
 from archguard.analysis._orchestrator_run import _finalize_result
+from archguard.analysis._orchestrator_stages import _run_layer_3
+from archguard.analysis.layers import ViolationDetail
 
 
 def test_run_layer_3_propagates_missing_ml_runtime_error(monkeypatch):

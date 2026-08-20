@@ -1,5 +1,7 @@
-import pytest
 from pathlib import Path
+
+import pytest
+
 from archguard.analysis.parser import ImportParser
 from archguard.utils.errors import AnalysisPartialError
 

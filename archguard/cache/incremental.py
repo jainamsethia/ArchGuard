@@ -2,11 +2,12 @@
 Incremental analysis: track file content hashes to skip unchanged files.
 """
 
+import contextlib
 import hashlib
 import json
 import logging
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from dataclasses import dataclass, asdict
 
 INCREMENTAL_CACHE_FILE = ".archguard-cache.json"
 
@@ -37,10 +38,8 @@ def load_cache(root: Path) -> dict[str, FileRecord]:
         logger = logging.getLogger(__name__)
         logger.warning(f"Cache file corrupted ({e}), starting fresh: {cache_file}")
         corrupt_path = cache_file.with_suffix(".corrupt")
-        try:
+        with contextlib.suppress(OSError):
             cache_file.rename(corrupt_path)
-        except OSError:
-            pass
         return {}
 
 
@@ -61,10 +60,8 @@ def save_cache(root: Path, records: dict[str, FileRecord]) -> None:
     except OSError as exc:
         logger = logging.getLogger(__name__)
         logger.warning("Failed to write cache file atomically: %s", exc)
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 

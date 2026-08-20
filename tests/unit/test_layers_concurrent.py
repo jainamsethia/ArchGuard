@@ -1,7 +1,7 @@
+import concurrent.futures
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import concurrent.futures
 
 from archguard.analysis.layers import AnalysisOrchestrator
 from archguard.utils.severity import Severity
@@ -107,8 +107,9 @@ def test_direct_threadpool_concurrent_safety():
 def test_concurrent_get_model():
     """Test that _get_model is thread-safe and only instantiates the model once."""
     import sys
+
     import archguard.analysis.semantic
-    from archguard.analysis.semantic import _get_model, _GLOBAL_MODEL_CACHE
+    from archguard.analysis.semantic import _GLOBAL_MODEL_CACHE, _get_model
 
     _GLOBAL_MODEL_CACHE.clear()
 

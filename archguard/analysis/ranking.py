@@ -19,8 +19,9 @@ decides what order to show them in, and which ones fit under the LLM cap.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from archguard.analysis import violation_kinds
 

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import logging
+import typing
 from dataclasses import dataclass, field
 from typing import Any
-
-import typing
 
 try:
     import numpy as np
@@ -31,6 +30,20 @@ from archguard.cache.embeddings import EmbeddingCache
 from archguard.config import EVENT_DUPLICATION_SKIPPED
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _unit_normalize(matrix: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    """Scale each row to unit length, staying in float32.
+
+    The dtype is not incidental: FAISS indexes only accept float32, and under
+    NumPy 2's NEP 50 promotion rules a bare ``1.0`` in the divide-by-zero guard
+    upcasts the whole array to float64. NumPy 1.x's value-based casting hid
+    that, which is why it only surfaces on a modern NumPy.
+    """
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, np.float32(1.0), norms).astype(np.float32)
+    normalized: npt.NDArray[np.float32] = (matrix / norms).astype(np.float32, copy=False)
+    return normalized
 
 
 def duplication_score(similarity: float) -> float:
@@ -98,10 +111,7 @@ class DuplicationAnalyzer:
             dtype=np.float32,
         )
 
-        # Unit-normalize
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1.0, norms)
-        matrix = matrix / norms
+        matrix = _unit_normalize(matrix)
 
         dim = matrix.shape[1]
         index = faiss.IndexFlatL2(dim)
@@ -120,7 +130,10 @@ class DuplicationAnalyzer:
             raise RuntimeError(
                 "ML dependencies are not installed. Run: pip install -e \".[ml]\""
             )
-        return np.clip(1.0 - (l2_distances**2) / 2.0, 0.0, 1.0)
+        cosine: npt.NDArray[np.float32] = np.clip(
+            1.0 - (l2_distances**2) / 2.0, 0.0, 1.0
+        ).astype(np.float32, copy=False)
+        return cosine
 
     def _build_faiss_index(
         self, module_file_set: set[str]
@@ -142,10 +155,7 @@ class DuplicationAnalyzer:
                 if file_part in module_file_set:
                     module_embeddings[p] = v
 
-            batch_vecs = np.vstack([v for _, v in batch])
-            norms = np.linalg.norm(batch_vecs, axis=1, keepdims=True)
-            norms = np.where(norms == 0, 1.0, norms)
-            batch_vecs = batch_vecs / norms
+            batch_vecs = _unit_normalize(np.vstack([v for _, v in batch]))
 
             if index is None:
                 dim = batch_vecs.shape[1]
@@ -170,8 +180,8 @@ class DuplicationAnalyzer:
         module_paths_cfg: list[str],
         k: int,
     ) -> list[DuplicationMatch]:
-        
-        
+
+
         matches: list[DuplicationMatch] = []
         for func_key, emb in module_embeddings.items():
             query = emb.astype(np.float32).reshape(1, -1)

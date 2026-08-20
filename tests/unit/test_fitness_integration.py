@@ -1,6 +1,6 @@
 """Integration tests for Phase 3 Step 3: Fitness Functions."""
 
-from archguard.analysis.scoring import ArchDebtResult, LayerScores, ArchDebtBand
+from archguard.analysis.scoring import ArchDebtBand, ArchDebtResult, LayerScores
 from archguard.audit.logger import serialize_fitness_results
 from archguard.config import FitnessFunctionConfig
 from archguard.fitness.result import FitnessFunctionResult

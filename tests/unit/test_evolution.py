@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
-from archguard.evolution.tracker import EvolutionTracker
+
 from archguard.evolution.models import TrendClassification
+from archguard.evolution.tracker import EvolutionTracker
 
 
 def test_empty_history():
@@ -19,7 +21,7 @@ def test_empty_history():
 def test_single_snapshot():
     raw = [
         {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "score": 85.0,
             "violations": [{"id": 1}, {"id": 2}],
             "metrics": {"fitness_results": [{"passed": True}, {"passed": False}]},

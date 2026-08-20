@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -84,7 +84,7 @@ class ReinferenceEngine:
             proposed_drift_threshold=0.25,
             proposed_coupling_budget=current_coupling_budget,
             semantic_drift_score=semantic_drift,
-            proposal_timestamp=datetime.now(timezone.utc).isoformat(),
+            proposal_timestamp=datetime.now(UTC).isoformat(),
             source_commit=source_commit,
         )
 
@@ -115,7 +115,7 @@ class ReinferenceEngine:
             return []
 
         expired: list[str] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cutoff = timedelta(days=PROPOSAL_STALENESS_DAYS)
 
         for path in sorted(self._pending_dir.glob("*.yml")):
@@ -128,7 +128,7 @@ class ReinferenceEngine:
                 ts_str = data.get("proposal_timestamp", "")
                 ts = datetime.fromisoformat(str(ts_str))
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
 
                 if now - ts > cutoff:
                     module_name = str(data.get("module_name", path.stem))
@@ -139,7 +139,7 @@ class ReinferenceEngine:
                         )
                     path.unlink()
                     expired.append(module_name)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning("Failed to check staleness for %s", path)
                 continue
 
@@ -185,8 +185,9 @@ class ReinferenceEngine:
 
         if github_client is not None and repo_slug:
             # Phase 2: GitHub Contents API
-            from ruamel.yaml import YAML
             import io
+
+            from ruamel.yaml import YAML
 
             ryaml = YAML()
             ryaml.preserve_quotes = True
@@ -200,7 +201,7 @@ class ReinferenceEngine:
                     existing = ryaml.load(contents.decoded_content)
                     if not isinstance(existing, dict):
                         existing = {"version": SCHEMA_VERSION, "modules": []}
-                except Exception:  # noqa: BLE001
+                except Exception:
                     existing = {"version": SCHEMA_VERSION, "modules": []}
 
                 # Update or add module
@@ -226,7 +227,7 @@ class ReinferenceEngine:
                         contents.sha,
                         branch=branch,
                     )
-                except Exception:  # noqa: BLE001
+                except Exception:
                     repo.create_file(
                         config_path,
                         f"archguard: accept contract for {module_name}",
@@ -328,7 +329,7 @@ class ReinferenceEngine:
                         source_commit=str(data.get("source_commit", "unknown")),
                     )
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning("Skipping malformed proposal: %s", path)
                 continue
 
@@ -342,7 +343,7 @@ class ReinferenceEngine:
             try:
                 with last_processed_id_path.open("r", encoding="utf-8") as f:
                     state = json.load(f)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import logging
 
                 logging.getLogger(__name__).warning(

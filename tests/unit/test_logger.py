@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 from unittest.mock import patch
-from archguard.audit.logger import AuditLogger, read_last_run
+
 import archguard.audit.logger as logger_module
+from archguard.audit.logger import AuditLogger, read_last_run
 
 
 def test_audit_logger_truncation(tmp_path: Path) -> None:
@@ -18,7 +19,7 @@ def test_audit_logger_truncation(tmp_path: Path) -> None:
             logger.log("test_event", index=i)
 
     # Read the file
-    with open(log_file, "r", encoding="utf-8") as f:
+    with open(log_file, encoding="utf-8") as f:
         lines = f.readlines()
 
     assert len(lines) == 1000

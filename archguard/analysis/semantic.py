@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import ast
+import hashlib
 import logging
+import threading
+import typing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
-import threading
-
-import typing
 
 try:
     import numpy as np
@@ -86,7 +85,7 @@ _GLOBAL_MODEL_CACHE: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
 
 
-def _get_model(model_name: str) -> "SentenceTransformer":
+def _get_model(model_name: str) -> SentenceTransformer:
     if model_name not in _GLOBAL_MODEL_CACHE:
         with _MODEL_LOCK:
             if model_name not in _GLOBAL_MODEL_CACHE:
@@ -151,10 +150,10 @@ class SemanticAnalyzer:
 
     def __init__(self, cache: EmbeddingCache) -> None:
         self._cache: EmbeddingCache = cache
-        self._model: "SentenceTransformer | None" = None
+        self._model: SentenceTransformer | None = None
 
     @property
-    def _sentence_transformer(self) -> "SentenceTransformer":
+    def _sentence_transformer(self) -> SentenceTransformer:
         if self._model is None:
             self._model = _get_model(self.MODEL_NAME)
         return self._model
@@ -184,7 +183,7 @@ class SemanticAnalyzer:
         ]
         cached_batch = self._cache.get_batch(all_keys)
 
-        for chunk, key in zip(chunks, all_keys):
+        for chunk, key in zip(chunks, all_keys, strict=True):
             cached = cached_batch.get(key)
             result_key = f"{chunk.file_path}::{chunk.function_name}"
             if cached is not None:
@@ -239,7 +238,7 @@ class SemanticAnalyzer:
         return centroid
 
     def _store_baseline(
-        self, module_name: str, centroid: "npt.NDArray[np.float32]"
+        self, module_name: str, centroid: npt.NDArray[np.float32]
     ) -> None:
         """Persist *centroid* so the next run has something to compare against."""
         centroid_hash = hashlib.sha256(
@@ -308,11 +307,11 @@ class SemanticAnalyzer:
                                 source=source,
                                 content_hash=content_hash,
                             ))
-                
+
                 if chunks:
                     embedded = self.embed_chunks(chunks)
                     all_embeddings.update(embedded)
-            except Exception as exc:  # noqa: BLE001 - one bad file must not abort the module
+            except Exception as exc:
                 failed_files.append(f"{getattr(fpath, 'name', fpath)}: {type(exc).__name__}: {exc}")
                 logger.debug("Embedding failed for %s", fpath, exc_info=True)
                 continue

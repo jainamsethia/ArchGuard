@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-from dataclasses import dataclass, field
 from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
 
 from archguard.utils.paths import normalize_path, path_belongs_to_module
 

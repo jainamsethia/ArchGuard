@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,7 @@ class SuppressionStore:
         self._cache_mtime: float = 0.0
 
     @classmethod
-    def at_path(cls, store_path: Path) -> "SuppressionStore":
+    def at_path(cls, store_path: Path) -> SuppressionStore:
         """Build a store backed by an explicit JSONL file.
 
         The default constructor derives the path from a repository root, which
@@ -85,7 +85,7 @@ class SuppressionStore:
             layer=layer,
             violation_hash=make_violation_hash(module, layer, message),
             reason=reason,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             created_by=created_by,
             expires_at=expires_at,
             pr_number=pr_number,
@@ -95,9 +95,8 @@ class SuppressionStore:
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-        with file_lock(self._lock_path):
-            with self._path.open("a", encoding="utf-8") as f:
-                f.write(suppression_to_jsonl(suppression) + "\n")
+        with file_lock(self._lock_path), self._path.open("a", encoding="utf-8") as f:
+            f.write(suppression_to_jsonl(suppression) + "\n")
 
         # Audit logging (best-effort)
         try:
@@ -110,7 +109,7 @@ class SuppressionStore:
                 module=module,
                 layer=layer,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             import logging
 
             logging.getLogger(__name__).warning(
@@ -148,7 +147,7 @@ class SuppressionStore:
                 try:
                     data: dict[str, Any] = json.loads(line)
                     suppressions.append(suppression_from_dict(data))
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     import logging
 
                     logging.getLogger(__name__).warning(
@@ -175,7 +174,7 @@ class SuppressionStore:
     def is_suppressed(self, module: str, layer: int, message: str) -> bool:
         """Return True if an active, non-expired suppression matches."""
         target_hash = make_violation_hash(module, layer, message)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for sup in self._load_cache():
             if sup.violation_hash != target_hash:

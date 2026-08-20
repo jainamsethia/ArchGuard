@@ -1,8 +1,10 @@
 import json
 import shutil
 from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
+
 from archguard.cli.main import app
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -118,10 +120,10 @@ def test_status_after_analyze(git_repo):
 def test_incremental_reads_from_cache_dir(git_repo):
     """Incremental mode should read previous violations from .archguard-cache/audit.jsonl"""
     from unittest.mock import patch
+
     from archguard.analysis.layers import AnalysisResult, ViolationDetail
-    from archguard.analysis.scoring import ArchDebtResult, LayerScores
+    from archguard.analysis.scoring import ArchDebtBand, ArchDebtResult, LayerScores
     from archguard.utils.severity import Severity
-    from archguard.analysis.scoring import ArchDebtBand
 
     files = "api/routes.py,db/models.py,utils/helpers.py"
 

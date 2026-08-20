@@ -1,14 +1,45 @@
 from __future__ import annotations
-from typing import Any
+
 import logging
+import os
 import shutil
+import stat
 import subprocess
+import sys
+import tempfile
 import uuid
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _force_writable_and_retry(func: Callable[[str], Any], path: str, exc: BaseException) -> None:
+    """rmtree error handler: clear the read-only bit git sets on object files.
+
+    Git marks objects in .git read-only, which makes rmtree fail on Windows.
+    Anything that is *not* a permission problem is re-raised so real failures
+    (a locked file, a vanished mount) still surface.
+    """
+    if os.access(path, os.W_OK):
+        raise exc
+    os.chmod(path, stat.S_IWUSR)
+    func(path)
+
+
+def force_rmtree(target: Path) -> None:
+    """shutil.rmtree that survives git's read-only object files."""
+    if sys.version_info >= (3, 12):
+        # onerror= is deprecated from 3.12 and slated for removal; onexc gets
+        # the exception itself rather than a sys.exc_info() triple.
+        shutil.rmtree(target, onexc=_force_writable_and_retry)
+    else:
+        shutil.rmtree(
+            target,
+            onerror=lambda f, p, info: _force_writable_and_retry(f, p, info[1]),
+        )
 
 
 class GitWorktreeManager:
@@ -52,7 +83,7 @@ class GitWorktreeManager:
             self._run_git("worktree", "add", "-f", "--detach", str(wt_path), commit_ish)
             return wt_path
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to create worktree for {commit_ish}: {e.stderr}")
+            logger.exception(f"Failed to create worktree for {commit_ish}: {e.stderr}")
             if wt_path.exists():
                 shutil.rmtree(wt_path, ignore_errors=True)
             raise RuntimeError(f"Could not create worktree: {e.stderr}") from e
@@ -71,18 +102,7 @@ class GitWorktreeManager:
         # Fallback manual deletion if Git fails or the folder is somehow left behind
         if wt_path.exists():
             try:
-                # Need robust permission handling on Windows for read-only git objects
-                def onerror(func: Any, path: str, exc_info: Any) -> None:
-                    import stat
-                    import os
-
-                    if not os.access(path, os.W_OK):
-                        os.chmod(path, stat.S_IWUSR)
-                        func(path)
-                    else:
-                        raise
-
-                shutil.rmtree(wt_path, onerror=onerror)
+                force_rmtree(wt_path)
             except Exception as e:
                 logger.warning(
                     f"Failed to manually remove worktree directory {wt_path}: {e}"
@@ -101,9 +121,6 @@ class GitWorktreeManager:
             yield wt_path
         finally:
             self.cleanup_worktree(wt_path)
-
-
-import tempfile  # noqa: E402
 
 
 @contextmanager
@@ -131,15 +148,9 @@ def git_worktree(repo_root: Path | str, sha: str) -> Iterator[Path]:
         except (subprocess.SubprocessError, OSError) as exc:
             logger.warning("Failed to remove git worktree %s: %s", wt_path, exc)
         if tmp_dir.exists():
-
-            def onerror(func: Any, path: str, exc_info: Any) -> None:
-                import stat
-                import os
-
-                if not os.access(path, os.W_OK):
-                    os.chmod(path, stat.S_IWUSR)
-                    func(path)
-                else:
-                    raise
-
-            shutil.rmtree(tmp_dir, onerror=onerror)
+            try:
+                force_rmtree(tmp_dir)
+            except OSError as exc:
+                # Leaving a temp dir behind must not mask the caller's own
+                # exception on the way out of the context manager.
+                logger.warning("Could not remove worktree temp dir %s: %s", tmp_dir, exc)

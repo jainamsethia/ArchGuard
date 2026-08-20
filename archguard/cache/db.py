@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
+from typing import Self
 
-from typing import Callable
+logger = logging.getLogger(__name__)
 
 CURRENT_SCHEMA_VERSION = 2  # increment when schema changes
 
@@ -65,7 +68,6 @@ ALTER TABLE embeddings ADD COLUMN model_name TEXT NOT NULL DEFAULT 'all-MiniLM-L
 
 def _open_connection(db_path: Path) -> sqlite3.Connection:
     import shutil
-    import logging
 
     try:
         conn = sqlite3.connect(str(db_path), timeout=10.0)
@@ -78,7 +80,7 @@ def _open_connection(db_path: Path) -> sqlite3.Connection:
         backup_path = db_path.with_suffix(".corrupt.db")
         try:
             shutil.move(str(db_path), str(backup_path))
-            logging.warning(f"Corrupted DB moved to {backup_path}, starting fresh")
+            logger.warning(f"Corrupted DB moved to {backup_path}, starting fresh")
         except OSError:
             db_path.unlink(missing_ok=True)
         # Retry with fresh DB
@@ -98,7 +100,6 @@ class EmbeddingDB:
         * Runs schema migrations.
         * Records schema version in ``archguard_meta``.
         """
-        import logging
 
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +107,7 @@ class EmbeddingDB:
 
         result = self._conn.execute("PRAGMA journal_mode").fetchone()
         if result and result[0] != "wal":
-            logging.warning(
+            logger.warning(
                 "SQLite WAL mode unavailable (network filesystem?). Using default journal mode."
             )
         self._conn.execute("PRAGMA foreign_keys=ON")
@@ -163,7 +164,7 @@ class EmbeddingDB:
         """Close the database connection."""
         self._conn.close()
 
-    def __enter__(self) -> EmbeddingDB:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:

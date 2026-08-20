@@ -1,9 +1,11 @@
 import json
+import shutil
 from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
+
 from archguard.cli.main import app
-import shutil
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 SAMPLE_PROJECT = FIXTURES_DIR / "sample_project"

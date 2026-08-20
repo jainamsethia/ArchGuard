@@ -14,16 +14,12 @@ EXIT_AUTH_ERROR: int = 4  # GitHub token missing, API auth failure
 EXIT_TIMEOUT: int = 5  # Analysis timed out
 EXIT_LLM_ERROR: int = 6  # LLM API failure or unavailability
 
-# Audit event names (string constants)
+# Audit event names (string constants). Only events that are actually emitted
+# are declared here; a name nothing logs is a promise the audit trail
+# does not keep.
 AUDIT_EVENT_ANALYSIS: str = "analysis_run"
-EVENT_INIT_STARTED: str = "INIT_STARTED"
-EVENT_INIT_COMPLETED: str = "INIT_COMPLETED"
-EVENT_ANALYZE_STARTED: str = "ANALYZE_STARTED"
-EVENT_ANALYZE_COMPLETED: str = "ANALYZE_COMPLETED"
-EVENT_CONTRACT_VIOLATION: str = "CONTRACT_VIOLATION"
 EVENT_SUPPRESSION_CREATED: str = "SUPPRESSION_CREATED"
 EVENT_CONTRACT_PROPOSAL_EXPIRED: str = "CONTRACT_PROPOSAL_EXPIRED"
-EVENT_LOCAL_LLM_FAILURE: str = "LOCAL_LLM_FAILURE"
 EVENT_TRUNCATED_EXPLANATION: str = "TRUNCATED_EXPLANATION"
 EVENT_DUPLICATION_SKIPPED: str = "DUPLICATION_SKIPPED"
 

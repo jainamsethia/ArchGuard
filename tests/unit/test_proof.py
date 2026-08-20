@@ -9,8 +9,9 @@ import pytest
 @pytest.mark.integration
 @pytest.mark.slow
 def test_proof_evolution():
-    from archguard.evolution.tracker import ArchitectureEvolutionTracker
     import os
+
+    from archguard.evolution.tracker import ArchitectureEvolutionTracker
 
     tracker = ArchitectureEvolutionTracker(os.getcwd())
     report = tracker.analyze_history(max_commits=5, max_workers=1)

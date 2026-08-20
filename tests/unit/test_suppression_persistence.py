@@ -9,8 +9,6 @@ id -- so "Suppress" never affected what the next scan reported.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from archguard.analysis._suppression_filter import _filter_suppressed

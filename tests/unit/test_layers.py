@@ -1,5 +1,5 @@
-from archguard.analysis._suppression_filter import _filter_suppressed
 from archguard.analysis._orchestrator_utils import _get_affected_modules
+from archguard.analysis._suppression_filter import _filter_suppressed
 from archguard.analysis.layers import AnalysisOrchestrator
 
 
@@ -56,9 +56,11 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
 
 
 def test_drift_computed_once_per_run(tmp_path):
-    from unittest.mock import patch, MagicMock
-    from archguard.analysis.semantic import SemanticDriftResult
+    from unittest.mock import MagicMock, patch
+
     import numpy as np
+
+    from archguard.analysis.semantic import SemanticDriftResult
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
@@ -135,6 +137,7 @@ def test_get_module_paths():
 
 def test_analysis_orchestrator_context_manager(tmp_path):
     import sqlite3
+
     import pytest
 
     repo_root = tmp_path / "repo"
@@ -163,8 +166,9 @@ def test_analysis_orchestrator_context_manager(tmp_path):
 
 def test_filter_suppressed_layer_4(tmp_path):
     from unittest.mock import patch
-    from archguard.analysis.layers import AnalysisOrchestrator, ViolationDetail
+
     from archguard.analysis._models import Severity
+    from archguard.analysis.layers import AnalysisOrchestrator, ViolationDetail
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()

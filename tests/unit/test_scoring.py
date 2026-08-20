@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from archguard.analysis.scoring import (
-    ArchDebtBand,
     DEFAULT_WEIGHTS,
+    ArchDebtBand,
     LayerScores,
     calibrate_weights,
     classify_band,
@@ -114,14 +114,14 @@ def test_compute_archdebt_no_ml_deps(monkeypatch):
     # Simulate numpy not being installed
     monkeypatch.setitem(sys.modules, "numpy", None)
     monkeypatch.setitem(sys.modules, "scipy", None)
-    from archguard.analysis.scoring import compute_archdebt, LayerScores
+    from archguard.analysis.scoring import LayerScores, compute_archdebt
 
     result = compute_archdebt(LayerScores(0.3, 0.5, 0.2, 0.4), [1.0, 1.0, 1.0, 1.0])
     assert result.composite_score == pytest.approx(0.35, abs=0.01)
 
 
 def test_compute_archdebt_clamping():
-    from archguard.analysis.scoring import compute_archdebt, LayerScores
+    from archguard.analysis.scoring import LayerScores, compute_archdebt
 
     result = compute_archdebt(
         LayerScores(2.0, 2.0, 2.0, 2.0), [1.0, 1.0, 1.0, 1.0]
@@ -133,7 +133,7 @@ class TestHealthScoreAndGrade:
     """Tests for health_score and health_grade properties."""
 
     def _make_result(self, composite: float):
-        from archguard.analysis.scoring import ArchDebtResult, ArchDebtBand, LayerScores
+        from archguard.analysis.scoring import ArchDebtBand, ArchDebtResult, LayerScores
 
         return ArchDebtResult(
             composite_score=composite,

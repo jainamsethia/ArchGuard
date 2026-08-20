@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from rich.console import Console
 
@@ -248,15 +249,14 @@ def _execute_layer_3(
                 progress.stop_task(task3)
             elif not quiet:
                 print(f"[WARN] {l3_skip_reason}")
-        else:
-            if progress:
-                progress.update(
-                    task3,
-                    description=f"[green][OK] Layer 3:[/green] {len(l3_viols)} violations",
-                )
-                progress.stop_task(task3)
-            elif not quiet:
-                print(f"[OK] Layer 3 complete ({len(l3_viols)} violations)")
+        elif progress:
+            progress.update(
+                task3,
+                description=f"[green][OK] Layer 3:[/green] {len(l3_viols)} violations",
+            )
+            progress.stop_task(task3)
+        elif not quiet:
+            print(f"[OK] Layer 3 complete ({len(l3_viols)} violations)")
         return layer3, module_drifts, l3_viols
     except Exception as e:
         if progress:

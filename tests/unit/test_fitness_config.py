@@ -1,8 +1,8 @@
 """Tests for FitnessFunctionConfig and parse_fitness_functions."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 import yaml
 
 from archguard.config import (
@@ -11,7 +11,6 @@ from archguard.config import (
     parse_fitness_functions,
 )
 from archguard.contract.loader import load_contract
-
 
 # ---------------------------------------------------------------------------
 # Step D tests (from execution plan)

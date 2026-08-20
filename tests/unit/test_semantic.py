@@ -17,14 +17,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from archguard.analysis.semantic import (
-    SemanticAnalyzer,
     FunctionChunk,
+    SemanticAnalyzer,
     cosine_distance,
     extract_module_text,
 )
 from archguard.cache.db import EmbeddingDB
 from archguard.cache.embeddings import EmbeddingCache
-
 
 TWO_FUNC_SOURCE = '''
 def foo(x):

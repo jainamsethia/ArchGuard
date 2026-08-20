@@ -229,7 +229,7 @@ def compute_archdebt(
     else:
         weight_each = 1.0 / len(active)
         raw_score = sum(weight_each * s for s in active.values())
-        
+
     composite = float(max(0.0, min(1.0, raw_score)))
 
     band = classify_band(composite, warn_threshold, fail_threshold)
@@ -253,7 +253,7 @@ def compute_archdebt(
             f"fail_threshold {fail_threshold:.2f}"
         )
 
-    for key, value in zip(layer_keys, layer_values):
+    for key, value in zip(layer_keys, layer_values, strict=True):
         threshold = thresholds.get(key, fail_threshold)
         if value > threshold:
             per_component_breach = True
@@ -318,5 +318,5 @@ def calibrate_weights(
             return DEFAULT_WEIGHTS
         w = w / total
         return (float(w[0]), float(w[1]), float(w[2]), float(w[3]))
-    except Exception:  # noqa: BLE001
+    except Exception:
         return DEFAULT_WEIGHTS

@@ -71,9 +71,10 @@ class TestValidateContract:
     async def test_llm_generation_validates_contract_success(self) -> None:
         """LLM generated contract should be validated and succeed if it has 'version': '3.0'."""
         import json
-        from unittest.mock import patch
-        from archguard.contract.llm_inference import generate_contract_from_llm
         from pathlib import Path
+        from unittest.mock import patch
+
+        from archguard.contract.llm_inference import generate_contract_from_llm
 
         valid_contract = {
             "version": "3.0",
@@ -107,9 +108,10 @@ class TestValidateContract:
     async def test_llm_generation_validates_contract_fails(self) -> None:
         """LLM generated contract should fail validation if it returns 'schema_version': '3.0'."""
         import json
-        from unittest.mock import patch
-        from archguard.contract.llm_inference import generate_contract_from_llm
         from pathlib import Path
+        from unittest.mock import patch
+
+        from archguard.contract.llm_inference import generate_contract_from_llm
 
         invalid_contract = {
             "schema_version": "3.0",

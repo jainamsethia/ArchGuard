@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
+
+from archguard.utils.paths import SKIP_DIRS as _SKIP_DIRS
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +19,6 @@ logger = logging.getLogger(__name__)
 # ArchGuard's own README/known-limitations section.
 STDLIB_MODULES: frozenset[str] = frozenset(sys.stdlib_module_names)
 
-_SKIP_DIRS: frozenset[str] = frozenset(
-    {
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".git",
-        "node_modules",
-        "tmp_archguard_step1_verify",
-    }
-)
 
 
 @dataclass
@@ -65,8 +58,8 @@ class ImportParser:
 
     def __init__(self) -> None:
         # Lazy-init tree-sitter - imported inside __init__ body only
-        from tree_sitter import Language, Parser
         import tree_sitter_python as tspython
+        from tree_sitter import Language, Parser
 
         try:
             lang = Language(tspython.language())  # type: ignore[call-arg]
@@ -150,8 +143,6 @@ class ImportParser:
         edges: list[ImportEdge] = []
         for py_file in sorted(repo_root.rglob("*.py")):
             if any(skip in py_file.parts for skip in _SKIP_DIRS):
-                continue
-            if any(p.startswith("tmp_") for p in py_file.parts):
                 continue
             if not py_file.is_file():
                 continue

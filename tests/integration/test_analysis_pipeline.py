@@ -1,10 +1,10 @@
-import pytest
-from pathlib import Path
 import shutil
+from pathlib import Path
+
+import pytest
 
 from archguard.analysis.layers import AnalysisOrchestrator
 from archguard.suppression.store import SuppressionStore
-
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_project"
 

@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from archguard.analysis._models import AnalysisResult
-from archguard.analysis.scoring import ArchDebtResult, ArchDebtBand, LayerScores
-from archguard.fitness.evaluator import FitnessFunctionEvaluator
 from archguard.analysis.parser import ImportEdge
+from archguard.analysis.scoring import ArchDebtBand, ArchDebtResult, LayerScores
+from archguard.fitness.evaluator import FitnessFunctionEvaluator
 
 
 def _mock_analysis_result(violations=None, health_score=100.0, layer_scores=None):
@@ -173,7 +173,7 @@ def test_unknown_rule_syntax():
     result = _mock_analysis_result()
     out = evaluator.evaluate(result, ["invalid rule here"])
     assert out[0].passed is False
-    assert "Unknown rule syntax." == out[0].error
+    assert out[0].error == "Unknown rule syntax."
 
 
 def test_evaluate_multiple_rules():

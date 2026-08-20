@@ -1,7 +1,8 @@
-import time
 import functools
-from typing import TypeVar, Callable, Type, Any
 import logging
+import time
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -11,8 +12,8 @@ def with_retry(
     max_attempts: int = 3,
     backoff_base: float = 1.0,
     backoff_max: float = 30.0,
-    retryable_exceptions: tuple[Type[Exception], ...] = (Exception,),
-    non_retryable_exceptions: tuple[Type[Exception], ...] = (),
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
+    non_retryable_exceptions: tuple[type[Exception], ...] = (),
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Exponential backoff decorator with jitter."""
 

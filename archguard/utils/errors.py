@@ -1,8 +1,10 @@
 """Exit codes and error message helpers for ArchGuard."""
 
 from typing import Any
+
 import typer
-from archguard.config import EXIT_CONFIG_ERROR, EXIT_ANALYSIS_ERROR, EXIT_LLM_ERROR
+
+from archguard.config import EXIT_ANALYSIS_ERROR, EXIT_CONFIG_ERROR, EXIT_LLM_ERROR
 
 
 class ContractGenerationError(typer.Exit):

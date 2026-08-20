@@ -1,8 +1,10 @@
 """Safe async-to-sync execution utilities."""
 
 from __future__ import annotations
+
 import asyncio
-from typing import Any, Coroutine, TypeVar
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 

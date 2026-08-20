@@ -1,6 +1,4 @@
 """Regression tests for MED-03: env-driven and fine-grained PAT redaction."""
-import os
-import pytest
 
 
 def test_dashboard_token_exact_match_redacted(monkeypatch):

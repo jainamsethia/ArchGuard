@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Generator
 
 LOCK_TIMEOUT = float(os.getenv("ARCHGUARD_LOCK_TIMEOUT", "30.0"))
 LOCK_RETRY_INTERVAL = 0.05
@@ -29,8 +29,8 @@ def file_lock(
     with open(lock_path, "w") as lock_file:
         if sys.platform == "win32":
             # Windows: msvcrt exclusive lock
-            import time
             import msvcrt
+            import time
 
             deadline = time.monotonic() + timeout
             while True:
@@ -50,8 +50,8 @@ def file_lock(
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             # Unix: fcntl non-blocking lock with spin loop
-            import time
             import fcntl
+            import time
 
             deadline = time.monotonic() + timeout
             acquired = False

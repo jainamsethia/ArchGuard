@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
-from archguard.cache.db import EmbeddingDB
+from archguard.analysis._models import AnalysisResult as AnalysisResult
+from archguard.analysis._models import ViolationDetail as ViolationDetail
 from archguard.analysis._orchestrator_utils import (
     get_commit_sha as _get_commit_sha_fn,
 )
+from archguard.cache.db import EmbeddingDB
 from archguard.cache.embeddings import EmbeddingCache
-from archguard.analysis._models import AnalysisResult as AnalysisResult
-from archguard.analysis._models import ViolationDetail as ViolationDetail
 from archguard.contract.loader import load_contract
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -58,10 +58,10 @@ class AnalysisOrchestrator:
         if hasattr(self, "db") and self.db is not None:
             self.db.close()
 
-    def __enter__(self) -> "AnalysisOrchestrator":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, *exc_info: object) -> None:
         self.close()
 
     def run(
