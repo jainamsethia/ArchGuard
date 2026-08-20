@@ -1,0 +1,25 @@
+# Line endings
+#
+# The index is already 100% LF. Without this file, core.autocrlf=true (set on
+# this clone) writes CRLF into the working tree on checkout, which is why git
+# warns "LF will be replaced by CRLF" on every status. That matters beyond
+# cosmetics: action/entrypoint.sh and scripts/*.sh are linted by shellcheck in
+# CI and executed in a Linux container, where a CRLF shebang line fails.
+#
+# eol=lf pins the working tree to LF regardless of the local autocrlf setting,
+# and text=auto normalises anything added in future. Both are no-ops against
+# the current index.
+* text=auto eol=lf
+
+# Shell scripts must be LF even if someone sets autocrlf=input locally.
+*.sh text eol=lf
+
+# Binary: never diffed, never normalised.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.pdf binary
