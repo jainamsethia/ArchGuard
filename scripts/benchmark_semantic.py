@@ -1,9 +1,10 @@
-import time
 import tempfile
+import time
 from pathlib import Path
-from archguard.analysis.semantic import SemanticAnalyzer, FunctionChunk
-from archguard.cache.embeddings import EmbeddingCache
+
+from archguard.analysis.semantic import FunctionChunk, SemanticAnalyzer
 from archguard.cache.db import EmbeddingDB
+from archguard.cache.embeddings import EmbeddingCache
 
 
 def benchmark() -> None:

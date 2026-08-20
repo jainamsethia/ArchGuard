@@ -3824,4 +3824,4 @@ ml = ["faiss-cpu", "numpy", "scipy", "sentence-transformers", "setuptools", "tor
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "cfc0cfdae62785059d20540f80b91d9f4af79f88eb03248c7340a28276381681"
+content-hash = "b595048ef85885043eee9b7426b63a47b8e0d704ed413f68f016a30f8c20365b"

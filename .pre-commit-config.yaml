@@ -2,9 +2,16 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.15
     hooks:
+      # No --unsafe-fixes. Ruff's own definition of an unsafe fix is one that
+      # may change behaviour; applying those automatically on every commit is
+      # how a fixture repo's deliberately-planted violations got "fixed" away.
+      # Rule selection lives in pyproject.toml [tool.ruff], not here.
       - id: ruff
-        args: [--fix, --unsafe-fixes]
-      - id: ruff-format
+        args: [--fix]
+      # ruff-format is deliberately NOT enabled: 80 of 131 source files predate
+      # it, so turning it on here makes the next contributor's first commit a
+      # whole-repo reformat. Adopt it as its own standalone commit, then add
+      # `- id: ruff-format` here and a `ruff format --check` step to CI.
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.1.0
     hooks:

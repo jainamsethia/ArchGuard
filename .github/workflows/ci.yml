@@ -26,14 +26,25 @@ jobs:
         run: |
           pip install "poetry==2.4.1"
           poetry install --with dev
+      # tests/ and scripts/ are linted too: a test that binds a mock it never
+      # asserts on, or shells out without checking the exit code, is exactly
+      # the kind of test that passes while checking nothing. Rule selection
+      # lives in pyproject.toml [tool.ruff]; tests/fixtures is force-excluded
+      # there because its planted violations are the thing under test.
       - name: Run ruff
-        run: poetry run ruff check archguard/
+        run: poetry run ruff check archguard/ tests/ scripts/
       - name: Run mypy
         run: poetry run mypy archguard/ --ignore-missing-imports
       - name: Run shellcheck
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: './action'
+      # This test defines the action entrypoint's contract (input mapping,
+      # argument allowlisting, step outputs). It existed but nothing ran it,
+      # which is how the entrypoint got reduced to `exec archguard "$@"` --
+      # ignoring all 11 declared inputs -- without anything failing.
+      - name: Verify action entrypoint contract
+        run: bash tests/test_entrypoint_security.sh
 
   security:
     name: Security Scan
@@ -120,10 +131,15 @@ jobs:
         run: |
           pip install "poetry==2.4.1"
           poetry install --extras ml --with dev
+      # --full is required. Without it `analyze` diffs against HEAD~1, so on a
+      # clean checkout it analyses nothing, exits 0, and (before the --json fix)
+      # never wrote self-analysis.json at all. This job only ever appeared to
+      # work because actions/checkout defaults to a shallow clone with no
+      # HEAD~1, which fell back to "analyse everything".
       - name: Run full 4-layer self-analysis
         id: analyze
         run: |
-          poetry run archguard analyze --repo . --no-llm --json \
+          poetry run archguard analyze --repo . --full --no-llm --json \
             --out-file self-analysis.json
         env:
           GEMINI_API_KEY: ""

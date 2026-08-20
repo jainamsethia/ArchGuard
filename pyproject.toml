@@ -68,7 +68,10 @@ pytest-benchmark = ">=4.0"
 pytest-asyncio = ">=0.23"
 pytest-timeout = ">=2.2"
 mypy = ">=1.5"
-ruff = ">=0.1"
+# Floored at the version whose rule set matches [tool.ruff.lint] below. The old
+# ">=0.1" floor meant `ruff check` ran whatever defaults the installed ruff
+# happened to have, so the lint gate's meaning drifted with every release.
+ruff = ">=0.15,<0.17"
 pre-commit = ">=3.0"
 types-PyYAML = "*"
 pip-audit = ">=2.6"
@@ -76,6 +79,84 @@ fastapi = ">=0.100.0"
 build = ">=1.0"
 bandit = "^1.9.4"
 
+
+[tool.ruff]
+# Pinned explicitly. With no [tool.ruff] section at all, `ruff check` ran
+# whatever the installed ruff's *default* rule set happened to be -- which
+# expanded between 0.1 (the floor in dev-dependencies) and 0.16, so the CI
+# lint gate quietly changed meaning on every ruff release.
+target-version = "py311"
+line-length = 100
+# Fixture repositories are *inputs* to the analyser, not source. Their unused
+# imports and forbidden cross-module imports are the planted violations the
+# correctness tests assert on -- linting (let alone autofixing) them deletes
+# the very thing under test.
+extend-exclude = ["tests/fixtures", "tests/integration/fixtures"]
+# force-exclude makes the exclusion hold even when a path is passed explicitly
+# on the command line -- which is exactly how pre-commit invokes ruff, and how
+# a fixture's planted violations got autofixed away in the first place.
+force-exclude = true
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # import sorting
+    "UP",     # pyupgrade
+    "B",      # bugbear
+    "C4",     # comprehensions
+    "SIM",    # simplifications
+    "PL",     # pylint subset
+    "RUF",    # ruff-specific
+    "ASYNC",  # blocking calls in async functions
+    "LOG",    # logging misuse
+    "PIE",
+    "PYI",
+    "TRY",
+]
+ignore = [
+    "E501",     # line length: enforced by the formatter, not the linter
+    "B008",     # FastAPI's Depends()/Query() idiom is a call in a default arg
+    "B904",     # implicit exception chaining already reports the cause
+    "PLC0415",  # deliberate: lazy imports keep optional extras off the CLI's
+                # import path and break dashboard route/app import cycles
+    "PLC0414",  # `import X as X` is the explicit re-export form mypy wants
+    "PLR0911",  # return-count limits produce worse code in dispatch functions
+    "PLR0912",
+    "PLR0913",
+    "PLR0915",
+    "PLR0917",
+    "PLR2004",  # "magic value" flags every threshold constant in scoring
+    "RUF001",   # the en-dashes and middots in user-facing strings are intended
+    "RUF002",
+    "RUF003",
+    "SIM108",   # ternary-vs-if is a readability call, not a rule
+    "SIM112",   # %SystemDrive% is spelled that way on Windows
+    "TRY003",   # long messages inside raise: the messages are the UX here
+    "TRY300",
+    "TRY301",
+    "TRY401",   # duplicating the exception in the message is harmless next to
+                # the traceback .exception() already emits
+    "PLW2901",  # rebinding a loop variable while normalising it is idiomatic
+    "SIM102",   # nested ifs often read better than a compound condition
+    "SIM105",   # try/except/pass is clearer than contextlib.suppress in tests
+    "PLC0206",
+    "PYI024",
+    "UP042",    # (str, Enum) members serialise as their value through json;
+                # StrEnum would also change str(member) and the SSE payloads
+    "ASYNC109", # cancel_all_running(timeout=) forwards to asyncio.wait
+    # ASYNC240 flags every pathlib/os.path call in an async def. The ones that
+    # actually walked a repository have been moved to asyncio.to_thread; the
+    # rest are pure path arithmetic with no I/O, and ArchGuard does not depend
+    # on trio or anyio.Path.
+    "ASYNC240",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on internals, bind mocks they never call, and shell out without
+# checking exit codes on purpose.
+"tests/**" = ["F841", "PLW1510", "RUF012", "B017", "SIM117", "E402"]
 
 [tool.mypy]
 python_version = "3.11"
