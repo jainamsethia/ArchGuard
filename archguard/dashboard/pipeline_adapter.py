@@ -6,8 +6,9 @@ Key design decisions:
   loop.run_in_executor(None, ...): both use the same default executor, but only
   to_thread copies the context across the boundary, which is what lets the
   correlation id reach the log records the analysis itself emits.
-- If .archguard.yml is absent, we call _run_init_cli() programmatically
-  with confirm_all=True and force_ci=True to auto-generate it.
+- If .archguard.yml is absent, archguard.contract.generation.generate_contract()
+  produces one headlessly and reports whether the module boundaries were
+  measured from co-change history or guessed from directory names.
 - 'changed_files' for a fresh clone = all .py files in the repo, since every
   file is "new" from the pipeline's perspective on a fresh workspace.
 - The workspace clone is blobless but retains full history (see
@@ -25,6 +26,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from archguard.contract.generation import ContractGenerationResult
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +139,7 @@ async def run_analysis_on_repo(
     """Run the full ArchGuard 4-layer pipeline against a cloned repo directory.
 
     If no .archguard.yml is found at repo_path, auto-generates one via
-    _run_init_cli() before running analysis.
+    generate_contract() before running analysis.
 
     Args:
         repo_path:           Path to the root of the cloned repository
@@ -160,29 +163,16 @@ async def run_analysis_on_repo(
     if not archguard_yml.exists():
         await _emit("No .archguard.yml found - generating contract...")
         try:
-            await asyncio.to_thread(_generate_contract_sync, repo_path)
+            generation = await asyncio.to_thread(_generate_contract_sync, repo_path)
             contract_auto_generated = True
 
-            import yaml
-            if archguard_yml.exists():
-                try:
-                    raw = await asyncio.to_thread(
-                        archguard_yml.read_text, encoding="utf-8"
-                    )
-                    yml_content = yaml.safe_load(raw)
-                    if isinstance(yml_content, dict):
-                        gen_by = str(yml_content.get("generated_by", ""))
-                        if "fallback" in gen_by:
-                            fallback_heuristic = True
-                            fallback_reason = gen_by
-                except (OSError, yaml.YAMLError) as yaml_exc:
-                    # Don't swallow this: failing to read generated_by is
-                    # exactly how a heuristic-fallback run gets reported as
-                    # a measured one.
-                    logger.warning(
-                        "[job %s] Could not parse generated contract to detect "
-                        "heuristic fallback: %s", job_id, yaml_exc,
-                    )
+            # Read straight off the result. This used to write the YAML, read it
+            # back, and substring-match "fallback" in generated_by -- a round
+            # trip that existed only because the CLI entry point returned None,
+            # and whose failure mode was reporting a guessed module map as a
+            # measured one.
+            fallback_heuristic = generation.fallback_used
+            fallback_reason = generation.fallback_reason
 
             if fallback_heuristic:
                 await _emit(
@@ -190,7 +180,10 @@ async def run_analysis_on_repo(
                     "module boundaries are guessed, not measured."
                 )
             else:
-                await _emit("Contract auto-generated.")
+                await _emit(
+                    f"Contract auto-generated: {generation.module_count} modules "
+                    f"measured from {generation.commit_count} commits."
+                )
         except Exception as exc:
             logger.warning("[job %s] Contract auto-generation failed: %s", job_id, exc)
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
@@ -288,16 +281,16 @@ async def run_analysis_on_repo(
 # Synchronous helpers (called via run_in_executor)
 # --------------------------------------------------------------------------
 
-def _generate_contract_sync(repo_path: Path) -> None:
-    """Auto-generate .archguard.yml using _run_init_cli with headless settings.
+def _generate_contract_sync(repo_path: Path) -> ContractGenerationResult:
+    """Auto-generate .archguard.yml for a repository that ships none.
 
-    Uses confirm_all=True (no interactive prompts) and force_ci=True (skip the
-    shallow-clone guard). Runs phases 1-5 of the init wizard; module boundaries
-    come from real co-change history (the workspace clone keeps full history).
+    Module boundaries come from real co-change history -- the workspace clone is
+    blobless but keeps full history precisely so this does not degrade to the
+    directory-name heuristic.
 
-    Thresholds are pinned to a fixed profile rather than ``archguard init``'s
-    default self-referential baseline. That baseline sets each module's
-    coupling_budget to ``ceil(fan_out * 1.5)`` of the fan-out measured during
+    Thresholds are pinned to a fixed profile rather than a baseline derived from
+    the repository's own measured fan-out. That baseline sets each module's
+    coupling_budget to ``ceil(fan_out * 1.5)`` of what was measured during
     generation, which is a sound "don't get worse than today" policy for a team
     enforcing the contract against their own future commits -- but here the
     contract is generated and graded in the same pass against a repository
@@ -305,33 +298,17 @@ def _generate_contract_sync(repo_path: Path) -> None:
     its own first scan, however badly coupled it actually is, so every dashboard
     run returned 100/A. See DASHBOARD_THRESHOLD_PROFILE.
     """
-    import typer
-    from rich.console import Console
+    from archguard.contract.generation import generate_contract
 
-    from archguard.cli._init_dispatch import _run_init_cli
-
-    # Create a minimal Context to satisfy the Typer signature
-    # _run_init_cli only uses ctx.obj.get("quiet") and ctx.obj.get("verbose")
-    app = typer.Typer()
-    @app.command()
-    def fake() -> None: pass
-    ctx = typer.Context(command=typer.main.get_command(app))
-    ctx.obj = {"quiet": True, "verbose": False}
-
-    _run_init_cli(
-        ctx=ctx,
+    return generate_contract(
         repo_root=repo_path,
         output=repo_path / ".archguard.yml",
-        confirm_all=True,
-        force_ci=True,   # bypasses shallow-clone guard in CI check
-        resume=False,
-        no_llm=True,     # skip LLM-based contract inference (faster, offline-safe)
-        min_history_commits=1,  # allow community detection with minimal history
-        llm_init=False,
-        wizard=False,
-        force=True,
-        _console=Console(quiet=True),
         threshold_profile=DASHBOARD_THRESHOLD_PROFILE,
+        # Allow community detection on a repository with minimal history.
+        min_history_commits=1,
+        # Layer 3 computes what it needs at analysis time; precomputing here
+        # would pull the ML extras into whichever process runs this.
+        compute_embeddings=False,
     )
 
 def _run_analysis_sync(

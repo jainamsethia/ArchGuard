@@ -7,7 +7,7 @@ Provides an async context manager that:
 4. Guarantees cleanup (shutil.rmtree) in try/finally regardless of exceptions
 
 The clone is deliberately *not* shallow.  Contract generation derives module
-boundaries from co-change history (see ``archguard.cli._init_phases``), and a
+boundaries from co-change history (see ``archguard.contract._discovery``), and a
 truncated history silently degrades that to guessing modules from directory
 names.
 """
