@@ -1,9 +1,11 @@
 """Integration tests for the trends command."""
 
 import json
-from datetime import datetime, timezone, timedelta
-from archguard.cli.main import app
+from datetime import UTC, datetime, timedelta
+
 from typer.testing import CliRunner
+
+from archguard.cli.main import app
 from archguard.config import AUDIT_LOG_FILENAME
 from tests.conftest import strip_rich
 
@@ -17,7 +19,7 @@ def test_history_trend_cmd_success(tmp_path, monkeypatch):
     monkeypatch.setattr("archguard.cli.history_cmd.AUDIT_LOG_FILENAME", str(mock_log))
 
     # Create mock runs
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     runs = [
         {
             "timestamp": (now - timedelta(days=5)).isoformat(),
@@ -75,7 +77,7 @@ def test_history_cmd_json(tmp_path, monkeypatch):
     mock_log.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr("archguard.cli.history_cmd.AUDIT_LOG_FILENAME", str(mock_log))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     runs = [
         {
             "timestamp": (now - timedelta(days=1)).isoformat(),

@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
 from archguard.config import CHECKPOINTS_DIR
 
 
@@ -13,7 +15,7 @@ def save_checkpoint(repo_root: Path, phase: int, data: dict[str, Any]) -> None:
 
     checkpoint = {
         "phase": phase,
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
         "data": data,
     }
 
@@ -31,7 +33,7 @@ def load_checkpoint(repo_root: Path, phase: int) -> dict[str, Any] | None:
         import typing
 
         with path.open("r", encoding="utf-8") as f:
-            return typing.cast(typing.Dict[str, Any], json.load(f))
+            return typing.cast(dict[str, Any], json.load(f))
     except (json.JSONDecodeError, OSError):
         return None
 

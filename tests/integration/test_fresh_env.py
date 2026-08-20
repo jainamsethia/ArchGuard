@@ -1,8 +1,10 @@
-import os
 import json
+import os
 import subprocess
+
 import pytest
 from typer.testing import CliRunner
+
 from archguard.cli.main import app
 
 

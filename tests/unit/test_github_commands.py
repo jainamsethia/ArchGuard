@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from archguard.cli.main import app
-from archguard.github.commands import parse_commands, ArchGuardCommand
+from archguard.github.commands import ArchGuardCommand, parse_commands
 
 runner = CliRunner()
 

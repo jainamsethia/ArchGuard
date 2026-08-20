@@ -1,10 +1,11 @@
+from typing import Any
+
 from archguard.github.checks import CheckAnnotation
-from typing import List, Dict, Any
 
 
 def violations_to_annotations(
-    violations: List[Dict[str, Any]],
-) -> List[CheckAnnotation]:
+    violations: list[dict[str, Any]],
+) -> list[CheckAnnotation]:
     """Convert archguard violations to GitHub check annotations."""
     annotations = []
     for v in violations:

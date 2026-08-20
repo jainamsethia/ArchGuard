@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 
 import typer
@@ -34,8 +35,8 @@ def contract_list_pending(
 ) -> None:
     """List pending contract proposals."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -57,14 +58,14 @@ def contract_list_pending(
     table.add_column("Timestamp")
     table.add_column("Age")
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for p in proposals:
         try:
             ts = datetime.fromisoformat(p.proposal_timestamp)
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             age_days = (now - ts).days
             age_str = f"{age_days}d"
         except (ValueError, TypeError):
@@ -103,8 +104,8 @@ def contract_accept(
 ) -> None:
     """Accept a pending contract proposal."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -120,7 +121,7 @@ def contract_accept(
             from archguard.github.client import GitHubClient
 
             github_client = GitHubClient()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _console.print(
                 format_error(
                     "GitHub client unavailable. Use local mode (omit --repo-slug)."
@@ -155,8 +156,8 @@ def contract_reject(
 ) -> None:
     """Reject a pending contract proposal."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -184,8 +185,8 @@ def contract_show(
 ) -> None:
     """Show a pending contract proposal."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:

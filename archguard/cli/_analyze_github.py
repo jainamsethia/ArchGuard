@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 from typing import Any
+
+from rich.console import Console
+
 from archguard.analysis.layers import AnalysisResult
 from archguard.cli.analyze_cmd import AnalyzeOptions
 from archguard.utils.severity import Severity
-from rich.console import Console
 
 _console = Console()
 
@@ -33,8 +36,8 @@ def _post_github_annotations(
         token = os.environ.get("GITHUB_TOKEN")
         head_sha = os.environ.get("GITHUB_SHA") or commit_sha
         if token and head_sha:
-            from archguard.github.checks import ChecksAPIClient
             from archguard.github.annotation_builder import violations_to_annotations
+            from archguard.github.checks import ChecksAPIClient
 
             checks_client = ChecksAPIClient(token=token, repo_full_name=opts.repo_slug)
             annotations = violations_to_annotations(v_list_out)

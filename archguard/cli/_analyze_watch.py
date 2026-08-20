@@ -1,13 +1,14 @@
-import typing
-import time
 import threading
+import time
+import typing
 from pathlib import Path
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-from rich.console import Console
 
-from archguard.cli.analyze_cmd import AnalyzeOptions
+from rich.console import Console
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
 from archguard.cli._analyze_core import _analyze_command_impl
+from archguard.cli.analyze_cmd import AnalyzeOptions
 
 
 class AnalysisEventHandler(FileSystemEventHandler):
@@ -32,7 +33,7 @@ class AnalysisEventHandler(FileSystemEventHandler):
     def _run_analysis(self) -> None:
         """Run analysis on file changes and report the ArchDebt delta."""
         self.console.rule("[bold blue]File changed - re-analyzing...[/bold blue]")
-        exit_code, result = _analyze_command_impl(self.opts)
+        _exit_code, result = _analyze_command_impl(self.opts)
         if result is not None:
             new_score = result.archdebt.composite_score
             if self._last_score is not None:

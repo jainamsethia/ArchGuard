@@ -1,4 +1,5 @@
 from typer.testing import CliRunner
+
 from archguard.cli.main import app
 from archguard.config import ARCHGUARD_CONFIG_FILE
 

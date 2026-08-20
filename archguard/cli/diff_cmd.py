@@ -1,11 +1,12 @@
-import typing
 import json
+import typing
+
 import typer
 from rich.console import Console
 
 from archguard.audit.logger import AuditLogger
-from archguard.config import EXIT_SUCCESS, EXIT_CONFIG_ERROR
-from archguard.utils.validation import validate_repo_path, PathTraversalError
+from archguard.config import EXIT_CONFIG_ERROR, EXIT_SUCCESS
+from archguard.utils.validation import PathTraversalError, validate_repo_path
 
 diff_app = typer.Typer(
     name="diff",
@@ -43,8 +44,8 @@ def diff_cmd(
 
     old_run, new_run = recent_runs[-2], recent_runs[-1]
 
-    old_violations = set(get_key(v) for v in old_run.get("violations", []))
-    new_violations = set(get_key(v) for v in new_run.get("violations", []))
+    old_violations = {get_key(v) for v in old_run.get("violations", [])}
+    new_violations = {get_key(v) for v in new_run.get("violations", [])}
 
     resolved = old_violations - new_violations  # Fixed since last run
     introduced = new_violations - old_violations  # New since last run

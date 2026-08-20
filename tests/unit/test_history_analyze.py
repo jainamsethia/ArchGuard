@@ -1,15 +1,15 @@
 """Unit tests for the history-analyze CLI command (Phase 3 Step 9)."""
 
 import json
+
 import pytest
 
 from archguard.cli.history_analyze_cmd import (
-    _get_commit_shas,
-    _calc_debt_velocity,
-    _sparkline,
     _build_json_output,
+    _calc_debt_velocity,
+    _get_commit_shas,
+    _sparkline,
 )
-
 
 # ---------------------------------------------------------------------------
 # _get_commit_shas

@@ -449,9 +449,9 @@ class TestAnalyzeCommand:
         assert result.exit_code == 0
 
     def test_run_llm_explanation_success(self, tmp_path: Path) -> None:
+        from archguard.analysis.layers import AnalysisResult
         from archguard.cli._analyze_llm import _run_llm_explanation
         from archguard.cli._analyze_options import AnalyzeOptions
-        from archguard.analysis.layers import AnalysisResult
 
         mock_result = MagicMock(spec=AnalysisResult)
         mock_result.archdebt = MagicMock()
@@ -476,7 +476,7 @@ class TestAnalyzeCommand:
             mock_attach.assert_called_once_with(mock_result, ["Expl 1"])
 
     def test_format_rich_output_quiet(self, tmp_path: Path) -> None:
-        from archguard.cli._analyze_output import _format_rich_output, AnalyzeOptions
+        from archguard.cli._analyze_output import AnalyzeOptions, _format_rich_output
 
         mock_result = MagicMock()
         mock_result.archdebt.should_fail_ci = False
@@ -493,7 +493,7 @@ class TestAnalyzeCommand:
             assert "PASSED" in mock_print.call_args[0][0]
 
     def test_write_json_output_to_file(self, tmp_path: Path) -> None:
-        from archguard.cli._analyze_output import _write_json_output, AnalyzeOptions
+        from archguard.cli._analyze_output import AnalyzeOptions, _write_json_output
 
         mock_result = MagicMock()
         mock_result.archdebt.band.name = "HEALTHY"
@@ -513,7 +513,7 @@ class TestAnalyzeCommand:
         assert data["band"] == "PASS"
 
     def test_write_audit_log(self, tmp_path: Path) -> None:
-        from archguard.cli._analyze_output import _write_audit_log, AnalyzeOptions
+        from archguard.cli._analyze_output import AnalyzeOptions, _write_audit_log
 
         mock_result = MagicMock()
         mock_result.archdebt.band.name = "HEALTHY"
@@ -531,8 +531,8 @@ class TestAnalyzeCommand:
 
     def test_post_github_annotations(self, tmp_path: Path) -> None:
         from archguard.cli._analyze_github import (
-            _post_github_annotations,
             AnalyzeOptions,
+            _post_github_annotations,
         )
 
         mock_result = MagicMock()

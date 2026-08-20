@@ -1,7 +1,8 @@
-import typer
+from enum import Enum
 from pathlib import Path
 from typing import Annotated
-from enum import Enum
+
+import typer
 
 
 class SyncDirection(str, Enum):

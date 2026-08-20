@@ -7,9 +7,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-
 from archguard.cli._analyze_options import AnalyzeOptions as AnalyzeOptions
-
 
 _console = Console()
 
@@ -63,7 +61,7 @@ def analyze_command(
     full: bool = typer.Option(
         False,
         "--full",
-        help="Force full corpus rebuild.",
+        help="Analyze every Python file in the repo, not just what changed since HEAD~1.",
     ),
     json_output: bool = typer.Option(
         False,
@@ -143,12 +141,12 @@ def analyze_command(
         logging.basicConfig(level=logging.DEBUG)
 
     try:
-        from archguard.utils.validation import (
-            validate_repo_path,
-            validate_output_path,
-            PathTraversalError,
-        )
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import (
+            PathTraversalError,
+            validate_output_path,
+            validate_repo_path,
+        )
 
         repo = validate_repo_path(repo)
         if out_file is not None:
@@ -157,10 +155,10 @@ def analyze_command(
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(EXIT_CONFIG_ERROR)
 
-    import tempfile
-    import subprocess
     import atexit
     import shutil
+    import subprocess
+    import tempfile
 
     if github_url:
         temp_dir = tempfile.mkdtemp(prefix="archguard_")
@@ -212,35 +210,15 @@ def analyze_command(
         # We will catch typer.Exit to run dep health before exiting
         caught_exit = None
         try:
-            _run_analyze_cli(
-                opts,
-                json_output,
-                watch,
-                monorepo,
-                verbose,
-                repo,
-                pr,
-                repo_slug,
-                profile,
-                changed_files,
-                skip_explanation,
-                full,
-                fail_on_warn,
-                dry_run,
-                incremental,
-                no_incremental,
-                no_llm,
-                out_file,
-                fail_fast,
-                fail_threshold,
-            )
+            _run_analyze_cli(opts)
         except typer.Exit as e:
             caught_exit = e
 
         # Run Dependency Health Score calculation
-        from archguard.analysis.deps import analyze_dependencies
         from rich.panel import Panel
         from rich.table import Table
+
+        from archguard.analysis.deps import analyze_dependencies
 
         dep_res = analyze_dependencies(repo)
 

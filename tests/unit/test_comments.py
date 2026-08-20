@@ -4,20 +4,19 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-
 from archguard.analysis.layers import AnalysisResult, ViolationDetail
 from archguard.analysis.scoring import (
     ArchDebtBand,
     ArchDebtResult,
     LayerScores,
 )
-from archguard.github.comments import (
-    ARCHGUARD_MARKER,
-    PRCommentManager,
-)
 from archguard.github.commands import (
     ArchGuardCommand,
     parse_commands,
+)
+from archguard.github.comments import (
+    ARCHGUARD_MARKER,
+    PRCommentManager,
 )
 
 

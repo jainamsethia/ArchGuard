@@ -1,28 +1,34 @@
 from __future__ import annotations
+
+import logging
 import subprocess
+from datetime import UTC
 from pathlib import Path
 from typing import Any
+
 from rich.console import Console
+
 from archguard.analysis.layers import AnalysisOrchestrator, AnalysisResult
 from archguard.analysis.scoring import ArchDebtBand
-from archguard.config import (
-    EXIT_SUCCESS,
-    EXIT_VIOLATION,
-    EXIT_CONFIG_ERROR,
-    EXIT_ANALYSIS_ERROR,
-)
-from archguard.utils.errors import format_error
-from archguard.utils.output import vprint
-from archguard.profiles.defaults import apply_profile
-from archguard.cli.analyze_cmd import AnalyzeOptions
-
+from archguard.cli._analyze_github import _post_github_annotations
 from archguard.cli._analyze_output import (
     _format_rich_output,
-    _write_json_output,
-    _write_audit_log,
     _send_slack_alerts,
+    _write_audit_log,
+    _write_json_output,
 )
-from archguard.cli._analyze_github import _post_github_annotations
+from archguard.cli.analyze_cmd import AnalyzeOptions
+from archguard.config import (
+    EXIT_ANALYSIS_ERROR,
+    EXIT_CONFIG_ERROR,
+    EXIT_SUCCESS,
+    EXIT_VIOLATION,
+)
+from archguard.profiles.defaults import apply_profile
+from archguard.utils.errors import format_error
+from archguard.utils.output import vprint
+
+logger = logging.getLogger(__name__)
 
 _console = Console()
 _console_err = Console(stderr=True)
@@ -53,14 +59,33 @@ def attach_explanations(
     return dc_replace(result, violations=new_violations)
 
 
+def _all_python_files(repo_root: Path) -> list[Path]:
+    """Every analysable ``.py`` file in *repo_root*, vendored trees excluded."""
+    from archguard.utils.paths import is_vendored
+
+    return [
+        f
+        for f in sorted(repo_root.rglob("*.py"))
+        if f.is_file() and not is_vendored(f, repo_root)
+    ]
+
+
 def _resolve_changed_files(
     repo_root: Path,
     changed_files_arg: str | None,
     pr_number: int | None,
     repo_slug: str | None,
     opts: AnalyzeOptions | None = None,
+    full: bool = False,
 ) -> list[Path]:
-    """Resolve changed files from CLI args, GitHub, or git diff."""
+    """Resolve the file set to analyse from CLI args, GitHub, or git diff.
+
+    With *full*, every Python file in the tree is analysed regardless of what
+    changed. Everything else is a delta against ``HEAD~1``.
+    """
+    if full:
+        return _all_python_files(repo_root)
+
     if changed_files_arg:
         if changed_files_arg.startswith("@"):
             # Read from file
@@ -80,12 +105,8 @@ def _resolve_changed_files(
             client = GitHubClient()
             files = client.get_pr_changed_files(repo_slug, pr_number)
             return [repo_root / f for f in files]
-        except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).error(
-                f"Analysis failed in _resolve_changed_files: {e}", exc_info=True
-            )
+        except Exception:
+            logger.exception("Failed to resolve changed files from the GitHub PR")
             raise
 
     # Fallback: git diff HEAD~1
@@ -127,9 +148,7 @@ def _resolve_changed_files(
 
         if diff_result.returncode != 0:
             # Log a warning, don't silently return empty
-            import logging
-
-            logging.warning(
+            logger.warning(
                 f"git diff failed: {diff_result.stderr}. Analyzing all Python files."
             )
             return list(repo_root.rglob("*.py"))
@@ -140,16 +159,23 @@ def _resolve_changed_files(
             if f.endswith(".py")
         ]
         return [repo_root / f for f in diff_files if (repo_root / f).exists()]
-    except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).error(
-            f"Analysis failed in _resolve_changed_files git fallback: {e}",
-            exc_info=True,
-        )
+    except Exception:
+        logger.exception("Failed to resolve changed files from git")
         raise
 
-    return []
+
+def _empty_result(commit_sha: str) -> AnalysisResult:
+    """A well-formed result for a run that had nothing to analyse."""
+    from archguard.analysis.scoring import LayerScores, compute_archdebt
+
+    scores = LayerScores(0.0, 0.0, 0.0, 0.0)
+    return AnalysisResult(
+        archdebt=compute_archdebt(scores),
+        layer_scores=scores,
+        commit_sha=commit_sha,
+        skipped=True,
+        skip_reason="No Python files changed",
+    )
 
 
 def _merge_incremental_results(
@@ -160,9 +186,9 @@ def _merge_incremental_results(
     contract: dict[str, Any],
     opts: AnalyzeOptions,
 ) -> None:
-    from archguard.audit.logger import AuditLogger
     from archguard.analysis.layers import ViolationDetail
-    from archguard.analysis.scoring import compute_archdebt, LayerScores
+    from archguard.analysis.scoring import LayerScores, compute_archdebt
+    from archguard.audit.logger import AuditLogger
 
     last_run = AuditLogger(
         log_path=repo_root / ".archguard-cache" / "audit.jsonl"
@@ -213,15 +239,16 @@ def _merge_incremental_results(
 def _save_incremental_cache(
     repo_root: Path, py_changed: list[Path], unchanged: list[Path]
 ) -> None:
+    from datetime import datetime
+
     from archguard.cache.incremental import (
-        save_cache,
-        load_cache,
         FileRecord,
         compute_hash,
+        load_cache,
+        save_cache,
     )
-    from datetime import datetime, timezone
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     cache_records = load_cache(repo_root)
     for f in py_changed + unchanged:
         rel = str(f.relative_to(repo_root)).replace("\\", "/")
@@ -260,10 +287,12 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             )
 
         all_changed = _resolve_changed_files(
-            repo_root, opts.changed_files, opts.pr_number, opts.repo_slug, opts
+            repo_root, opts.changed_files, opts.pr_number, opts.repo_slug, opts,
+            full=opts.full,
         )
         vprint(
-            f"[bold blue]Analyzing {len(all_changed)} changed file(s)[/bold blue]",
+            f"[bold blue]Analyzing {len(all_changed)} "
+            f"{'file(s)' if opts.full else 'changed file(s)'}[/bold blue]",
             opts.ctx,
         )
         py_changed = [f for f in all_changed if str(f).endswith(".py")]
@@ -275,7 +304,19 @@ def _analyze_command_impl(opts: AnalyzeOptions) -> tuple[int, AnalysisResult | N
             py_changed, unchanged = get_changed_files(py_changed, repo_root)
 
         if not py_changed and not unchanged:
-            vprint("No Python files changed. Skipping analysis.", opts.ctx)
+            _status(
+                "No Python files changed, so nothing was analysed. "
+                "Use [bold]--full[/bold] to analyse the whole repository.",
+                opts,
+            )
+            # Still emit the requested machine-readable output. Returning early
+            # without writing it left `--out-file` pointing at a file that was
+            # never created and `--json` printing nothing at all, while exiting
+            # 0 -- so every pipeline consuming it crashed on a missing file
+            # instead of reading an honest "nothing was analysed" result.
+            empty = _empty_result(commit_sha=AnalysisOrchestrator.get_commit_sha(repo_root))
+            if opts.json_output or opts.out_file is not None:
+                _write_json_output(empty, opts)
             return EXIT_SUCCESS, None
 
         commit_sha = AnalysisOrchestrator.get_commit_sha(repo_root)

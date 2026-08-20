@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import typer
 from rich.console import Console
+
 from archguard.contract.writer import _infer_path
 
 _console: Console = Console()

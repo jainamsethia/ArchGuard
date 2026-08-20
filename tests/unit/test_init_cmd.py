@@ -10,11 +10,10 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-from archguard.cli.main import app
-from archguard.cli._init_checkpoints import save_checkpoint, latest_completed_phase
+from archguard.cli._init_checkpoints import latest_completed_phase, save_checkpoint
 from archguard.cli._init_contract import _phase4_embeddings
 from archguard.cli._init_wizard import _interactive_review
-
+from archguard.cli.main import app
 
 runner: CliRunner = CliRunner()
 
@@ -213,6 +212,7 @@ class TestInitCommand:
     def test_generated_yaml_validates(self, tmp_path: Path) -> None:
         """Generated YAML passes validate_contract()."""
         import yaml
+
         from archguard.contract.validator import validate_contract
 
         _create_py_files(tmp_path)
@@ -307,6 +307,7 @@ class TestInitCommand:
     def test_init_fallback_on_empty_repo(self, tmp_path: Path) -> None:
         """Test fallback to directory modules when commit history is sparse."""
         import subprocess
+
         import yaml
 
         # Create a git repo with 1 commit
@@ -347,23 +348,23 @@ class TestInitCommand:
         pkg2 = tmp_path / "pkg2"
         pkg2.mkdir()
         (pkg2 / "main.py").write_text("y = 2")
-        
+
         mocks = _make_mock_deps()
         with patch.dict(sys.modules, mocks):
             with patch("archguard.utils.monorepo.detect_subpackages", return_value=[pkg1, pkg2]):
                 result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo", "--confirm-all"])
-        
+
         assert result.exit_code == 0
         assert (pkg1 / ".archguard.yml").exists()
         assert (pkg2 / ".archguard.yml").exists()
-        
+
     def test_init_monorepo_no_packages(self, tmp_path: Path) -> None:
         """Test init with --monorepo but no subpackages."""
         mocks = _make_mock_deps()
         with patch.dict(sys.modules, mocks):
             with patch("archguard.utils.monorepo.detect_subpackages", return_value=[]):
                 result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo"])
-        
+
         assert result.exit_code == 1
         assert "No sub-packages found" in result.output
 
@@ -371,12 +372,12 @@ class TestInitCommand:
         """Test init with --monorepo where one subpackage fails."""
         pkg1 = tmp_path / "pkg1"
         pkg1.mkdir()
-        
+
         mocks = _make_mock_deps()
         with patch.dict(sys.modules, mocks):
             with patch("archguard.utils.monorepo.detect_subpackages", return_value=[pkg1]):
                 with patch("archguard.cli.init_cmd.init_command", side_effect=Exception("mocked error")):
                     result = runner.invoke(app, ["init", "--repo", str(tmp_path), "--monorepo", "--confirm-all"])
-        
+
         assert result.exit_code == 1
         assert "Error initializing pkg1" in result.output

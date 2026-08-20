@@ -1,11 +1,15 @@
 from __future__ import annotations
+
 import logging
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
 from rich.console import Console
+
+from archguard.utils.paths import SKIP_DIRS as _EXCLUDE_DIRS
 
 _console: Console = Console()
 _logger = logging.getLogger(__name__)
@@ -36,18 +40,6 @@ def _git_executable() -> str:
         raise RuntimeError("git executable not found in PATH")
     return found
 
-_EXCLUDE_DIRS: frozenset[str] = frozenset(
-    {
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".git",
-        "node_modules",
-        ".tox",
-        "dist",
-        "build",
-    }
-)
 
 
 def count_loc(file_path: Path) -> int:
@@ -343,6 +335,7 @@ def _phase3_communities(
     never reported as "this repo has little history".
     """
     import networkx as nx  # lazy import
+
     from archguard.analysis.community import detect_communities, get_seed_from_repo
 
     graph = nx.node_link_graph(graph_data)

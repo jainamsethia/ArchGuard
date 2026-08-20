@@ -1,10 +1,12 @@
 from typing import Any
-from archguard.cli._analyze_output import _console
-from archguard.utils.output import vprint
+
 from archguard.analysis.layers import AnalysisResult
 from archguard.cli._analyze_core import attach_explanations
 from archguard.cli._analyze_options import AnalyzeOptions
+from archguard.cli._analyze_output import _console
+from archguard.utils.output import vprint
 from archguard.utils.tty import is_tty
+
 
 def _run_llm_explanation(
     result: AnalysisResult, contract: dict[str, Any], opts: AnalyzeOptions

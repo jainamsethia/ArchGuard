@@ -240,5 +240,5 @@ def post_comment(
         client = GitHubClient(token=token)
         return client.post_comment(repo_slug, body, pr_number=pr_number)
     except Exception as e:
-        logger.error(f"Failed to post comment: {e}")
+        logger.exception(f"Failed to post comment: {e}")
         return False

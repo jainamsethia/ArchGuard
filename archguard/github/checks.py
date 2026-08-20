@@ -1,6 +1,7 @@
-import httpx
 from dataclasses import dataclass
-from typing import Literal, Optional, List, Dict, Any
+from typing import Any, Literal
+
+import httpx
 
 
 @dataclass
@@ -11,7 +12,7 @@ class CheckAnnotation:
     annotation_level: Literal["notice", "warning", "failure"]
     title: str
     message: str
-    raw_details: Optional[str] = None
+    raw_details: str | None = None
 
 
 class ChecksAPIClient:
@@ -31,17 +32,15 @@ class ChecksAPIClient:
         name: str,
         head_sha: str,
         status: Literal["queued", "in_progress", "completed"],
-        conclusion: Optional[
-            Literal["success", "failure", "neutral", "cancelled", "skipped"]
-        ],
+        conclusion: Literal["success", "failure", "neutral", "cancelled", "skipped"] | None,
         title: str,
         summary: str,
-        annotations: List[CheckAnnotation],
-    ) -> Dict[str, Any]:
+        annotations: list[CheckAnnotation],
+    ) -> dict[str, Any]:
         """Create or update a GitHub check run with annotations."""
 
         # GitHub limits 50 annotations per request - create run, then update with annotations
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "name": name,
             "head_sha": head_sha,
             "status": status,
@@ -75,7 +74,7 @@ class ChecksAPIClient:
         response.raise_for_status()
         from typing import cast
 
-        result = cast(Dict[str, Any], response.json())
+        result = cast(dict[str, Any], response.json())
 
         # If more than 50 annotations, paginate with PATCH
         if len(annotations) > self.ANNOTATION_BATCH_SIZE:
@@ -89,7 +88,7 @@ class ChecksAPIClient:
         return result
 
     def _update_check_run(
-        self, check_id: int, annotations: List[CheckAnnotation]
+        self, check_id: int, annotations: list[CheckAnnotation]
     ) -> None:
         httpx.patch(
             f"https://api.github.com/repos/{self.repo}/check-runs/{check_id}",

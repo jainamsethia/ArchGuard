@@ -53,9 +53,13 @@ inputs:
 
 outputs:
   archdebt-score:
-    description: 'Composite ArchDebt score (0.0–1.0). Read from /tmp/archguard-result.json.'
+    description: 'Health score, 0-100 (higher is better). Set by entrypoint.sh from /tmp/archguard-result.json.'
   archdebt-band:
-    description: 'ArchDebt band classification: Healthy, Watch, Warn, or Critical.'
+    description: 'CI verdict band: PASS, WATCH, WARN, or FAIL.'
+  health-grade:
+    description: 'Letter grade A-F derived from the health score.'
+  skipped:
+    description: '"true" when the run analysed nothing (e.g. no Python files changed since HEAD~1).'
 
 runs:
   using: 'docker'

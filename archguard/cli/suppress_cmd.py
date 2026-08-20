@@ -49,8 +49,8 @@ def suppress_add(
 ) -> None:
     """Add a violation suppression."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -60,9 +60,10 @@ def suppress_add(
     store = SuppressionStore(repo.resolve())
 
     if all_pending:
+        from rich.table import Table
+
         from archguard.audit.logger import AuditLogger
         from archguard.config import AUDIT_LOG_FILENAME
-        from rich.table import Table
 
         logger = AuditLogger(log_path=repo.resolve() / AUDIT_LOG_FILENAME)
         last_run = logger.read_last_run()
@@ -161,8 +162,8 @@ def suppress_list(
 ) -> None:
     """List suppressions."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -203,8 +204,8 @@ def suppress_migrate(
 ) -> None:
     """Migrate suppressions from one module to another."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -234,8 +235,8 @@ def suppress_orphans(
 ) -> None:
     """Detect and display orphaned suppressions."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:

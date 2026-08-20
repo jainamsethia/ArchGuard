@@ -192,8 +192,9 @@ class TestSuppressCmd:
         repo = _setup_repo(tmp_path)
 
         # Create a mock audit log
-        from archguard.config import AUDIT_LOG_FILENAME
         import json
+
+        from archguard.config import AUDIT_LOG_FILENAME
 
         audit_file = repo / AUDIT_LOG_FILENAME
         audit_file.parent.mkdir(parents=True, exist_ok=True)

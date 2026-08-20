@@ -1,7 +1,8 @@
 """Integration tests for the HTML report command."""
 
-from archguard.cli.main import app
 from typer.testing import CliRunner
+
+from archguard.cli.main import app
 
 runner = CliRunner()
 

@@ -1,13 +1,14 @@
 """Tests for archguard fitness check CLI command."""
 
 import json
-from typer.testing import CliRunner
-import pytest
 
+import pytest
+from typer.testing import CliRunner
+
+import archguard.cli.fitness_cmd
 from archguard.cli.main import app
 from archguard.config import FitnessFunctionConfig
 from archguard.fitness.result import FitnessFunctionResult
-import archguard.cli.fitness_cmd
 from tests.conftest import strip_rich
 
 runner = CliRunner()

@@ -1,8 +1,9 @@
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from archguard.cli._analyze_output import _console
 from archguard.config import ArchGuardConfig
+
 
 # We assume AnalysisResult is imported dynamically or we can just annotate it
 # but let's just make it work correctly without circular imports
@@ -14,9 +15,9 @@ def _check_pr_risk(
     repo_root: Path,
     EXIT_VIOLATION: int,
 ) -> tuple[int, Any]:
-    from archguard.risk.pr_risk import PRRiskAnalyzer
-    from archguard.fitness.evaluator import FitnessFunctionEvaluator
     from archguard.analysis._orchestrator_utils import _get_module_paths
+    from archguard.fitness.evaluator import FitnessFunctionEvaluator
+    from archguard.risk.pr_risk import PRRiskAnalyzer
 
     analyzer = PRRiskAnalyzer()
     module_paths = {

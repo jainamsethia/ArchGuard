@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import typing
 import json
-import webbrowser
-from datetime import datetime, timezone
-from pathlib import Path
-from importlib import resources
 import logging
+import typing
+import webbrowser
+from datetime import UTC, datetime
+from importlib import resources
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -50,7 +50,7 @@ def _get_trend_data() -> typing.Any:
     labels = []
     if log_path.exists():
         try:
-            with open(log_path, "r", encoding="utf-8") as f:
+            with open(log_path, encoding="utf-8") as f:
                 runs = []
                 for line in f:
                     line = line.strip()
@@ -84,7 +84,7 @@ def _get_trend_data() -> typing.Any:
         except Exception as e:
             import logging
 
-            logging.getLogger(__name__).error(
+            logging.getLogger(__name__).exception(
                 f"Failed generating trend data: {e}"
             )
             raise typer.Exit(1)
@@ -171,12 +171,12 @@ def report_cmd(
     if slim:
         _console.print("[yellow]--slim is not yet implemented. Generating full offline report.[/yellow]")
     try:
-        from archguard.utils.validation import (
-            validate_repo_path,
-            validate_output_path,
-            PathTraversalError,
-        )
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import (
+            PathTraversalError,
+            validate_output_path,
+            validate_repo_path,
+        )
 
         root = validate_repo_path(root)
         if output is not None:
@@ -217,7 +217,7 @@ def report_cmd(
         "grade": result.archdebt.band.value,
         "violation_count": len(result.violations),
         "module_count": len(module_paths),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
 
     violations_data = [

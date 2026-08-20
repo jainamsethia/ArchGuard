@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -50,8 +51,8 @@ def fitness_check(
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(2)
 
-    from archguard.contract.loader import load_contract
     from archguard.config import parse_fitness_functions
+    from archguard.contract.loader import load_contract
 
     # Load contract
     try:

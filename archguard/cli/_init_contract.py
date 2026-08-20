@@ -1,17 +1,21 @@
 from __future__ import annotations
+
+import contextlib
+import math
 import os
 import tempfile
-import yaml
-import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
+
 import typer
+import yaml
 from rich.console import Console
 from rich.prompt import Prompt
+
 from archguard.config import EMBEDDING_CACHE_FILE
-from archguard.contract.writer import _infer_path, _model_weights_version
 from archguard.contract.validator import validate_contract
+from archguard.contract.writer import _infer_path, _model_weights_version
 from archguard.utils.output import vprint
 
 _console: Console = Console()
@@ -41,7 +45,9 @@ def _phase4_embeddings(
         }
 
     import hashlib
+
     import numpy as np
+
     from archguard.cache.db import EmbeddingDB
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -96,8 +102,8 @@ def _phase4_embeddings(
             embeddings = model.encode(texts, batch_size=32)
 
             # Store individual embeddings
-            now_iso = datetime.now(timezone.utc).isoformat()
-            for i, (fp, text) in enumerate(zip(file_paths, texts)):
+            now_iso = datetime.now(UTC).isoformat()
+            for i, (fp, text) in enumerate(zip(file_paths, texts, strict=True)):
                 content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 emb_bytes = np.array(embeddings[i], dtype=np.float32).tobytes()
 
@@ -162,8 +168,8 @@ def _compute_fan_outs(
     recorded 21, graded on 11). The recorded number is presented to users as
     evidence, so it has to be the number that was actually used.
     """
-    from archguard.analysis.parser import ImportParser
     from archguard.analysis.coupling import compute_fan_out
+    from archguard.analysis.parser import ImportParser
 
     module_paths = _contract_module_paths(communities)
 
@@ -187,7 +193,7 @@ def _write_summary(
     communities: dict[str, list[str]],
 ) -> None:
     """Write .archguard-init-summary.md with all 6 sections."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     module_rows: list[str] = []
     for name, files in communities.items():
@@ -288,7 +294,7 @@ def _generate_and_write_contract(
     louvain_contract: dict[str, object] = {
         "version": "3.0",
         "model_weights_version": _model_weights_version(),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         # NOTE: consumers (e.g. dashboard/pipeline_adapter.py) detect the
         # heuristic by testing for the substring "fallback" -- keep it present.
         "generated_by": (
@@ -346,9 +352,10 @@ def _generate_and_write_contract(
         _console.print("[bold blue]Phase 5: LLM-driven contract generation[/bold blue]")
         try:
             import asyncio
+
             from archguard.contract.llm_inference import (
-                generate_contract_from_llm,
                 _merge_contracts,
+                generate_contract_from_llm,
             )
 
             llm_contract = asyncio.run(generate_contract_from_llm(repo_root))
@@ -372,10 +379,8 @@ def _generate_and_write_contract(
             yaml.dump(final_contract, tmp, default_flow_style=False, sort_keys=False)
         os.replace(tmp_name, str(output))
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_name)
-        except OSError:
-            pass
         raise
 
     vprint(f"Contract written to [green]{output}[/green]", ctx)

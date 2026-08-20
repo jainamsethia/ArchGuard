@@ -1,11 +1,10 @@
 """PR comment create/update/delete for ArchGuard reports."""
 
 from __future__ import annotations
-from typing import Any
 
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from archguard.github.client import GitHubClient
 
@@ -147,7 +146,7 @@ class PRCommentManager:
             for comment in comments:
                 if ARCHGUARD_MARKER in (comment.get("body") or ""):
                     return int(comment["id"])
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             import logging
 
             logging.getLogger(__name__).warning(
@@ -179,7 +178,7 @@ class PRCommentManager:
             try:
                 self._client.update_comment(repo_slug, existing_id, full_body)
                 return existing_id
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 import logging
 
                 logging.getLogger(__name__).warning(
@@ -190,7 +189,7 @@ class PRCommentManager:
                 try:
                     self._client.update_comment(repo_slug, existing_id, full_body)
                     return existing_id
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     import logging
 
                     logging.getLogger(__name__).warning(
@@ -207,7 +206,7 @@ class PRCommentManager:
         """Fire-and-forget delete. Swallow all exceptions."""
         try:
             self._client.delete_comment(repo_slug, comment_id)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             import logging
 
             logging.getLogger(__name__).warning(

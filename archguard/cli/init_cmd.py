@@ -7,7 +7,6 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-
 init_app: typer.Typer = typer.Typer(
     name="init",
     help="Initialize ArchGuard in a repository.",
@@ -80,12 +79,12 @@ def init_command(
 ) -> None:
     """Initialize ArchGuard in a repository with 5-phase onboarding."""
     try:
-        from archguard.utils.validation import (
-            validate_repo_path,
-            validate_output_path,
-            PathTraversalError,
-        )
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import (
+            PathTraversalError,
+            validate_output_path,
+            validate_repo_path,
+        )
 
         repo = validate_repo_path(repo)
         if output is not None:

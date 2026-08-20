@@ -1,8 +1,9 @@
 """Integration tests for configuration profiles."""
 
 import yaml
-from archguard.cli.main import app
 from typer.testing import CliRunner
+
+from archguard.cli.main import app
 from tests.conftest import strip_rich
 
 runner = CliRunner()
@@ -42,8 +43,8 @@ def test_profile_strict_vs_lenient(tmp_path, monkeypatch):
 
 
 def test_apply_profile_validates_against_schema() -> None:
-    from archguard.profiles.defaults import apply_profile
     from archguard.contract.validator import validate_contract
+    from archguard.profiles.defaults import apply_profile
 
     contract = {
         "version": "3.0",

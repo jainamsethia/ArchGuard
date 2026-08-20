@@ -85,7 +85,7 @@ def _run_analysis_in_worktree(wt_path: Path, commit_sha: str) -> dict[str, Any] 
             )
 
         snapshot: dict[str, Any] = {
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
             "score": result.archdebt.health_score,
             "violations": violations,
             "metrics": getattr(result, "metrics", {}) or {},
@@ -310,7 +310,7 @@ def history_analyze(
                         snapshots.append(result)
                     else:
                         failed_count += 1
-                except Exception as exc:  # noqa: BLE001 - intentional broad catch for worker pool
+                except Exception as exc:
                     logger.exception("Commit analysis failed: %s", exc)
                     failed_count += 1
 

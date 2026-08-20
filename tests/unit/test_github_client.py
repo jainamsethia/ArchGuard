@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from archguard.github.client import _get_pr_number, post_comment, GitHubClient
+from archguard.github.client import GitHubClient, _get_pr_number, post_comment
 
 
 def test_get_pr_number_from_payload(
@@ -102,6 +102,7 @@ def test_post_comment_function_success(
 def test_get_pr_retry_behavior(mock_get, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test get_pr retry behavior to ensure no nested decorators."""
     import httpx
+
     from archguard.github.client import GitHubClient
 
     # Mock httpx.Client.get to fail twice then succeed

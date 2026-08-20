@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from archguard.github.checks import ChecksAPIClient, CheckAnnotation
 from archguard.github.annotation_builder import violations_to_annotations
+from archguard.github.checks import CheckAnnotation, ChecksAPIClient
 
 
 def test_violations_to_annotations():

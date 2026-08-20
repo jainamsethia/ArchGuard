@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 
 from archguard.config import EXIT_SUCCESS
-from archguard.github.commands import parse_commands, ArchGuardCommand
+from archguard.github.commands import ArchGuardCommand, parse_commands
 
 github_sync_app = typer.Typer(
     name="github-sync",
@@ -26,8 +26,8 @@ def github_sync(
 ) -> None:
     """Read GITHUB_EVENT_PATH, parse slash commands, and execute them."""
     try:
-        from archguard.utils.validation import validate_repo_path, PathTraversalError
         from archguard.config import EXIT_CONFIG_ERROR
+        from archguard.utils.validation import PathTraversalError, validate_repo_path
 
         repo = validate_repo_path(repo)
     except PathTraversalError as e:
@@ -40,7 +40,7 @@ def github_sync(
         raise typer.Exit(EXIT_SUCCESS)
 
     try:
-        with open(event_path, "r", encoding="utf-8") as f:
+        with open(event_path, encoding="utf-8") as f:
             event = json.load(f)
     except Exception as exc:
         _console.print(f"Failed to read GITHUB_EVENT_PATH: {exc}")
@@ -91,8 +91,8 @@ def github_sync(
 def _execute_suppress(
     cmd: typing.Any, repo_root: Path, repo_slug: str, pr_number: int
 ) -> None:
-    from archguard.suppression.store import SuppressionStore, SuppressionValidationError
     from archguard.github.client import post_comment
+    from archguard.suppression.store import SuppressionStore, SuppressionValidationError
 
     if len(cmd.args) < 3:
         usage_msg = (
@@ -168,9 +168,9 @@ def _execute_re_analyze(
 
             risk_report = None
             try:
-                from archguard.risk.pr_risk import PRRiskAnalyzer
-                from archguard.fitness.evaluator import FitnessFunctionEvaluator
                 from archguard.analysis._orchestrator_utils import _get_module_paths
+                from archguard.fitness.evaluator import FitnessFunctionEvaluator
+                from archguard.risk.pr_risk import PRRiskAnalyzer
 
                 analyzer = PRRiskAnalyzer()
                 module_paths = {
@@ -216,4 +216,4 @@ def _execute_re_analyze(
     except typer.Exit:
         raise
     except Exception as exc:
-        logger.error("Re-analysis failed: %s", exc)
+        logger.exception("Re-analysis failed: %s", exc)

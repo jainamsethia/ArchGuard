@@ -1,9 +1,11 @@
-import typer
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import typer
 from rich.console import Console
 from rich.table import Table
-import json
-from datetime import datetime, timezone, timedelta
+
 from archguard.config import AUDIT_EVENT_ANALYSIS, AUDIT_LOG_FILENAME
 
 
@@ -78,7 +80,7 @@ def show_history(
         )
 
     if since is not None:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=since)
+        cutoff = datetime.now(UTC) - timedelta(days=since)
         runs = [r for r in runs if r["timestamp"] >= cutoff]
 
     if module:

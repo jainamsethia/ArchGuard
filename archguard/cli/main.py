@@ -1,23 +1,24 @@
 """Root Typer application - registers all subcommands."""
 
-import typer
 from pathlib import Path
+
+import typer
 from rich.console import Console
 
 from archguard.cli.analyze_cmd import analyze_app
 from archguard.cli.contract_cmd import contract_app
+from archguard.cli.dashboard_cmd import dashboard_app
+from archguard.cli.diff_cmd import diff_app
+from archguard.cli.fitness_cmd import fitness_app
+from archguard.cli.github_sync_cmd import github_sync_app
+from archguard.cli.history_analyze_cmd import history_analyze_app
+from archguard.cli.history_cmd import show_history
 from archguard.cli.init_cmd import init_app
+from archguard.cli.profiles_cmd import profiles_app
+from archguard.cli.report_cmd import report_app
 from archguard.cli.status_cmd import status_app
 from archguard.cli.suppress_cmd import suppress_app
-from archguard.cli.github_sync_cmd import github_sync_app
-from archguard.cli.report_cmd import report_app
-from archguard.cli.profiles_cmd import profiles_app
 from archguard.cli.sync_cmd import sync_cache
-from archguard.cli.history_cmd import show_history
-from archguard.cli.diff_cmd import diff_app
-from archguard.cli.dashboard_cmd import dashboard_app
-from archguard.cli.fitness_cmd import fitness_app
-from archguard.cli.history_analyze_cmd import history_analyze_app
 from archguard.observability.logger import configure_logging
 
 app: typer.Typer = typer.Typer(
@@ -49,10 +50,9 @@ app.add_typer(history_analyze_app, name="history-analyze")
 @app.command("cache-check")
 def cache_check_cmd(repair: bool = typer.Option(False, "--repair")) -> None:
     """Check and optionally repair the embedding cache."""
-    from pathlib import Path
-
     import json
     import sqlite3
+    from pathlib import Path
 
     cache_dir = Path(".archguard-cache")
     checkpoints_dir = Path(".archguard-checkpoints")

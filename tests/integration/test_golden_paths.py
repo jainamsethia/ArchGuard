@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 import pytest
 import yaml
-from typer.testing import CliRunner
 from fastapi.testclient import TestClient
+from typer.testing import CliRunner
 
 from archguard.cli.main import app as cli_app
 from archguard.dashboard.app import app as dashboard_app

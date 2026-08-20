@@ -1,30 +1,30 @@
 import os
-import typer
 from pathlib import Path
 from typing import Any
+
+import typer
 from rich.console import Console
 
-from archguard.utils.errors import format_error, format_warning, ContractGenerationError
-from archguard.utils.output import vprint
-from archguard.utils.tty import is_tty
-
 from archguard.cli._init_checkpoints import (
-    save_checkpoint,
-    load_checkpoint,
     latest_completed_phase,
+    load_checkpoint,
+    save_checkpoint,
+)
+from archguard.cli._init_contract import (
+    _compute_fan_outs,
+    _generate_and_write_contract,
+    _phase4_embeddings,
+    _write_summary,
 )
 from archguard.cli._init_phases import (
     _phase1_scan,
     _phase2_commits,
     _phase3_communities,
 )
-from archguard.cli._init_contract import (
-    _phase4_embeddings,
-    _compute_fan_outs,
-    _write_summary,
-    _generate_and_write_contract,
-)
 from archguard.cli._init_wizard import _interactive_review
+from archguard.utils.errors import ContractGenerationError, format_error, format_warning
+from archguard.utils.output import vprint
+from archguard.utils.tty import is_tty
 
 
 def _run_init_cli(

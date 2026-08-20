@@ -1,6 +1,5 @@
-import pytest
-from pathlib import Path
 from typer.testing import CliRunner
+
 from archguard.cli.main import app
 
 runner = CliRunner()

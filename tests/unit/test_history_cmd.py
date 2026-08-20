@@ -1,8 +1,9 @@
-import pytest
 import json
-from datetime import datetime, timezone, timedelta
-from archguard.cli.main import app
+from datetime import UTC, datetime, timedelta
+
 from typer.testing import CliRunner
+
+from archguard.cli.main import app
 from archguard.config import AUDIT_LOG_FILENAME
 
 runner = CliRunner()
@@ -10,7 +11,7 @@ runner = CliRunner()
 
 def test_history_cmd_empty(tmp_path):
     mock_log = tmp_path / AUDIT_LOG_FILENAME
-    
+
     result = runner.invoke(app, ["history", "--audit-log", str(mock_log)])
     assert result.exit_code == 0
     assert "No audit history found" in result.stdout
@@ -19,8 +20,8 @@ def test_history_cmd_empty(tmp_path):
 def test_history_cmd_format_trend_one_run(tmp_path):
     mock_log = tmp_path / AUDIT_LOG_FILENAME
     mock_log.parent.mkdir(parents=True, exist_ok=True)
-    
-    now = datetime.now(timezone.utc)
+
+    now = datetime.now(UTC)
     runs = [
         {
             "timestamp": now.isoformat(),
@@ -33,7 +34,7 @@ def test_history_cmd_format_trend_one_run(tmp_path):
     with open(mock_log, "w", encoding="utf-8") as f:
         for run in runs:
             f.write(json.dumps(run) + "\n")
-            
+
     result = runner.invoke(app, ["history", "--format", "trend", "--audit-log", str(mock_log)])
     assert result.exit_code == 0
     assert "Insufficient data for trend line" in result.stdout
@@ -42,8 +43,8 @@ def test_history_cmd_format_trend_one_run(tmp_path):
 def test_history_cmd_table_view(tmp_path):
     mock_log = tmp_path / AUDIT_LOG_FILENAME
     mock_log.parent.mkdir(parents=True, exist_ok=True)
-    
-    now = datetime.now(timezone.utc)
+
+    now = datetime.now(UTC)
     runs = [
         {
             "timestamp": (now - timedelta(days=1)).isoformat(),
@@ -64,7 +65,7 @@ def test_history_cmd_table_view(tmp_path):
     with open(mock_log, "w", encoding="utf-8") as f:
         for run in runs:
             f.write(json.dumps(run) + "\n")
-            
+
     result = runner.invoke(app, ["history", "--format", "table", "--audit-log", str(mock_log)])
     assert result.exit_code == 0
     assert "70.0" in result.stdout

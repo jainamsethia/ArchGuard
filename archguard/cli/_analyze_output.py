@@ -1,12 +1,15 @@
 from __future__ import annotations
+
 import json
+from enum import Enum
 from pathlib import Path
 from typing import Any
-from enum import Enum
+
 from rich.console import Console
+
 from archguard.analysis.layers import AnalysisResult
-from archguard.utils.errors import format_warning
 from archguard.cli.analyze_cmd import AnalyzeOptions
+from archguard.utils.errors import format_warning
 
 _console = Console()
 _BAND_EMOJI = {
@@ -55,7 +58,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     s1 = archdebt.layer_scores.layer1_violation
     st1 = (
         "[yellow]SKIPPED[/yellow]"
-        if "boundaries" in skipped
+        if "Layer 1" in skipped
         else ("[red]FAIL[/red]" if s1 > 0.0 else "[green]PASS[/green]")
     )
     table.add_row("L1 Boundaries", st1, f"{s1:.2f}", f"{v_counts[1]} violations")
@@ -64,7 +67,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     s2 = archdebt.layer_scores.layer2_coupling
     st2 = (
         "[yellow]SKIPPED[/yellow]"
-        if "coupling" in skipped
+        if "Layer 2" in skipped
         else ("[red]FAIL[/red]" if s2 > 0.0 else "[green]PASS[/green]")
     )
     table.add_row("L2 Coupling", st2, f"{s2:.2f}", f"{v_counts[2]} violations")
@@ -73,7 +76,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     s3 = archdebt.layer_scores.layer3_drift
     st3 = (
         "[yellow]SKIPPED[/yellow]"
-        if "semantic" in skipped
+        if "Layer 3" in skipped
         else ("[red]FAIL[/red]" if s3 > 0.0 else "[green]PASS[/green]")
     )
     table.add_row("L3 Drift", st3, f"{s3:.2f}", f"{v_counts[3]} violations")
@@ -82,7 +85,7 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     s4 = archdebt.layer_scores.layer4_duplication
     st4 = (
         "[yellow]SKIPPED[/yellow]"
-        if "duplication" in skipped
+        if "Layer 4" in skipped
         else ("[red]FAIL[/red]" if s4 > 0.0 else "[green]PASS[/green]")
     )
     table.add_row("L4 Duplication", st4, f"{s4:.2f}", f"{v_counts[4]} violations")
@@ -94,8 +97,9 @@ def _print_rich_report(result: AnalysisResult, repo_root: Path) -> None:
     _console.print(f"Result: {ci_str}\n")
 
     if result.violations:
-        from archguard.utils.severity import Severity
         from rich.table import Table
+
+        from archguard.utils.severity import Severity
 
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         severity_colors = {
@@ -160,7 +164,7 @@ def _build_json_report(
     return {
         "score": score,
         "grade": grade,
-        "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime(
+        "timestamp": datetime.datetime.now(datetime.UTC).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         ),
         "violations": violations,
@@ -181,6 +185,18 @@ def _format_rich_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         )
     else:
         _print_rich_report(result, opts.repo.resolve())
+
+
+def _skip_fields(result: AnalysisResult) -> dict[str, Any]:
+    """Skip state, so consumers can tell 'nothing measured' from 'measured clean'.
+
+    Without this a run that analysed no files at all serialised identically to
+    a perfectly healthy one: score 100, grade A, zero violations.
+    """
+    return {
+        "skipped": bool(getattr(result, "skipped", False)),
+        "skip_reason": str(getattr(result, "skip_reason", "") or ""),
+    }
 
 
 def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
@@ -226,6 +242,7 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
                 * 100,
             },
             "fail_fast_triggered": getattr(result, "fail_fast_triggered", False),
+            **_skip_fields(result),
         }
         if getattr(result, "fail_fast_triggered", False):
             result_dict["skipped_layers"] = [
@@ -247,6 +264,7 @@ def _write_json_output(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             "semantic_score": float(result.archdebt.layer_scores.layer3_drift) * 100,
         }
         report = _build_json_report(score, grade, v_list_out, metrics)
+        report.update(_skip_fields(result))
         report["fail_fast_triggered"] = getattr(result, "fail_fast_triggered", False)
         if getattr(result, "fail_fast_triggered", False):
             report["skipped_layers"] = [
@@ -272,7 +290,11 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
             else ("WATCH" if band_val == "WATCH"
             else ("WARN" if band_val == "WARN" else "FAIL"))
         )
-        from archguard.dashboard._result_schema import AnalysisResultPayload, LayerResultPayload, ViolationPayload
+        from archguard.dashboard._result_schema import (
+            AnalysisResultPayload,
+            LayerResultPayload,
+            ViolationPayload,
+        )
         v_list_out = []
         for v in result.violations:
             sev = getattr(v, "severity", "low")
@@ -296,7 +318,7 @@ def _write_audit_log(result: AnalysisResult, opts: AnalyzeOptions) -> None:
         }
         ls = result.layer_scores
         skipped_names = getattr(result, "skipped_layers_names", [])
-        
+
         layer_scores = {
             1: ls.layer1_violation,
             2: ls.layer2_coupling,
@@ -346,10 +368,10 @@ def _send_slack_alerts(result: AnalysisResult, repo_root: Path) -> None:
     slack_webhook = os.getenv("ARCHGUARD_SLACK_WEBHOOK")
     if slack_webhook:
         try:
-            from archguard.utils.async_utils import run_async
             from archguard.alerting.trend_detector import detect_trends
             from archguard.alerting.webhooks import send_slack_alert
             from archguard.audit.logger import AuditLogger
+            from archguard.utils.async_utils import run_async
 
             audit_logger = AuditLogger(
                 log_path=repo_root / ".archguard-cache" / "audit.jsonl"
