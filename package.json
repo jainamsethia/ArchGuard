@@ -5,6 +5,7 @@
     "@playwright/test": "^1.44.0"
   },
   "scripts": {
+    "test": "node --test \"tests/frontend/*.test.mjs\"",
     "test:visual": "playwright test tests/visual/"
   },
   "dependencies": {

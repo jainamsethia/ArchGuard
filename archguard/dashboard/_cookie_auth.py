@@ -86,7 +86,7 @@ def _evict_expired() -> None:
 
 
 def _issue_short_lived_stream_token(job_id: str) -> str:
-    """Create a single-use short-lived token for SSE streams."""
+    """Create a short-lived token scoped to one job's SSE progress stream."""
     token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN", "")
     if not token:
         return ""
@@ -99,7 +99,19 @@ def _issue_short_lived_stream_token(job_id: str) -> str:
 
 
 def validate_stream_token(token_str: str, token: str) -> bool:
-    """Validate and consume a single-use stream token."""
+    """Validate a stream token. Reusable until it expires.
+
+    Deliberately not single-use. EventSource reconnects on its own whenever the
+    connection drops -- that is its defining behaviour, not an error path -- and
+    it reconnects to the same URL with the same token. Consuming the token on
+    first use meant the first dropped packet turned every subsequent reconnect
+    into a 401, and the client fell back to 1.5s polling for the rest of the
+    job. Live progress degraded silently on the product's flagship interaction.
+
+    The bound remains time: _STREAM_TTL (5 minutes), and the token is scoped to
+    a single job id. What it grants is read access to the progress of a job
+    whose id the holder already has.
+    """
     try:
         job_id, token_id, sig = token_str.split(".", 2)
     except ValueError:
@@ -116,7 +128,5 @@ def validate_stream_token(token_str: str, token: str) -> bool:
         del _STREAM_TOKENS[token_str]
         return False
 
-    # Single-use: remove after successful validation
-    del _STREAM_TOKENS[token_str]
     return True
 

@@ -154,41 +154,70 @@ function initActionButtons() {
             }
         }
 
+        // The empty state is rendered as its own element alongside the
+        // dashboard, which is hidden rather than destroyed.
+        //
+        // It used to assign innerHTML to `.metrics-grid`'s parent -- the whole
+        // .dashboard-container -- which deleted the tablist, every panel, and
+        // #refresh-loader. The 30s poll then kept running against elements that
+        // no longer existed, so once a user saw the empty state the page stayed
+        // broken until a hard reload, even after an analysis completed.
         function renderEmptyState() {
-            const mainContainer = document.querySelector('.metrics-grid').parentElement;
-            mainContainer.innerHTML = `
-                <div class="header">
-                    <h1>ArchGuard Dashboard</h1>
-                </div>
-                <div class="empty-state">
-                    <div class="empty-icon">🏗️</div>
-                    <h3 class="empty-title">No analyses yet</h3>
-                    <p class="empty-body">
-                        Analyze a GitHub repository to see architectural health data here.
-                    </p>
-                    <a href="/" class="btn-primary">Analyze a Repository →</a>
-                </div>
-            `;
-            // The innerHTML assignment above replaces the whole main container,
-            // which destroys #refresh-loader along with everything else. Looking
-            // it up again here would dereference null and abort fetchData()
-            // mid-flight, so the loader is hidden before the container is wiped
-            // (see hideRefreshLoader's null guard for the general case).
+            const container = document.querySelector('.dashboard-container');
+            if (!container) return;
+
+            let empty = document.getElementById('empty-state-panel');
+            if (!empty) {
+                empty = document.createElement('div');
+                empty.id = 'empty-state-panel';
+                empty.className = 'dashboard-container';
+                empty.innerHTML = `
+                    <div class="header">
+                        <h1>ArchGuard Dashboard</h1>
+                    </div>
+                    <div class="empty-state">
+                        <div class="empty-icon">🏗️</div>
+                        <h3 class="empty-title">No analyses yet</h3>
+                        <p class="empty-body">
+                            Analyze a GitHub repository to see architectural health data here.
+                        </p>
+                        <a href="/" class="btn-primary">Analyze a Repository →</a>
+                    </div>
+                `;
+                container.parentNode.insertBefore(empty, container.nextSibling);
+            }
+            container.hidden = true;
+            // Nothing to poll for, and a poll would write into a hidden tree.
+            stopPolling();
             hideRefreshLoader();
         }
 
-        // The loader lives inside the container renderEmptyState() replaces, so
-        // every caller has to tolerate it being gone.
+        function clearEmptyState() {
+            const empty = document.getElementById('empty-state-panel');
+            if (empty) empty.remove();
+            const container = document.querySelector('.dashboard-container');
+            if (container) container.hidden = false;
+        }
+
         function hideRefreshLoader() {
             const loader = document.getElementById('refresh-loader');
             if (loader) loader.style.display = 'none';
         }
 
+        // Polling is a handle, not a fire-and-forget interval, so the empty
+        // state can stop it and a recovered dashboard can start it again.
+        let pollTimer = null;
+        function startPolling() {
+            if (pollTimer === null) pollTimer = setInterval(fetchData, 30000);
+        }
+        function stopPolling() {
+            if (pollTimer !== null) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
         async function fetchData() {
-            // Same null case hideRefreshLoader() guards against: renderEmptyState()
-            // replaces the container this lives in, so on any refresh after an
-            // empty state the loader is gone. Dereferencing it here threw before
-            // the try block, aborting the fetch and leaving the dashboard stuck.
             const refreshLoader = document.getElementById('refresh-loader');
             if (refreshLoader) refreshLoader.style.display = 'inline-block';
             try {
@@ -239,6 +268,11 @@ function initActionButtons() {
                         }
                     });
                 }
+
+                // Data is present: undo any earlier empty state and make sure
+                // the poll is running again.
+                clearEmptyState();
+                startPolling();
 
                 updateProvenanceBanner(latestData);
                 updateThresholdNote(latestData);
@@ -1320,7 +1354,10 @@ function getEmptyStateHtml(icon, title, body) {
                 targetPanel.classList.add('active');
             }
             
-            history.pushState({}, '', window.location.search + `#${name}`);
+            // replaceState, not pushState: a tab is a view of the same page, and
+            // pushing one entry per click meant Back walked the user through
+            // every tab they had opened instead of leaving the page.
+            history.replaceState({}, '', window.location.search + `#${name}`);
             
             // Lazy-load each tab's data here, not in the click handler: tabs are
             // also opened by URL hash on load and by hashchange, and those paths
@@ -1476,7 +1513,7 @@ function getEmptyStateHtml(icon, title, body) {
 
         // Fetch initial data
         fetchData();
-        setInterval(fetchData, 30000); // 30 seconds
+        startPolling();
 
         // ─── Advisor Panel (Step 11/12 – Anthropic Streaming) ───
         async function sendAdvisorQuestion() {
@@ -1778,9 +1815,20 @@ function getEmptyStateHtml(icon, title, body) {
                 }
             });
             // Pre-select the current highlighted run in the base picker.
-            if (highlightJobId) {
-                const base = document.getElementById('recent-analyses-picker');
-                if (base) base.value = highlightJobId;
+            const base = document.getElementById('recent-analyses-picker');
+            if (highlightJobId && base) base.value = highlightJobId;
+
+            // Enable compare HERE, not in initCompareControls(). That runs on
+            // DOMContentLoaded, before this async fetch has filled the picker,
+            // so it always saw one option (the placeholder) and disabled the
+            // button permanently -- the feature was unreachable.
+            const toggle = document.getElementById('compare-toggle-btn');
+            if (toggle && base) {
+                const runCount = base.options.length - 1;  // minus the placeholder
+                toggle.disabled = runCount < 2;
+                toggle.title = toggle.disabled
+                    ? 'Need at least 2 analyses to compare'
+                    : 'Compare two runs side-by-side';
             }
         }
 
@@ -1847,11 +1895,8 @@ function getEmptyStateHtml(icon, title, body) {
             const toggle = document.getElementById('compare-toggle-btn');
             const comparePicker = document.getElementById('compare-picker');
             const basePicker = document.getElementById('recent-analyses-picker');
-            // Disable compare when fewer than 2 runs are available
-            if (toggle && basePicker && basePicker.options.length < 2) {
-                toggle.disabled = true;
-                toggle.title = 'Need at least 2 analyses to compare';
-            }
+            // Enablement is decided in populateRecentPicker(), once the runs
+            // have actually loaded.
             if (toggle) toggle.addEventListener('click', () => {
                 const on = !comparePicker.hidden;
                 comparePicker.hidden = on;
