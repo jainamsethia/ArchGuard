@@ -21,6 +21,7 @@ _ALLOWED_ROOT_FILES = {
     ".archguard.yml",
     ".dockerignore",
     ".env.example",
+    ".gitattributes",
     ".gitignore",
     ".pre-commit-config.yaml",
     ".shellcheckrc",
