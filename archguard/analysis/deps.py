@@ -64,18 +64,31 @@ def _find_req_file(repo_root: Path) -> Path | None:
     return None
 
 
+_PYPROJECT_SKIP_REASON = (
+    "Only a pyproject.toml was found. Auditing it would require pip-audit to "
+    "resolve the project, which executes the repository's own build backend -- "
+    "arbitrary code from a repository ArchGuard does not trust. Export a "
+    "requirements.txt to enable this scan."
+)
+
+
 def _run_pip_audit(
     repo_root: Path, found_file: Path, timeout: int
 ) -> subprocess.CompletedProcess[str] | DependencyHealthResult:
     if found_file.name == "pyproject.toml":
+        # Never hand pip-audit a *project* (a bare path, or an unlocked
+        # pyproject.toml). Resolving a project makes pip build it, which runs
+        # setup.py / the PEP 517 backend from the analysed tree. For the
+        # dashboard that tree is an arbitrary GitHub repository submitted by a
+        # user, so that is remote code execution on the analysis host. The only
+        # inputs accepted below are already-pinned requirement files, which
+        # pip-audit parses without building anything.
+        #
+        # Poetry projects were already skipped for a second, independent
+        # reason: pip-audit cannot read poetry.lock, and auditing without a
+        # target scans ArchGuard's own virtualenv and reports its dependencies
+        # as though they belonged to the analysed repository.
         if _is_poetry_project(found_file):
-            # No target can be derived for a Poetry project: pip-audit cannot
-            # read poetry.lock, and invoking it bare (the previous behaviour)
-            # audits whatever environment pip-audit is installed in -- which for
-            # the dashboard is ArchGuard's own virtualenv. That reported
-            # ArchGuard's dependencies, and its vulnerabilities, as though they
-            # belonged to the analysed repository. Skipping is the honest
-            # outcome; a wrong answer is worse than no answer.
             return DependencyHealthResult(
                 skipped=True,
                 skip_reason=(
@@ -85,9 +98,9 @@ def _run_pip_audit(
                     "requirements.txt to enable this scan."
                 ),
             )
-        cmd = ["pip-audit", "--format=json", str(repo_root)]
-    else:
-        cmd = ["pip-audit", "--format=json", "-r", str(found_file)]
+        return DependencyHealthResult(skipped=True, skip_reason=_PYPROJECT_SKIP_REASON)
+
+    cmd = ["pip-audit", "--format=json", "-r", str(found_file)]
 
     try:
         # check=False: a non-zero exit is pip-audit's normal way of reporting
@@ -168,7 +181,14 @@ def analyze_dependencies(repo_root: Path, timeout: int | None = None) -> Depende
 
     process = res
     if not process.stdout and process.stderr:
-        pass
+        # pip-audit failed before producing JSON (network error, unreadable
+        # requirements file, ...). _parse_audit_output turns that into a
+        # generic "no output" skip, which hid the actual cause entirely.
+        logger.warning(
+            "pip-audit exited %d with no JSON output: %s",
+            process.returncode,
+            process.stderr.strip()[:500],
+        )
 
     parse_res = _parse_audit_output(process.stdout)
     if isinstance(parse_res, DependencyHealthResult):

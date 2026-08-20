@@ -1,9 +1,12 @@
-import pytest
-import httpx
 import asyncio
 import time
+
+import httpx
+import pytest
 from fastapi.testclient import TestClient
+
 from archguard.dashboard.app import app
+
 
 @pytest.mark.integration
 def test_validate_real_flask_repo():
@@ -31,7 +34,7 @@ async def test_submit_job_and_poll_to_complete():
         assert submit.status_code == 202
         job_id = submit.json()["job_id"]
         deadline = time.time() + 300  # 5 minute timeout
-        
+
         status = None
         while time.time() < deadline:
             status_resp = await client.get(f"/api/jobs/{job_id}")
@@ -39,6 +42,6 @@ async def test_submit_job_and_poll_to_complete():
             if status in ("complete", "failed"):
                 break
             await asyncio.sleep(5)
-            
+
         assert status in ("complete", "failed"), f"Job did not finish: {status}"
 

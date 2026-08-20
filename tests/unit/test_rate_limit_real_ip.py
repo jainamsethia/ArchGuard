@@ -1,6 +1,7 @@
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from fastapi import Request
+
 from archguard.dashboard._rate_limit import rate_limiter
 
 

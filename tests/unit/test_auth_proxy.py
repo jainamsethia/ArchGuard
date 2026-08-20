@@ -61,8 +61,9 @@ def test_untrusted_proxy_ip_cannot_spoof_forwarded_for(
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
     monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "10.0.0.0/8")
 
-    from archguard.dashboard._auth import _real_client_ip
     from starlette.requests import Request
+
+    from archguard.dashboard._auth import _real_client_ip
 
     # Build a minimal scope simulating a direct connection from an
     # untrusted IP claiming (via X-Forwarded-For) to be localhost.
@@ -82,36 +83,89 @@ def test_untrusted_proxy_ip_cannot_spoof_forwarded_for(
     assert resolved_ip != "127.0.0.1"
 
 
-def test_trusted_proxy_ip_forwards_real_client_correctly() -> None:
+def test_trusted_proxy_ip_forwards_real_client_correctly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """
     Regression test for CRIT-003.
     Verifies: when the direct connection IS from a trusted proxy IP,
-    X-Forwarded-For IS honored and the leftmost (real client) IP is
-    extracted correctly.
+    X-Forwarded-For IS honored and the real client IP is extracted.
+
+    The chain here is two hops (``client, proxy1``) as seen by a second proxy,
+    so ARCHGUARD_TRUSTED_PROXY_HOPS must say so. Entries are counted from the
+    right because only our own proxies wrote those; see
+    test_forwarded_for_spoofing_cannot_choose_the_rate_limit_bucket.
     """
-    import os
+    from starlette.requests import Request
 
-    # Arrange
-    os.environ["ARCHGUARD_TRUSTED_PROXY_IPS"] = "10.0.0.1"
-    try:
-        from archguard.dashboard._auth import _real_client_ip
-        from starlette.requests import Request
+    from archguard.dashboard._auth import _real_client_ip
 
-        scope = {
-            "type": "http",
-            "client": ("10.0.0.1", 12345),
-            "headers": [(b"x-forwarded-for", b"203.0.113.99, 10.0.0.1")],
-        }
-        request = Request(scope)
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "10.0.0.1")
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_HOPS", "2")
 
-        # Act
-        resolved_ip = _real_client_ip(request)
+    scope = {
+        "type": "http",
+        "client": ("10.0.0.1", 12345),
+        "headers": [(b"x-forwarded-for", b"203.0.113.99, 10.0.0.1")],
+    }
 
-        # Assert
-        assert resolved_ip == "203.0.113.99"
-    finally:
-        # Clean up so this test cannot leak state into other tests
-        del os.environ["ARCHGUARD_TRUSTED_PROXY_IPS"]
+    assert _real_client_ip(Request(scope)) == "203.0.113.99"
+
+
+def test_forwarded_for_spoofing_cannot_choose_the_rate_limit_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A client must not be able to pick its own X-Forwarded-For identity.
+
+    Regression: _real_client_ip took the *leftmost* entry. A proxy appends what
+    it saw and never validates what was already in the header, so the leftmost
+    entry is whatever the caller typed. With ARCHGUARD_TRUSTED_PROXY_IPS="*"
+    -- which is exactly what render.yaml and railway.toml configure -- rotating
+    that header gave a fresh rate-limit bucket per request and removed the
+    limiter from the (billable) LLM endpoints entirely.
+    """
+    from starlette.requests import Request
+
+    from archguard.dashboard._auth import _real_client_ip
+
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "*")
+    monkeypatch.delenv("ARCHGUARD_TRUSTED_PROXY_HOPS", raising=False)
+
+    # The attacker sends "99.99.99.99"; the platform proxy appends their real
+    # address, 203.0.113.7.
+    spoofed = Request({
+        "type": "http",
+        "client": ("10.1.2.3", 1234),
+        "headers": [(b"x-forwarded-for", b"99.99.99.99, 203.0.113.7")],
+    })
+    honest = Request({
+        "type": "http",
+        "client": ("10.1.2.3", 1234),
+        "headers": [(b"x-forwarded-for", b"203.0.113.7")],
+    })
+
+    assert _real_client_ip(spoofed) == "203.0.113.7"
+    # Same real client => same bucket, whatever they prepend.
+    assert _real_client_ip(spoofed) == _real_client_ip(honest)
+
+
+def test_forwarded_for_shorter_than_hop_count_falls_back_to_peer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Too few entries must fall back to the peer, never to a client-set value."""
+    from starlette.requests import Request
+
+    from archguard.dashboard._auth import _real_client_ip
+
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_IPS", "*")
+    monkeypatch.setenv("ARCHGUARD_TRUSTED_PROXY_HOPS", "2")
+
+    request = Request({
+        "type": "http",
+        "client": ("10.1.2.3", 1234),
+        "headers": [(b"x-forwarded-for", b"99.99.99.99")],
+    })
+    assert _real_client_ip(request) == "10.1.2.3"
 
 
 def test_trusted_proxy_wildcard_cannot_spoof_localhost_for_auth(

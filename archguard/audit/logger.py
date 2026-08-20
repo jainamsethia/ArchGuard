@@ -2,17 +2,90 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
-from datetime import datetime, timezone
+import logging
+import os
+import secrets
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from archguard.config import (
+    AUDIT_EVENT_ANALYSIS,
     AUDIT_LOG_FILENAME,
     AUDIT_LOG_MAX_BYTES,
     AUDIT_LOG_MAX_ENTRIES,
-    AUDIT_EVENT_ANALYSIS,
 )
+
+logger = logging.getLogger(__name__)
+
+#: Signed entries are serialised with exactly these options, in both the signing
+#: and the verifying direction. ``default=str`` matters: without it any value
+#: json cannot represent natively (a datetime, a Path) raised TypeError during
+#: signing and silently dropped the whole entry; with it, signing and writing
+#: no longer produce different bytes, which made every signature unverifiable.
+_JSON_KWARGS: dict[str, Any] = {"sort_keys": True, "default": str}
+
+
+def _canonical(entry: dict[str, Any]) -> str:
+    """Serialise *entry* (minus its signature) to the exact signed byte string."""
+    return json.dumps(
+        {k: v for k, v in entry.items() if k != "hmac"}, **_JSON_KWARGS
+    )
+
+
+def _sign(secret: str, entry: dict[str, Any]) -> str:
+    return hmac.new(
+        secret.encode("utf-8"), _canonical(entry).encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def verify_entry(entry: dict[str, Any], secret: str) -> bool:
+    """Return True iff *entry* carries a signature matching *secret*.
+
+    Entries written before signing existed (no ``hmac`` key) return False: an
+    unsigned entry is not a verified one.
+    """
+    recorded = entry.get("hmac")
+    if not isinstance(recorded, str):
+        return False
+    return hmac.compare_digest(_sign(secret, entry), recorded)
+
+
+def resolve_audit_secret(log_dir: Path, create: bool = False) -> str | None:
+    """Return the HMAC secret for the log in *log_dir*, or None if there is none.
+
+    Resolution order: ``ARCHGUARD_AUDIT_SECRET``, then ``audit.key`` beside the
+    log. When *create* is True a new key file is generated if neither exists.
+    """
+    from_env = os.environ.get("ARCHGUARD_AUDIT_SECRET")
+    if from_env:
+        return from_env
+
+    key_file = log_dir / "audit.key"
+    if key_file.exists():
+        return key_file.read_text(encoding="utf-8").strip()
+    if not create:
+        return None
+
+    secret = secrets.token_hex(32)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    key_file.write_text(secret, encoding="utf-8")
+    try:
+        key_file.chmod(0o600)
+    except OSError as chmod_exc:
+        # Windows and some network filesystems don't honour POSIX modes. The
+        # key is still written, but it is not owner-only -- say so rather than
+        # implying it is.
+        logger.warning(
+            "Could not restrict permissions on audit key %s (%s). "
+            "The HMAC key may be readable by other users on this host.",
+            key_file, chmod_exc,
+        )
+    logger.info("Generated new audit HMAC key at %s", key_file)
+    return secret
 
 
 class AuditLogger:
@@ -27,75 +100,39 @@ class AuditLogger:
         Rotates when the file exceeds size or entry-count limits.
         Silently swallows all exceptions so audit logging never crashes the CLI.
         """
+        strict = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in ("1", "true")
         try:
-            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_dir = self._log_path.parent
+            log_dir.mkdir(parents=True, exist_ok=True)
             self._maybe_rotate(self._log_path)
 
             entry: dict[str, Any] = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "event": event,
                 **kwargs,
             }
 
-            # HMAC for integrity verification
-            entry_str = json.dumps(entry, sort_keys=True)
-            import hmac
-            import hashlib
-            import os
+            if strict and resolve_audit_secret(log_dir) is None:
+                from archguard.utils.errors import ConfigError
 
-            audit_secret = os.environ.get("ARCHGUARD_AUDIT_SECRET")
-            if not audit_secret:
-                strict_mode = os.environ.get("ARCHGUARD_AUDIT_STRICT", "").lower() in (
-                    "1",
-                    "true",
+                raise ConfigError(
+                    "ARCHGUARD_AUDIT_STRICT is enabled, but "
+                    "ARCHGUARD_AUDIT_SECRET is not set and no key file exists."
                 )
-                key_file = self._log_path.parent / "audit.key"
-                if strict_mode and not key_file.exists():
-                    from archguard.utils.errors import ConfigError
-
-                    raise ConfigError(
-                        "ARCHGUARD_AUDIT_STRICT is enabled, but ARCHGUARD_AUDIT_SECRET is not set and no key file exists."
-                    )
-                if key_file.exists():
-                    audit_secret = key_file.read_text(encoding="utf-8").strip()
-                else:
-                    import secrets
-                    import logging as _logging
-
-                    audit_secret = secrets.token_hex(32)
-                    self._log_path.parent.mkdir(parents=True, exist_ok=True)
-                    # Write with 0600 permissions
-                    with open(key_file, "w", encoding="utf-8") as key_f:
-                        key_f.write(audit_secret)
-                    try:
-                        key_file.chmod(0o600)
-                    except OSError as chmod_exc:
-                        # Windows and some network filesystems don't honour
-                        # POSIX modes. The key is still written, but it is not
-                        # owner-only -- say so rather than implying it is.
-                        _logging.getLogger(__name__).warning(
-                            "Could not restrict permissions on audit key %s (%s). "
-                            "The HMAC key may be readable by other users on this host.",
-                            key_file, chmod_exc,
-                        )
-                    _logging.getLogger(__name__).info(
-                        "Generated new audit HMAC key at %s", key_file
-                    )
-            secret = audit_secret.encode("utf-8")
-            signature = hmac.new(
-                secret, entry_str.encode("utf-8"), hashlib.sha256
-            ).hexdigest()
-            entry["hmac"] = signature
+            audit_secret = resolve_audit_secret(log_dir, create=True)
+            assert audit_secret is not None  # create=True always yields a key
+            entry["hmac"] = _sign(audit_secret, entry)
 
             with self._log_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
+                f.write(json.dumps(entry, **_JSON_KWARGS) + "\n")
         except Exception as exc:
-            # In non-strict mode, log the error but continue
-            import logging as _logging
-            _logging.getLogger(__name__).warning(
-                "Audit log operation failed (non-fatal): %s", exc
-            )
-            if os.getenv("ARCHGUARD_AUDIT_STRICT"):
+            # Audit logging must never crash the caller in the default mode.
+            # (`strict` is read before the try block on purpose: it used to be
+            # read here via an `os` imported *inside* the try, so any failure
+            # before that import raised UnboundLocalError from the handler and
+            # masked the real error.)
+            logger.warning("Audit log operation failed (non-fatal): %s", exc)
+            if strict:
                 raise
 
     def log_run(self, repo_url: str, job_id: str, **kwargs: Any) -> None:
@@ -130,10 +167,8 @@ class AuditLogger:
                 # If MAX_ENTRIES is 1, we just clear the file
                 with open(log_path, "w", encoding="utf-8") as f:
                     pass
-        except Exception as e:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).warning(
+        except Exception as e:
+            logger.warning(
                 f"Non-critical failure in _maybe_rotate: {e}"
             )
 
@@ -180,9 +215,7 @@ class AuditLogger:
                     except json.JSONDecodeError:
                         pass
         except Exception as e:
-            import logging
-
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 f"Non-critical failure in read_last_n_runs: {e}"
             )
 
@@ -231,9 +264,7 @@ def read_last_run(log_path: Path) -> dict[str, Any] | None:
                 except json.JSONDecodeError:
                     pass
     except Exception as e:
-        import logging
-
-        logging.getLogger(__name__).warning(
+        logger.warning(
             f"Non-critical failure in read_last_run: {e}"
         )
     return None

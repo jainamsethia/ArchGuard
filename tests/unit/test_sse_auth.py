@@ -1,8 +1,10 @@
-import pytest
 import os
+
 import httpx
-from archguard.dashboard.app import app
+import pytest
+
 from archguard.dashboard._cookie_auth import issue_session
+from archguard.dashboard.app import app
 
 
 @pytest.mark.asyncio
@@ -37,7 +39,7 @@ async def test_sse_stream_accepts_valid_session_cookie():
                 cookies={"archguard_session": cookie_value},
             )
         # Assert — 404 or streaming is fine; 401 is the regression
-        assert resp.status_code != 401, f"Valid cookie was rejected with 401"
+        assert resp.status_code != 401, "Valid cookie was rejected with 401"
     finally:
         del os.environ["ARCHGUARD_DASHBOARD_TOKEN"]
 
@@ -56,6 +58,6 @@ async def test_sse_stream_accepts_query_param_token():
                 params={"token": "sse-qs-token"},
             )
         # Assert — 404 is fine; 401 is the regression
-        assert resp.status_code != 401, f"?token= param was rejected with 401"
+        assert resp.status_code != 401, "?token= param was rejected with 401"
     finally:
         del os.environ["ARCHGUARD_DASHBOARD_TOKEN"]

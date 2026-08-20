@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from archguard.analysis.deps import analyze_dependencies
 
@@ -29,7 +29,7 @@ def test_pip_audit_not_found(tmp_path: Path):
 
 def test_pip_audit_timeout(tmp_path: Path):
     """Handle subprocess.TimeoutExpired gracefully."""
-    (tmp_path / "pyproject.toml").touch()
+    (tmp_path / "requirements.txt").touch()
 
     with patch(
         "subprocess.run",
@@ -61,22 +61,25 @@ def test_poetry_project_is_skipped_not_audited_against_the_wrong_env(tmp_path: P
     assert result.scanned_packages == 0
 
 
-def test_command_generation_pyproject_pep621(tmp_path: Path):
-    """PEP 621 pyproject.toml should use project path positional argument."""
+def test_pep621_pyproject_is_skipped_never_resolved(tmp_path: Path):
+    """A PEP 621 pyproject.toml must be skipped, never passed to pip-audit.
+
+    Regression: this used to run ``pip-audit --format=json <repo_root>``.
+    Auditing a *project* makes pip-audit resolve it, which builds the tree and
+    executes its setup.py / PEP 517 backend. On the dashboard that tree is an
+    arbitrary GitHub repository submitted by a user, so the positional-path
+    form was remote code execution on the analysis host.
+    """
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
     with patch("subprocess.run") as mock_run:
-        mock_process = MagicMock()
-        mock_process.stdout = "{}"
-        mock_process.stderr = ""
-        mock_run.return_value = mock_process
+        res = analyze_dependencies(tmp_path)
 
-        analyze_dependencies(tmp_path)
+        assert not mock_run.called, "must not hand pip-audit a buildable project"
 
-        mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "-r" not in cmd
-        assert cmd == ["pip-audit", "--format=json", str(tmp_path)]
+    assert res.skipped is True
+    assert "build backend" in res.skip_reason
+    assert res.vulnerable_packages == []
 
 
 def test_command_generation_requirements(tmp_path: Path):

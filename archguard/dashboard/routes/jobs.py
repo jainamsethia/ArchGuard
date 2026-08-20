@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import re
 import time
+from dataclasses import asdict
 from typing import Any
 
 import httpx
-from fastapi import Depends, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from archguard.dashboard.app import app
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from dataclasses import asdict
-from fastapi import BackgroundTasks, Request
-from fastapi.responses import StreamingResponse, JSONResponse
-import asyncio
-import json
+from archguard.dashboard.app import app
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,21 @@ class RepoMetadata(BaseModel):
 # --------------------------------------------------------------------------
 
 
+# GitHub account names are alphanumeric with single internal hyphens, max 39
+# chars -- notably no dots. Repository names additionally allow dots and
+# underscores. Both are anchored to a non-dot first character so that "." and
+# ".." can never be produced: those are valid matches for a naive
+# ``[A-Za-z0-9_.-]+`` and made ``/repos/{owner}/{repo}`` collapse to the GitHub
+# API root once the client normalised the path.
+_OWNER_RE = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})"
+_REPO_RE = r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,99}?"
+
+_URL_PATTERNS = [
+    re.compile(rf"^https?://github\.com/({_OWNER_RE})/({_REPO_RE})(?:\.git)?$"),
+    re.compile(rf"^git@github\.com:({_OWNER_RE})/({_REPO_RE})(?:\.git)?$"),
+]
+
+
 def parse_github_url(url: str) -> tuple[str, str]:
     """Parse owner and repo name from a GitHub URL.
 
@@ -73,16 +87,11 @@ def parse_github_url(url: str) -> tuple[str, str]:
     Raises:
         ValueError: if the URL does not match any known format
     """
-    patterns = [
-        r"^https?://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
-        r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$",
-    ]
     url = url.strip().rstrip("/")
-    for pattern in patterns:
-        m = re.match(pattern, url)
+    for pattern in _URL_PATTERNS:
+        m = pattern.match(url)
         if m:
-            owner, repo_name = m.group(1), m.group(2)
-            return owner, repo_name
+            return m.group(1), m.group(2)
     raise ValueError(
         f"Cannot parse GitHub URL: {url!r}. "
         "Expected format: https://github.com/owner/repo"
@@ -219,7 +228,7 @@ async def validate_repo_url(request: RepoURLRequest) -> Any:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
-        logger.error("GitHub API error fetching repo metadata: %s", exc)
+        logger.exception("GitHub API error fetching repo metadata: %s", exc)
         raise HTTPException(status_code=502, detail="Could not reach GitHub API. Check your network connection.")
 
     return RepoMetadata(
@@ -290,7 +299,7 @@ async def submit_analysis_job(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
-        logger.error("GitHub API error fetching repo metadata: %s", exc)
+        logger.exception("GitHub API error fetching repo metadata: %s", exc)
         raise HTTPException(status_code=502, detail="Could not reach GitHub API. Check your network connection.")
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
@@ -331,7 +340,7 @@ async def submit_analysis_job(
 )
 async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
     """Return the current status, progress, and result of an analysis job."""
-    from archguard.dashboard.job_manager import job_manager, JobStatus
+    from archguard.dashboard.job_manager import JobStatus, job_manager
 
     job = job_manager.get_job(job_id)
     if job is None:
@@ -344,16 +353,16 @@ async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
         "progress": job.progress_messages[-10:],   # last 10 progress messages
         "created_at": job.created_at.isoformat(),
     }
-    
+
     if job.completed_at:
         response["completed_at"] = job.completed_at.isoformat()
-        
+
     if job.status == JobStatus.COMPLETE and job.result is not None:
         response["result"] = job._cached_result_dict if job._cached_result_dict else asdict(job.result)
-        
+
     if job.status == JobStatus.FAILED:
         response["error"] = job.error
-        
+
     return response
 
 
@@ -414,29 +423,33 @@ async def stream_job_progress(
     job_id: str,
     request: Request,
     token: str | None = Query(None),
-    _rate: None = Depends(rate_limiter),
+    # check_token is a signature dependency rather than a decorator one only so
+    # the `token` query parameter stays in the OpenAPI schema for EventSource
+    # clients. rate_limiter is *not* repeated here: it is already in the
+    # decorator's `dependencies=`, and listing it twice charged every stream
+    # connection two requests against the caller's own budget.
     _auth: None = Depends(check_token),
 ) -> StreamingResponse:
     """Stream real-time analysis progress for a job.
-    
+
     Events emitted:
       {"type": "progress", "message": "..."}   - status messages from the pipeline
       {"type": "status",   "status": "..."}    - current JobStatus string
       {"type": "result",   "result": {...}}     - final AnalysisJobResult (on COMPLETE)
       {"type": "error",    "error": "..."}      - error string (on FAILED)
       {"type": "done"}                          - stream end sentinel
-      
+
     The stream ends automatically when the job reaches COMPLETE or FAILED status.
     If the client disconnects, the stream stops but the background job continues.
     """
 
-    from archguard.dashboard.job_manager import job_manager, JobStatus
+    from archguard.dashboard.job_manager import JobStatus, job_manager
 
     job = job_manager.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
-    from typing import AsyncGenerator
+    from collections.abc import AsyncGenerator
     async def event_generator() -> AsyncGenerator[str, None]:
         last_progress_idx = 0
         last_emitted_status: str | None = None
@@ -510,8 +523,9 @@ async def health_check() -> dict[str, Any]:
     Used by Docker Compose healthcheck, Railway, and Render.
     Always returns HTTP 200 if the application is running.
     """
-    import time
     import os
+    import time
+
     from archguard.dashboard.app import _APP_START_TIME, _installed_version
 
     return {

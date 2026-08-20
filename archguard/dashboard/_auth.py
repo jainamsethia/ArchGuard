@@ -1,9 +1,12 @@
-import os
 import hmac
 import ipaddress
 import logging
-from fastapi import Request, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import os
+
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer(auto_error=False)
 
@@ -35,10 +38,52 @@ def _get_trusted_proxy_ips() -> frozenset[str] | str:
             ipaddress.ip_network(entry, strict=False)
             trusted.add(entry)
         except ValueError:
-            logging.warning(
+            logger.warning(
                 "ARCHGUARD_TRUSTED_PROXY_IPS: invalid entry %r - skipped", entry
             )
     return frozenset(trusted)
+
+
+def _trusted_proxy_hops() -> int:
+    """How many trusted proxies sit between the client and this process."""
+    raw = os.environ.get("ARCHGUARD_TRUSTED_PROXY_HOPS", "1").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        logger.warning(
+            "ARCHGUARD_TRUSTED_PROXY_HOPS: %r is not an integer - using 1", raw
+        )
+        return 1
+
+
+def _forwarded_client_ip(forwarded_for: str) -> str:
+    """Pick the client IP out of an X-Forwarded-For chain, counting from the right.
+
+    Every entry a *client* can put in this header is attacker-controlled: a
+    proxy appends what it saw, it does not validate what was already there. So
+    taking the leftmost entry -- the previous behaviour -- handed control of the
+    value to the caller. With ARCHGUARD_TRUSTED_PROXY_IPS="*" (what render.yaml
+    and railway.toml document), sending "X-Forwarded-For: <random>" produced a
+    fresh rate-limit bucket on every request, which defeated the limiter on the
+    LLM endpoints entirely.
+
+    Only the rightmost entries are trustworthy, because only our own trusted
+    proxies wrote them. With N trusted hops the client is the Nth from the right.
+
+    Returns "" if the chain is shorter than the configured hop count, so the
+    caller falls back to the direct peer address rather than to a value the
+    client chose.
+    """
+    chain = [part.strip() for part in forwarded_for.split(",") if part.strip()]
+    hops = _trusted_proxy_hops()
+    if len(chain) < hops:
+        logger.warning(
+            "X-Forwarded-For %r has %d entries but ARCHGUARD_TRUSTED_PROXY_HOPS "
+            "is %d; falling back to the direct peer address.",
+            forwarded_for, len(chain), hops,
+        )
+        return ""
+    return chain[-hops]
 
 
 def _direct_client_ip(request: Request) -> str:
@@ -67,7 +112,7 @@ def _real_client_ip(request: Request) -> str:
     if not trusted_proxies:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            logging.warning(
+            logger.warning(
                 "Ignored X-Forwarded-For %r from %s because ARCHGUARD_TRUSTED_PROXY_IPS is not configured.",
                 forwarded, direct_ip
             )
@@ -91,15 +136,14 @@ def _real_client_ip(request: Request) -> str:
     forwarded_for = request.headers.get("X-Forwarded-For", "")
     if is_trusted:
         if forwarded_for:
-            # Trust X-Forwarded-For; take the leftmost (real client) IP
-            real_ip = forwarded_for.split(",")[0].strip()
-            if real_ip:
-                return real_ip
+            hop = _forwarded_client_ip(forwarded_for)
+            if hop:
+                return hop
     elif forwarded_for:
-         logging.warning(
-             "Ignored X-Forwarded-For %r from untrusted proxy %s.",
-             forwarded_for, direct_ip
-         )
+        logger.warning(
+            "Ignored X-Forwarded-For %r from untrusted proxy %s.",
+            forwarded_for, direct_ip
+        )
 
     return direct_ip
 
@@ -167,7 +211,7 @@ def check_token(
                 "remote access. Set ARCHGUARD_DASHBOARD_TOKEN in your environment."
             ),
         )
-    logging.warning(
+    logger.warning(
         "Dashboard accessed from %s (forwarded-for: %s) without token "
         "authentication! Set ARCHGUARD_DASHBOARD_TOKEN to secure this instance.",
         client_host,

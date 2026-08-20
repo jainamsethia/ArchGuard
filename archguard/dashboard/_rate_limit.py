@@ -1,16 +1,14 @@
-import time
 import threading
+import time
 from collections import deque
-from fastapi import Request, Response, HTTPException, status
-from archguard.dashboard._auth import _real_client_ip
 
-try:
-    from cachetools import TTLCache as RateLimitCache
-except ImportError:
-    # Fallback for tests if cachetools is not installed
-    class RateLimitCache(dict):  # type: ignore
-        def __init__(self, maxsize, ttl):  # type: ignore[no-untyped-def]
-            pass
+# cachetools is a core dependency. The ImportError fallback that used to live
+# here substituted a plain dict, which silently turned the rate-limit store
+# into an unbounded, never-expiring memory leak keyed by client IP.
+from cachetools import TTLCache as RateLimitCache
+from fastapi import HTTPException, Request, Response, status
+
+from archguard.dashboard._auth import _real_client_ip
 
 RATE_LIMIT_WINDOW = 60.0
 RATE_LIMIT_MAX_REQUESTS = 50

@@ -1,8 +1,13 @@
-import pytest
 import os
+
 import httpx
+import pytest
+
 from archguard.dashboard._cookie_auth import (
-    issue_session, validate_session_cookie, revoke_session, _SESSIONS
+    _SESSIONS,
+    issue_session,
+    revoke_session,
+    validate_session_cookie,
 )
 
 
@@ -94,6 +99,6 @@ async def test_bearer_token_still_works_after_cookie_auth_added():
                 headers={"Authorization": "Bearer bearer-test-token"},
             )
         # Assert: 200 or any non-401 means Bearer auth worked
-        assert resp.status_code != 401, f"Bearer auth returned 401 — regression"
+        assert resp.status_code != 401, "Bearer auth returned 401 — regression"
     finally:
         del os.environ["ARCHGUARD_DASHBOARD_TOKEN"]

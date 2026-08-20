@@ -1,8 +1,12 @@
+from datetime import UTC
+
+
 def test_read_last_run_finds_written_event():
     """read_last_run must find events written by analyze_cmd."""
-    import tempfile
     import os
+    import tempfile
     from pathlib import Path
+
     from archguard.audit.logger import AuditLogger
     from archguard.config import AUDIT_EVENT_ANALYSIS
 
@@ -18,8 +22,9 @@ def test_read_last_run_finds_written_event():
 
 def test_analysis_orchestrator_logs_parse_failure(tmp_path):
     from unittest.mock import patch
-    from archguard.audit.logger import AuditLogger
+
     from archguard.analysis.layers import AnalysisOrchestrator
+    from archguard.audit.logger import AuditLogger
 
     log_file = tmp_path / "audit.jsonl"
     logger = AuditLogger(log_file)
@@ -70,10 +75,11 @@ def test_analysis_orchestrator_logs_parse_failure(tmp_path):
 
 def test_key_file_generated_on_first_run(tmp_path, monkeypatch, caplog):
     """Test that a random key is generated on first run and persisted with 0600."""
-    from archguard.audit.logger import AuditLogger
     import logging
-    import stat
     import os
+    import stat
+
+    from archguard.audit.logger import AuditLogger
 
     monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
     monkeypatch.delenv("ARCHGUARD_AUDIT_SECRET", raising=False)
@@ -97,8 +103,9 @@ def test_key_file_generated_on_first_run(tmp_path, monkeypatch, caplog):
 
 def test_same_key_loaded_on_second_run(tmp_path, monkeypatch):
     """Test that the same key is loaded on the second run."""
-    from archguard.audit.logger import AuditLogger
     import json
+
+    from archguard.audit.logger import AuditLogger
 
     monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
     monkeypatch.delenv("ARCHGUARD_AUDIT_SECRET", raising=False)
@@ -157,3 +164,70 @@ def test_strict_mode_passes_with_custom_secret(tmp_path, monkeypatch):
 
     assert log_file.exists()
     assert "test_event" in log_file.read_text()
+
+
+def test_signature_verifies_and_detects_tampering(tmp_path, monkeypatch):
+    """The recorded HMAC must actually verify against what was written.
+
+    Regression: the signature was computed over ``json.dumps(entry,
+    sort_keys=True)`` while the line was written with ``json.dumps(entry,
+    default=str)`` -- different bytes, so no entry could ever be verified, and
+    any non-JSON-native value (a datetime, a Path) raised TypeError during
+    signing and dropped the whole entry with only a warning.
+    """
+    import json
+
+    from archguard.audit.logger import AuditLogger, verify_entry
+
+    monkeypatch.setenv("ARCHGUARD_AUDIT_SECRET", "unit-test-secret")
+
+    log_path = tmp_path / ".archguard-cache" / "audit.jsonl"
+    AuditLogger(log_path=log_path).log(
+        "analysis_run", score=91.5, violations=[], modules=["a", "b"]
+    )
+
+    entry = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert verify_entry(entry, "unit-test-secret")
+    assert not verify_entry(entry, "a-different-secret")
+
+    tampered = {**entry, "score": 100.0}
+    assert not verify_entry(tampered, "unit-test-secret")
+
+
+def test_non_json_native_values_are_still_logged(tmp_path, monkeypatch):
+    """A Path or datetime in kwargs must not silently discard the entry."""
+    import json
+    from datetime import datetime
+
+    from archguard.audit.logger import AuditLogger, verify_entry
+
+    monkeypatch.setenv("ARCHGUARD_AUDIT_SECRET", "unit-test-secret")
+
+    log_path = tmp_path / ".archguard-cache" / "audit.jsonl"
+    AuditLogger(log_path=log_path).log(
+        "analysis_run", repo=tmp_path, started=datetime.now(UTC)
+    )
+
+    lines = log_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 1, "entry was dropped instead of being serialised"
+    assert verify_entry(json.loads(lines[0]), "unit-test-secret")
+
+
+def test_failure_before_secret_resolution_is_non_fatal(tmp_path, monkeypatch):
+    """A failure early in log() must warn, not raise UnboundLocalError.
+
+    Regression: the non-strict error handler called ``os.getenv`` where ``os``
+    was imported *inside* the try block, so any exception raised before that
+    import turned into UnboundLocalError from the handler itself -- crashing
+    the CLI that the handler exists to protect.
+    """
+    from archguard.audit.logger import AuditLogger
+
+    monkeypatch.delenv("ARCHGUARD_AUDIT_STRICT", raising=False)
+    logger = AuditLogger(log_path=tmp_path / ".archguard-cache" / "audit.jsonl")
+    monkeypatch.setattr(
+        type(logger), "_maybe_rotate",
+        lambda self, p: (_ for _ in ()).throw(OSError("disk on fire")),
+    )
+
+    logger.log("analysis_run", score=1.0)  # must not raise

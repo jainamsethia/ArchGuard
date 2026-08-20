@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
 
 from archguard.dashboard.app import app
 from archguard.dashboard.routes.jobs import parse_github_url
-
 
 # --------------------------------------------------------------------------
 # Fixture: FastAPI test client
@@ -179,3 +179,26 @@ def test_validate_endpoint_success(client: TestClient) -> None:
     assert body["owner"] == "pallets"
     assert body["repo"] == "flask"
     assert body["stars"] == 60000
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/../..",
+        "https://github.com/./flask",
+        "https://github.com/pallets/..",
+        "https://github.com/pallets/.",
+        "https://github.com/-leading-hyphen/repo",
+        "https://github.com/owner/.hidden",
+    ],
+)
+def test_dot_segments_are_rejected(url):
+    """owner/repo must never be a path segment that traverses.
+
+    ``[A-Za-z0-9_.-]+`` matched "." and "..", so a URL like
+    ``https://github.com/../..`` parsed cleanly and produced the API request
+    ``/repos/../..`` -- which httpx normalises to the GitHub API root, giving a
+    200 for a repository that does not exist.
+    """
+    with pytest.raises(ValueError):
+        parse_github_url(url)

@@ -9,8 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY pyproject.toml poetry.lock* ./
 COPY README.md ./
+# `poetry check --lock` instead of `poetry lock`: regenerating the lockfile
+# during the build threw away the committed pins, so the image could ship
+# different (and unaudited) versions than CI's pip-audit ever saw. Fail loudly
+# on a stale lock instead -- a stale lock is a repo problem to fix in the repo.
 RUN pip install --no-cache-dir "poetry==2.4.1" "poetry-plugin-export>=1.8.0" && \
-    poetry lock && \
+    poetry check --lock && \
     poetry export -f requirements.txt --output requirements.txt --without-hashes --extras "dashboard cloud ml" && \
     pip install --no-cache-dir --target /deps -r requirements.txt
 
