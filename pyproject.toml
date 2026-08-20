@@ -44,6 +44,10 @@ jinja2 = ">=3.1,<4.0.0"
 
 cachetools = ">=5.0"
 python-dotenv = "^1.2.2"
+sqlalchemy = {version = ">=2.0,<3.0", extras = ["asyncio"]}
+alembic = ">=1.13"
+asyncpg = ">=0.29"
+redis = ">=5.0"
 
 [tool.poetry.extras]
 # Layers 3 and 4 only. These belong to the analysis worker image, never the web

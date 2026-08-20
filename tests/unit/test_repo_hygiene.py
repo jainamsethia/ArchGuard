@@ -28,6 +28,9 @@ _ALLOWED_ROOT_FILES = {
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "Dockerfile",
+    # Alembic resolves its config relative to the directory it is invoked from
+    # and looks for this name; it is not relocatable under docs/ or scripts/.
+    "alembic.ini",
     "LICENSE",
     "Makefile",
     "README.md",

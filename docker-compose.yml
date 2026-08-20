@@ -1,6 +1,42 @@
 version: "3.9"
 
 services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: archguard
+      # Local development only. Override via a .env POSTGRES_PASSWORD; this
+      # value must never appear in a deployed environment.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-archguard_local_dev}
+      POSTGRES_DB: archguard_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - archguard-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready returns success as soon as the socket accepts, which happens
+      # before the init scripts finish; naming the user and database waits for
+      # the cluster the app actually connects to.
+      test: ["CMD-SHELL", "pg_isready -U archguard -d archguard_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - archguard-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build:
       context: .
@@ -16,6 +52,10 @@ services:
       # NOT set here — enabling unauthenticated remote access requires an
       # explicit decision in .env, not a default.
       - ENVIRONMENT=development
+      # Service names, not localhost: inside the compose network "localhost" is
+      # the app container itself.
+      - DATABASE_URL=postgresql+asyncpg://archguard:${POSTGRES_PASSWORD:-archguard_local_dev}@postgres:5432/archguard_dev
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       # Persistent storage for audit log and cache between runs.
       # Mounted at /app/.archguard-cache to match Path.cwd()-relative
@@ -27,6 +67,11 @@ services:
       # Size limit prevents disk exhaustion from large repos.
       - /tmp:size=2g,mode=1777
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -36,4 +81,8 @@ services:
 
 volumes:
   archguard-cache:
+    driver: local
+  archguard-pgdata:
+    driver: local
+  archguard-redisdata:
     driver: local
