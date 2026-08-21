@@ -180,7 +180,12 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
-addopts = "--cov=archguard --cov-report=term --cov-report=xml --cov-fail-under=76 -m 'not integration and not slow'"
+# --cov-branch: without it every untested `else` counted as covered, so the
+# old 76% gate was measuring less than it looked like. Branch coverage is on
+# now and the combined figure is 80.96%; the gate is 79, low enough that
+# ordinary variance does not fail a build and high enough that deleting a
+# tested path does.
+addopts = "--cov=archguard --cov-branch --cov-report=term --cov-report=xml --cov-fail-under=79 -m 'not integration and not slow'"
 testpaths = ["tests/unit", "tests/integration"]
 markers = [
     "integration: requires external dependencies (real git repo, network, API keys)",

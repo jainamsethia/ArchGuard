@@ -16,6 +16,7 @@ control sized to stop abuse rather than to meter billing is the right trade.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import deque
@@ -29,10 +30,21 @@ from archguard.redis_client import get_redis
 logger = logging.getLogger(__name__)
 
 RATE_LIMIT_WINDOW = 60
-RATE_LIMIT_MAX_REQUESTS = 50
+
+#: Requests per window per client. Configurable because the defaults are tuned
+#: for one human browsing, and a browser test suite is not that: Playwright
+#: drives dozens of page loads from a single address, exhausts the budget, and
+#: then every later test sees a page that failed to load its own auth status.
+#: A limit that makes the test suite flaky gets removed from the test suite,
+#: which is worse than making it tunable.
+RATE_LIMIT_MAX_REQUESTS = int(
+    os.environ.get("ARCHGUARD_RATE_LIMIT_MAX_REQUESTS", "50")
+)
 
 #: LLM endpoints cost money per call, so they get their own, tighter budget.
-LLM_RATE_LIMIT_MAX_REQUESTS = 30
+LLM_RATE_LIMIT_MAX_REQUESTS = int(
+    os.environ.get("ARCHGUARD_LLM_RATE_LIMIT_MAX_REQUESTS", "30")
+)
 
 _KEY_PREFIX = "ratelimit"
 
