@@ -5,16 +5,19 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>ArchGuard Dashboard</title>
-<link rel="stylesheet" href="/index.css"/>
+<link rel="stylesheet" href="{{ asset('index.css') }}"/>
 <!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
      before the first paint, which is what stops a stored light preference
      from flashing dark first. -->
-<script src="/theme.js"></script>
+<script src="{{ asset('theme.js') }}"></script>
 
 <!-- Local Chart.js -->
-<script src="/vendor/chart.umd.min.js"></script>
+<script src="{{ asset('vendor/chart.umd.min.js') }}"></script>
 <!-- vis-network for dependency graph panel -->
-<script src="/vendor/vis-network.min.js"></script>
+    <!-- vis-network is NOT loaded here. At 628.7 KB it was 63% of this page's
+         static payload, downloaded by every visitor for a graph that only
+         renders when the Dependencies tab is opened. dashboard.js fetches it
+         on first activation of that tab. -->
 </head>
 <body class="page-dashboard">
 
@@ -31,7 +34,7 @@
   <div id="login-error" class="login-error"></div>
 </div>
 
-<script src="/auth.js"></script>
+<script src="{{ asset('auth.js') }}"></script>
 <div class="dashboard-container">
 <div class="header">
 <div>
@@ -351,6 +354,6 @@
 </div>
 </div>
 
-<script src="/dashboard.js"></script>
+<script src="{{ asset('dashboard.js') }}"></script>
 </body>
 </html>

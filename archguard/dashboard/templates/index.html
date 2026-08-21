@@ -19,11 +19,11 @@
     <meta name="twitter:title" content="ArchGuard — see your Python codebase's architecture">
     <meta name="twitter:description" content="A measured architectural health report for any public Python repository.">
     
-    <link rel="stylesheet" href="/index.css"/>
+    <link rel="stylesheet" href="{{ asset('index.css') }}"/>
     <!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
          before the first paint, which is what stops a stored light preference
          from flashing dark first. -->
-    <script src="/theme.js"></script>
+    <script src="{{ asset('theme.js') }}"></script>
 </head>
 <body class="page-index">
 
@@ -40,7 +40,7 @@
   <div id="login-error" class="login-error"></div>
 </div>
 
-<script src="/auth.js"></script>
+<script src="{{ asset('auth.js') }}"></script>
     <div class="container" id="main-container">
         <div class="theme-switch-row">
             <div class="theme-switch" role="group" aria-label="Colour theme">
@@ -216,6 +216,6 @@
         </footer>
     </div>
 
-    <script nonce="{{ csp_nonce }}" src="/index.js"></script>
+    <script nonce="{{ csp_nonce }}" src="{{ asset('index.js') }}"></script>
 </body>
 </html>

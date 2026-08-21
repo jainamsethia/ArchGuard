@@ -70,6 +70,10 @@ export async function loadDashboard({ respond = () => ({}), search = '' } = {}) 
   const html = readFileSync(resolve(DASHBOARD, 'templates/dashboard.html'), 'utf8')
     // The template is served through Jinja; the nonce is irrelevant here.
     .replace(/\{\{\s*csp_nonce\s*\}\}/g, 'test-nonce')
+    // Resolve the asset() helper the same way the app does, minus the content
+    // fingerprint. Without this the strip below stops matching and quietly
+    // does nothing, which is exactly what happened when fingerprinting landed.
+    .replace(/\{\{\s*asset\('([^']+)'\)\s*\}\}/g, '/$1')
     // Vendored <script src> tags would 404; the stubs below replace them.
     .replace(/<script src="\/(vendor|theme|auth)[^"]*"><\/script>/g, '');
 

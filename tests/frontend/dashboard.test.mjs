@@ -144,3 +144,90 @@ describe('page integrity', () => {
     assert.equal(window.document.getElementById('current-band').textContent, 'PASS');
   });
 });
+
+describe('asset delivery', () => {
+
+  it('the graph library is fetched on demand, not on page load', async () => {
+  // 628.7 KB, 63% of this page's payload, for a tab most visitors never open.
+  // It used to be a blocking <script> in the template.
+  const { window } = await loadDashboard();
+
+  const before = [...window.document.querySelectorAll('script[src]')]
+    .filter((s) => s.src.includes('vis-network'));
+  assert.equal(before.length, 0, 'vis-network was loaded on page load');
+
+  delete window.vis;              // force the loader down its fetching path
+  window.loadGraphLibrary();
+
+  const after = [...window.document.querySelectorAll('script[src]')]
+    .filter((s) => s.src.includes('vis-network'));
+  assert.equal(after.length, 1, 'the loader did not inject the library');
+  });
+
+  it('a second request reuses the in-flight download', async () => {
+  // Rapid tab switching must not start the 628 KB download twice.
+  const { window } = await loadDashboard();
+  delete window.vis;
+
+  window.loadGraphLibrary();
+  window.loadGraphLibrary();
+  window.loadGraphLibrary();
+
+  const tags = [...window.document.querySelectorAll('script[src]')]
+    .filter((s) => s.src.includes('vis-network'));
+  assert.equal(tags.length, 1, `started ${tags.length} downloads`);
+  });
+
+  it('polling stops while the tab is hidden and resumes when it returns', async () => {
+    // Five endpoints every thirty seconds, forever, in a tab nobody is looking
+    // at, is work the server does for no reader.
+    const { window } = await loadDashboard();
+
+    // Spied rather than exposed: counting timers keeps this test out of the
+    // production API, which should not grow an accessor to be observable.
+    let live = 0;
+    const realSet = window.setInterval;
+    const realClear = window.clearInterval;
+    window.setInterval = (...a) => { live += 1; return realSet(...a); };
+    window.clearInterval = (...a) => { live -= 1; return realClear(...a); };
+
+    let hidden = false;
+    Object.defineProperty(window.document, 'hidden', {
+      get: () => hidden,
+      configurable: true,
+    });
+
+    // The page starts polling as it loads, so clear that first -- otherwise
+    // startPolling() sees a live handle and returns without creating one.
+    window.stopPolling();
+    live = 0;
+
+    window.startPolling();
+    assert.equal(live, 1, 'polling did not start on a visible tab');
+
+    hidden = true;
+    window.document.dispatchEvent(new window.Event('visibilitychange'));
+    assert.equal(live, 0, 'polling continued in a hidden tab');
+
+    hidden = false;
+    window.document.dispatchEvent(new window.Event('visibilitychange'));
+    assert.equal(live, 1, 'polling did not resume when the tab returned');
+  });
+
+  it('a tab hidden before polling starts does not start a timer', async () => {
+    const { window } = await loadDashboard();
+    let live = 0;
+    const realSet = window.setInterval;
+    window.setInterval = (...a) => { live += 1; return realSet(...a); };
+    Object.defineProperty(window.document, 'hidden', {
+      get: () => true,
+      configurable: true,
+    });
+
+    window.stopPolling();
+    live = 0;
+
+    window.startPolling();
+    assert.equal(live, 0, 'a hidden tab started a polling timer');
+  });
+});

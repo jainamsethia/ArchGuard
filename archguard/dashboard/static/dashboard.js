@@ -207,15 +207,45 @@ function initActionButtons() {
         // Polling is a handle, not a fire-and-forget interval, so the empty
         // state can stop it and a recovered dashboard can start it again.
         let pollTimer = null;
+        let pollingWanted = false;
         function startPolling() {
+            pollingWanted = true;
+            // A hidden tab gets nothing: five endpoints every thirty seconds,
+            // forever, in a background tab nobody is looking at, is work the
+            // server does for no reader.
+            if (document.hidden) return;
             if (pollTimer === null) pollTimer = setInterval(fetchData, 30000);
         }
         function stopPolling() {
+            pollingWanted = false;
+            suspendPolling();
+        }
+        function suspendPolling() {
             if (pollTimer !== null) {
                 clearInterval(pollTimer);
                 pollTimer = null;
             }
         }
+
+        // Terminal runs never change again, so polling them is pure waste.
+        // Kept as a predicate rather than inlined: the SSE stream and the
+        // fetch path both need to agree about when there is nothing left to
+        // wait for.
+        function runIsTerminal(run) {
+            const status = String((run && run.status) || '').toLowerCase();
+            return status === 'complete' || status === 'failed';
+        }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                suspendPolling();
+            } else if (pollingWanted) {
+                // Catch up immediately rather than waiting out a fresh
+                // interval, so a returning tab is not showing stale numbers.
+                fetchData();
+                startPolling();
+            }
+        });
 
         async function fetchData() {
             const refreshLoader = document.getElementById('refresh-loader');
@@ -300,6 +330,30 @@ function initActionButtons() {
             } finally {
                 hideRefreshLoader();
             }
+        }
+
+        // vis-network is fetched here rather than in a script tag: at 628.7 KB
+        // it was 63% of this page's payload, downloaded by everyone for a tab
+        // most visitors never open. One in-flight promise is reused so rapid
+        // tab switching cannot start the download twice.
+        let visLoader = null;
+        function loadGraphLibrary() {
+            if (window.vis) return Promise.resolve();
+            if (visLoader) return visLoader;
+            visLoader = new Promise((resolve, reject) => {
+                const tag = document.createElement('script');
+                // No nonce needed: the CSP is `script-src 'self' 'nonce-...'`,
+                // and source lists are additive, so a same-origin script is
+                // already allowed. Adding one would be machinery for nothing.
+                tag.src = '/vendor/vis-network.min.js';
+                tag.onload = () => resolve();
+                tag.onerror = () => {
+                    visLoader = null;
+                    reject(new Error('Could not load the dependency graph library'));
+                };
+                document.head.appendChild(tag);
+            });
+            return visLoader;
         }
 
         async function initDependencyGraph() {

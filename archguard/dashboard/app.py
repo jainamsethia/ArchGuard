@@ -23,6 +23,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -205,6 +206,12 @@ app = FastAPI(
     version=_installed_version(),
     lifespan=_lifespan,
 )
+
+# Compression. 1001.9 KB of static payload was going out uncompressed, and a
+# client asking for gzip got byte-identical responses because nothing was
+# installed to answer. minimum_size keeps it off the small JSON replies, where
+# the CPU and the header cost more than the saving.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 _MAX_BODY = 1 * 1024 * 1024  # 1 MB - sufficient for all documented payloads
 
@@ -404,7 +411,34 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(meta.router)
 app.include_router(auth.oauth_router)
 
+def _asset_fingerprint(path: Path) -> str:
+    """A short content hash, so an asset's URL changes when its bytes do.
+
+    Content rather than mtime: a redeploy rewrites mtimes without changing a
+    byte, which would bust every cache on every release for no reason, and a
+    file restored from a backup keeps an old mtime while its contents differ.
+    """
+    import hashlib
+
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+    except OSError:
+        # An asset that cannot be read is a deployment problem, not a reason to
+        # fail the page: fall back to an unfingerprinted URL, which is served
+        # with the short cache policy.
+        return ""
+
+
+def asset_url(name: str) -> str:
+    """`/dashboard.js` -> `/dashboard.js?v=<hash>`, for use in templates."""
+    fingerprint = _asset_fingerprint(STATIC_DIR / name.lstrip("/"))
+    return f"/{name.lstrip('/')}?v={fingerprint}" if fingerprint else f"/{name.lstrip('/')}"
+
+
 _templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# Templates ask for assets by name and get a fingerprinted URL back, which is
+# what makes the year-long cache policy safe.
+_templates.env.globals["asset"] = asset_url
 
 @app.get("/")
 async def serve_index(request: Request) -> Response:
@@ -515,6 +549,40 @@ async def _not_found(request: Request, exc: Any) -> Response:
     )
 
 
-app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+class _CachedStatic(StaticFiles):
+    """StaticFiles with a cache policy that depends on the URL.
+
+    Assets were served with no Cache-Control at all, so a returning visitor
+    re-downloaded a megabyte of unchanged JavaScript on every page view.
+
+    The policy is split because only one half is safe. A URL carrying a `?v=`
+    fingerprint changes whenever the bytes change, so it can be cached for a
+    year and never revalidated. A bare URL has nothing to invalidate it, so a
+    long immutable policy there would strand a deploy in every browser that had
+    loaded the old file -- those get a few minutes, enough to help a page load
+    without outliving a release.
+    """
+
+    def file_response(
+        self,
+        full_path: Any,
+        stat_result: Any,
+        scope: Any,
+        status_code: int = 200,
+    ) -> Response:
+        response: Response = super().file_response(
+            full_path, stat_result, scope, status_code
+        )
+        query = (scope or {}).get("query_string", b"") or b""
+        if b"v=" in query:
+            response.headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable"
+            )
+        else:
+            response.headers["Cache-Control"] = "public, max-age=300"
+        return response
+
+
+app.mount("/", _CachedStatic(directory=str(STATIC_DIR), html=True), name="static")
 
 __all__ = ["app"]
