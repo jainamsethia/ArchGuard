@@ -41,7 +41,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: archguard:local
+      target: web
+    image: archguard:web
     ports:
       - "8000:8000"
     env_file:
@@ -78,6 +79,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: archguard:worker
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://archguard:${POSTGRES_PASSWORD:-archguard_local_dev}@postgres:5432/archguard_dev
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      # The same cache the web service mounts: the embeddings database and the
+      # audit trail are written by whichever process runs the analysis.
+      - archguard-cache:/app/.archguard-cache
+    tmpfs:
+      # Clones live here. The worker is the only process that makes them now,
+      # so this is where the disk budget actually applies.
+      - /tmp:size=4g,mode=1777
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   archguard-cache:

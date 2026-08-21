@@ -7,25 +7,36 @@ from archguard.dashboard.app import app
 from tests.db_fixtures import requires_postgres
 
 
+async def _no_op_enqueue(job_id: str) -> str:
+    """Accept the job without running it.
+
+    Submission hands the job to the queue now, so that is the seam. Patching
+    the analysis itself would leave the enqueue live and start a real clone.
+    """
+    return "queued"
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
 
-def test_submit_job_invalid_url(client):
+@requires_postgres
+def test_submit_job_invalid_url(auth_client):
     """Invalid GitHub URL → 422."""
-    resp = client.post("/api/jobs", json={"github_url": "not-a-url"})
+    resp = auth_client.post("/api/jobs", json={"github_url": "not-a-url"})
     assert resp.status_code == 422
 
-def test_submit_job_returns_202(client):
+@requires_postgres
+def test_submit_job_returns_202(auth_client):
     """Valid URL → 202 with job_id."""
     # Patch run_job to be a no-op (don't actually clone anything) and patch
     # fetch_repo_metadata_public so this test never makes a real network call.
-    with patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None), \
+    with patch("archguard.worker.queue.enqueue_analysis", new=_no_op_enqueue), \
          patch(
              "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
              return_value={"name": "flask", "full_name": "pallets/flask"},
          ):
-        resp = client.post(
+        resp = auth_client.post(
             "/api/jobs",
             json={"github_url": "https://github.com/pallets/flask"},
         )
@@ -50,17 +61,18 @@ def test_get_job_not_found(auth_client):
 @requires_postgres
 def test_get_job_status_queued(auth_client, seed_run):
     """A job this user owns shows its live status."""
-    from archguard.dashboard.job_manager import AnalysisJob, JobStatus
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from tests.db_fixtures import _run
 
     job_id = seed_run()
-    fake_job = AnalysisJob(
-        id=job_id,
-        github_url="https://github.com/pallets/flask",
-        status=JobStatus.QUEUED,
-    )
 
-    with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=fake_job):
-        resp = auth_client.get(f"/api/jobs/{job_id}")
+    async def _requeue():
+        async with session_scope() as session:
+            await store.set_job_status(session, job_id, "queued")
+
+    _run(_requeue())
+    resp = auth_client.get(f"/api/jobs/{job_id}")
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "queued"
@@ -74,8 +86,7 @@ def test_get_job_status_survives_a_restart(auth_client, seed_run):
     user like their analysis had been lost.
     """
     job_id = seed_run()
-    with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=None):
-        resp = auth_client.get(f"/api/jobs/{job_id}")
+    resp = auth_client.get(f"/api/jobs/{job_id}")
 
     assert resp.status_code == 200
     assert resp.json()["job_id"] == job_id
@@ -84,15 +95,13 @@ def test_get_job_status_survives_a_restart(auth_client, seed_run):
 @requires_postgres
 def test_list_jobs_empty(auth_client):
     """A user with no jobs sees no jobs -- not everyone else's."""
-    from archguard.dashboard.job_manager import job_manager
-    job_manager._jobs.clear()
-
     resp = auth_client.get("/api/jobs")
     assert resp.status_code == 200
     assert resp.json()["jobs"] == []
 
 
-def test_submit_job_nonexistent_repo_returns_404(client):
+@requires_postgres
+def test_submit_job_nonexistent_repo_returns_404(auth_client):
     """
     Regression test for MED-006.
     Verifies: a syntactically valid GitHub URL pointing at a repository
@@ -100,16 +109,14 @@ def test_submit_job_nonexistent_repo_returns_404(client):
     confirming the semaphore slot is never consumed for an invalid repo.
     """
     # Arrange
-    from archguard.dashboard.job_manager import job_manager
-
-    jobs_before = len(job_manager.list_jobs())
+    jobs_before = len(auth_client.get("/api/jobs").json()["jobs"])
 
     # Act
     with patch(
         "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
         side_effect=ValueError("Repository owner/nonexistent-repo not found"),
     ):
-        resp = client.post(
+        resp = auth_client.post(
             "/api/jobs",
             json={"github_url": "https://github.com/owner/nonexistent-repo"},
         )
@@ -118,10 +125,11 @@ def test_submit_job_nonexistent_repo_returns_404(client):
     assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
     # No job was created for the invalid repo — state was not corrupted
-    assert len(job_manager.list_jobs()) == jobs_before
+    assert len(auth_client.get("/api/jobs").json()["jobs"]) == jobs_before
 
 
-def test_submit_job_github_rate_limited_still_queues(client):
+@requires_postgres
+def test_submit_job_github_rate_limited_still_queues(auth_client):
     """
     Verifies MED-006 fix degrades gracefully when GitHub's API rate limit
     is hit during pre-validation: per the documented design decision, the
@@ -130,12 +138,12 @@ def test_submit_job_github_rate_limited_still_queues(client):
     """
     from archguard.dashboard.routes.jobs import GitHubRateLimitError
 
-    with patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None), \
+    with patch("archguard.worker.queue.enqueue_analysis", new=_no_op_enqueue), \
          patch(
              "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
              side_effect=GitHubRateLimitError("GitHub API rate limit exceeded"),
          ):
-        resp = client.post(
+        resp = auth_client.post(
             "/api/jobs",
             json={"github_url": "https://github.com/pallets/flask"},
         )
@@ -144,7 +152,8 @@ def test_submit_job_github_rate_limited_still_queues(client):
     assert "job_id" in resp.json()
 
 
-def test_validate_repo_url_rate_limited_returns_retry_after(client):
+@requires_postgres
+def test_validate_repo_url_rate_limited_returns_retry_after(auth_client):
     """POST /api/v1/jobs/validate surfaces GitHub's rate-limit reset as a
     Retry-After header and body field, so the UI can show a real wait time
     instead of a hardcoded guess. Pins the P0 429-handling fix.
@@ -158,7 +167,7 @@ def test_validate_repo_url_rate_limited_returns_retry_after(client):
         "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
         side_effect=GitHubRateLimitError("rate limited", reset_epoch=reset_epoch),
     ):
-        resp = client.post(
+        resp = auth_client.post(
             "/api/v1/jobs/validate",
             json={"github_url": "https://github.com/pallets/flask"},
         )
@@ -171,7 +180,8 @@ def test_validate_repo_url_rate_limited_returns_retry_after(client):
     assert 60 <= body["retry_after"] <= 90
 
 
-def test_validate_repo_url_rate_limited_no_reset_falls_back(client):
+@requires_postgres
+def test_validate_repo_url_rate_limited_no_reset_falls_back(auth_client):
     """Without a reset epoch, a sane default Retry-After is still returned."""
     from archguard.dashboard.routes.jobs import GitHubRateLimitError
 
@@ -179,7 +189,7 @@ def test_validate_repo_url_rate_limited_no_reset_falls_back(client):
         "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
         side_effect=GitHubRateLimitError("rate limited"),
     ):
-        resp = client.post(
+        resp = auth_client.post(
             "/api/v1/jobs/validate",
             json={"github_url": "https://github.com/pallets/flask"},
         )

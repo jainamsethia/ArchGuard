@@ -3,8 +3,8 @@
 ``RepoMetadata.size_kb`` was fetched from the GitHub API on every submission and
 then discarded, so nothing bounded how large a repository a caller could
 enqueue. Workspaces are cloned with ``keep_alive=True`` and the age-based sweep
-exempts every job the manager still knows about, so a handful of large
-repositories filled the analysis host's disk and took the service down.
+exempts every job that has not finished, so a handful of large repositories
+filled the analysis host's disk and took the service down.
 """
 
 from __future__ import annotations
@@ -31,10 +31,9 @@ def client() -> TestClient:
 def never_runs_a_job() -> Iterator[Any]:
     """Submission must never reach the clone/analyse path in these tests."""
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
-        patch("archguard.dashboard.job_manager.JobManager.create_job") as create_job,
+        patch("archguard.worker.queue.enqueue_analysis") as enqueue,
     ):
-        yield create_job
+        yield enqueue
 
 
 def _metadata(**overrides: Any) -> dict[str, Any]:
@@ -73,7 +72,6 @@ def test_repository_within_the_limit_is_accepted(
 ) -> None:
     monkeypatch.setattr("archguard.dashboard.routes.jobs.MAX_REPO_SIZE_KB", 512_000)
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
         patch(
             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
             return_value=_metadata(size=5_000),
@@ -92,7 +90,6 @@ def test_limit_of_zero_disables_the_check(
     """Self-hosted operators with their own disk budget need an escape hatch."""
     monkeypatch.setattr("archguard.dashboard.routes.jobs.MAX_REPO_SIZE_KB", 0)
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
         patch(
             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
             return_value=_metadata(size=_TWO_GB_IN_KB),
@@ -118,7 +115,6 @@ def test_metadata_without_a_size_field_is_not_rejected(
     metadata = _metadata()
     del metadata["size"]
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
         patch(
             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
             return_value=metadata,
@@ -136,7 +132,6 @@ def test_a_non_numeric_size_is_not_rejected(
 ) -> None:
     monkeypatch.setattr("archguard.dashboard.routes.jobs.MAX_REPO_SIZE_KB", 512_000)
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
         patch(
             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
             return_value=_metadata(size="unknown"),
@@ -162,7 +157,6 @@ def test_rate_limited_metadata_lookup_still_enqueues(
 
     monkeypatch.setattr("archguard.dashboard.routes.jobs.MAX_REPO_SIZE_KB", 512_000)
     with (
-        patch("archguard.dashboard.job_manager.JobManager.run_job", return_value=None),
         patch(
             "archguard.dashboard.routes.jobs.fetch_repo_metadata_public",
             side_effect=GitHubRateLimitError("rate limited"),

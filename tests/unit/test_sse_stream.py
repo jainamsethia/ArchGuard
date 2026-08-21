@@ -1,10 +1,36 @@
-import json
-from unittest.mock import patch
+"""The SSE progress stream, reading the shared channel.
 
-from archguard.dashboard.job_manager import AnalysisJob, JobStatus
+These used to mock ``job_manager.get_job`` and hand the endpoint an object held
+in this process's memory. That is exactly the thing the worker split removed:
+the analysis runs elsewhere now, so the stream reads a Redis-backed channel and
+the tests publish to it the way the worker does.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from archguard.worker import progress
 from tests.db_fixtures import requires_postgres
 
 pytestmark = requires_postgres
+
+
+@pytest.fixture(autouse=True)
+def clean_progress():
+    progress.reset()
+    yield
+    progress.reset()
+
+
+def _events(raw: str) -> list[dict]:
+    return [
+        json.loads(line[6:])
+        for line in raw.splitlines()
+        if line.startswith("data: ")
+    ]
 
 
 def test_stream_not_found(auth_client):
@@ -12,75 +38,80 @@ def test_stream_not_found(auth_client):
     resp = auth_client.get("/api/jobs/nonexistent/stream")
     assert resp.status_code == 404
 
+
 def test_stream_complete_job(auth_client, seed_run):
-    """A COMPLETE job should stream progress + result + done.
-
-    The job is seeded for real, because the stream checks ownership against the
-    database before it looks at the in-memory map -- the map records no owner,
-    so serving from it first would hand a stranger's progress to anyone holding
-    the id, and the id is in the browser URL.
-    """
-
-    from archguard.dashboard.pipeline_adapter import AnalysisJobResult
-
+    """Progress, then the result, then done."""
     job_id = seed_run()
-
-    mock_result = AnalysisJobResult(
-        job_id="test", repo_url="https://github.com/x/y",
-        health_score=80.0, health_grade="B",
-        composite_score=0.2, total_violations=1,
+    progress.publish(job_id, {"type": "progress", "message": "Cloned."})
+    progress.publish(job_id, {"type": "progress", "message": "Analysis done."})
+    progress.publish(job_id, {"type": "status", "status": "analysing"})
+    progress.publish(
+        job_id, {"type": "result", "result": {"health_score": 80.0}}
     )
+    progress.publish(job_id, {"type": "status", "status": "complete"})
 
-    fake_job = AnalysisJob(
-        id=job_id,
-        github_url="https://github.com/x/y",
-        status=JobStatus.COMPLETE,
-        progress_messages=["Cloned.", "Analysis done."],
-        result=mock_result,
-    )
+    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+        assert resp.status_code == 200
+        body = "".join(resp.iter_text())
 
-    with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=fake_job):
-        with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
-            assert resp.status_code == 200
-            events = []
-            for line in resp.iter_lines():
-                if line.startswith("data: "):
-                    events.append(json.loads(line[6:]))
-                if events and events[-1].get("type") == "done":
-                    break
+    events = _events(body)
+    kinds = [e["type"] for e in events]
+    assert "progress" in kinds
+    assert "status" in kinds
+    assert "result" in kinds
+    assert kinds[-1] == "done"
 
-            event_types = [e["type"] for e in events]
-            assert "progress" in event_types
-            assert "status" in event_types
-            assert "result" in event_types
-            assert "done" in event_types
+    result = next(e for e in events if e["type"] == "result")
+    assert result["result"]["health_score"] == 80.0
 
-            result_event = next(e for e in events if e["type"] == "result")
-            assert result_event["result"]["health_score"] == 80.0
 
 def test_stream_failed_job(auth_client, seed_run):
-    """A FAILED job should stream error + done."""
-
+    """A failed job streams the error, then done."""
     job_id = seed_run()
-    fake_job = AnalysisJob(
-        id=job_id,
-        github_url="https://github.com/x/y",
-        status=JobStatus.FAILED,
-        error="Clone timed out",
-    )
+    progress.publish(job_id, {"type": "error", "error": "Clone timed out"})
+    progress.publish(job_id, {"type": "status", "status": "failed"})
 
-    with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=fake_job):
-        with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
-            events = []
-            for line in resp.iter_lines():
-                if line.startswith("data: "):
-                    events.append(json.loads(line[6:]))
-                if events and events[-1].get("type") == "done":
-                    break
+    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+        body = "".join(resp.iter_text())
 
-            event_types = [e["type"] for e in events]
-            assert "error" in event_types
-            assert "done" in event_types
+    events = _events(body)
+    error = next(e for e in events if e["type"] == "error")
+    assert error["error"] == "Clone timed out"
+    assert events[-1]["type"] == "done"
 
-            error_event = next(e for e in events if e["type"] == "error")
-            assert "timed out" in error_event["error"]
+
+def test_a_late_client_still_sees_the_whole_run(auth_client, seed_run):
+    """Connecting after the analysis finished replays it from the start.
+
+    The in-memory version could not do this at all once the job was evicted,
+    and could not do it from a second replica at any point.
+    """
+    job_id = seed_run()
+    for i in range(4):
+        progress.publish(job_id, {"type": "progress", "message": f"step {i}"})
+    progress.publish(job_id, {"type": "status", "status": "complete"})
+
+    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+        body = "".join(resp.iter_text())
+
+    messages = [e["message"] for e in _events(body) if e["type"] == "progress"]
+    assert messages == ["step 0", "step 1", "step 2", "step 3"]
+
+
+def test_a_finished_job_with_no_progress_still_closes(auth_client, seed_run, monkeypatch):
+    """The stored status ends the stream when the channel says nothing.
+
+    A worker killed mid-job, or progress that has since expired, would
+    otherwise leave the client waiting on a stream that never returns.
+    """
+    from archguard.dashboard.routes import jobs as jobs_route
+
+    monkeypatch.setattr(jobs_route, "ARCHGUARD_STREAM_IDLE_LIMIT", 1)
+
+    job_id = seed_run()  # seed_run leaves the job 'complete'
+    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+        body = "".join(resp.iter_text())
+
+    events = _events(body)
+    assert events[-1]["type"] == "done"
+    assert any(e.get("status") == "complete" for e in events)

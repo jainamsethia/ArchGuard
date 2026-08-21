@@ -44,6 +44,22 @@ say why.
 `alembic.ini` deliberately does not contain `sqlalchemy.url` for the same
 reason — `archguard/db/migrations/env.py` reads `DATABASE_URL` instead.
 
+## Running the analysis worker
+
+Analyses run in a separate process:
+
+```bash
+arq archguard.worker.main.WorkerSettings
+```
+
+Without one, the web process runs them itself and says so in the log. That is a
+development convenience, not a deployment: it cannot survive a restart, it is
+not shared between instances, and it puts untrusted repository parsing in the
+process holding every session key. The production config check refuses to start
+without `REDIS_URL`, which is what the queue lives in.
+
+`docker compose up` starts both services.
+
 ## Without Docker
 
 Any PostgreSQL 14+ and Redis 6+ will do. Create the role and the two

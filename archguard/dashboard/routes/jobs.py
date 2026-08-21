@@ -8,7 +8,6 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict
 from typing import Any
 
 import httpx
@@ -20,7 +19,7 @@ from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import app
-from archguard.db.models import User
+from archguard.db.models import JobStatus, User
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,14 @@ GITHUB_API_BASE = "https://api.github.com"
 #: Set to 0 to disable the ceiling (self-hosted deployments with their own disk
 #: budget).
 MAX_REPO_SIZE_KB: int = int(os.environ.get("ARCHGUARD_MAX_REPO_SIZE_KB", "512000"))
+
+#: Polls of 0.2s with no new progress before the stream re-checks the stored
+#: job status. 150 is 30 seconds -- long enough that a slow analysis phase does
+#: not trigger it, short enough that a client is not left hanging on a job whose
+#: worker died.
+ARCHGUARD_STREAM_IDLE_LIMIT: int = int(
+    os.environ.get("ARCHGUARD_STREAM_IDLE_LIMIT", "150")
+)
 
 
 # --------------------------------------------------------------------------
@@ -327,7 +334,6 @@ async def submit_analysis_job(
     The job records who submitted it. That single column is what every read
     downstream filters on, so ownership is established here or nowhere.
     """
-    from archguard.dashboard.job_manager import job_manager
 
     # Validate URL format before queuing
     try:
@@ -360,21 +366,46 @@ async def submit_analysis_job(
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)
-    job = await job_manager.create_job(github_url=safe_url, user_id=user.id)
-    task = asyncio.create_task(job_manager.run_job(job))
-    job_manager.track_task(job.id, task)
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from archguard.worker.queue import enqueue_analysis
+
+    async with session_scope() as session:
+        db_job = await store.create_job(session, safe_url, user_id=user.id)
+        job_id = db_job.id
+
+    try:
+        execution = await enqueue_analysis(job_id)
+    except Exception:
+        # The job row exists but nothing will ever run it. Say so, rather than
+        # returning 202 for an analysis that will sit at "queued" forever.
+        async with session_scope() as session:
+            await store.set_job_status(
+                session,
+                job_id,
+                "failed",
+                error="Could not queue the analysis. Try again shortly.",
+            )
+        raise HTTPException(
+            status_code=503,
+            detail="The analysis queue is unavailable. Try again shortly.",
+        )
 
     from archguard.dashboard._cookie_auth import _issue_short_lived_stream_token
-    stream_token = _issue_short_lived_stream_token(job.id)
+    stream_token = _issue_short_lived_stream_token(job_id)
     token_qs = f"?token={stream_token}" if stream_token else ""
 
     return {
-        "job_id": job.id,
-        "status": job.status,
+        "job_id": job_id,
+        "status": "queued",
         "message": "Analysis queued.",
+        # Which path ran it. An operator can tell from one request whether the
+        # instance they are looking at has a worker behind it, or is quietly
+        # analysing in the web process.
+        "execution": execution,
         "validation_skipped_rate_limit": rate_limit_hit,
-        "poll_url": f"/api/v1/jobs/{job.id}",
-        "stream_url": f"/api/v1/jobs/{job.id}/stream{token_qs}",
+        "poll_url": f"/api/v1/jobs/{job_id}",
+        "stream_url": f"/api/v1/jobs/{job_id}/stream{token_qs}",
     }
 
 
@@ -404,55 +435,57 @@ async def get_job_status(
     would serve a stranger's job to anyone who guessed its id -- and a job id
     appears in the browser URL, so they are not hard to come by.
     """
-    from archguard.dashboard.job_manager import JobStatus, job_manager
     from archguard.db import store
     from archguard.db.session import session_scope
+    from archguard.worker import progress
 
     async with session_scope() as session:
-        owned = await store.get_job(session, job_id, user.id)
-        if owned is None:
+        job = await store.get_job(session, job_id, user.id)
+        if job is None:
             raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
-        db_status, db_error, db_created, db_completed = (
-            owned.status,
-            owned.error,
-            owned.created_at,
-            owned.completed_at,
+        repo_url = await store.get_job_repo_url(session, job_id, user.id)
+        status, error, created_at, completed_at = (
+            job.status,
+            job.error,
+            job.created_at,
+            job.completed_at,
         )
 
-    job = job_manager.get_job(job_id)
-    if job is None:
-        # Known to the database but not to this process: either a restart or
-        # another replica ran it. Serve what was stored rather than the 404 the
-        # in-memory-only version returned, which made every deploy look like
-        # data loss.
-        stored: dict[str, Any] = {
-            "job_id": job_id,
-            "status": db_status,
-            "progress": [],
-            "created_at": db_created.isoformat(),
-        }
-        if db_completed:
-            stored["completed_at"] = db_completed.isoformat()
-        if db_error:
-            stored["error"] = db_error
-        return stored
+    messages = [
+        e["message"]
+        for e in progress.read(job_id)
+        if e.get("type") == "progress" and e.get("message")
+    ]
 
     response: dict[str, Any] = {
-        "job_id": job.id,
-        "github_url": job.github_url,
-        "status": job.status,
-        "progress": job.progress_messages[-10:],   # last 10 progress messages
-        "created_at": job.created_at.isoformat(),
+        "job_id": job_id,
+        "github_url": repo_url,
+        "status": status,
+        "progress": messages[-10:],
+        "created_at": created_at.isoformat(),
     }
+    if completed_at:
+        response["completed_at"] = completed_at.isoformat()
 
-    if job.completed_at:
-        response["completed_at"] = job.completed_at.isoformat()
+    if status == JobStatus.COMPLETE.value:
+        # The run is the durable record; the in-memory result object it used to
+        # read is gone, along with the restart that erased it.
+        async with session_scope() as session:
+            run = await store.get_latest_run(session, job_id, user.id)
+        if run is not None:
+            response["result"] = {
+                "job_id": job_id,
+                "repo_url": run.get("repo_url"),
+                "health_score": run.get("score"),
+                "health_grade": run.get("grade"),
+                "total_violations": len(run.get("violations") or []),
+                "skipped": run.get("skipped"),
+                "skip_reason": run.get("skip_reason"),
+                "modules_analyzed": run.get("modules_analyzed") or [],
+            }
 
-    if job.status == JobStatus.COMPLETE and job.result is not None:
-        response["result"] = job._cached_result_dict if job._cached_result_dict else asdict(job.result)
-
-    if job.status == JobStatus.FAILED:
-        response["error"] = job.error
+    if status == JobStatus.FAILED.value:
+        response["error"] = error
 
     return response
 
@@ -531,66 +564,71 @@ async def stream_job_progress(
     If the client disconnects, the stream stops but the background job continues.
     """
 
-    from archguard.dashboard.job_manager import JobStatus, job_manager
     from archguard.db import store
     from archguard.db.session import session_scope
+    from archguard.worker import progress
 
     async with session_scope() as session:
         if await store.get_job(session, job_id, user.id) is None:
             raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
-    job = job_manager.get_job(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
-
     from collections.abc import AsyncGenerator
     async def event_generator() -> AsyncGenerator[str, None]:
-        last_progress_idx = 0
-        last_emitted_status: str | None = None
+        """Replay a job's progress, then follow it.
+
+        Reads from the shared progress channel rather than an object in this
+        process's memory. Three things follow from that, and all three were
+        broken before: a client that connects late sees everything from the
+        start rather than only what arrives after it; a second web replica can
+        stream a job the first one queued; and the analysis can run in a worker
+        at all.
+        """
+        cursor = 0
+        last_status: str | None = None
+        idle_polls = 0
+        # A finished job stops producing events, so the stream needs some other
+        # reason to close. The terminal status is that reason; this bounds the
+        # case where it never arrives -- a worker killed mid-job leaves a row
+        # at "analysing" forever, and a stream that waits for it never returns.
+        max_idle_polls = int(ARCHGUARD_STREAM_IDLE_LIMIT)
 
         while True:
-            # Detect client disconnect
             if await request.is_disconnected():
                 logger.info("[SSE] Client disconnected from job %s stream", job_id)
                 break
 
-            # Re-fetch job on each iteration (job object is mutable)
-            current_job = job_manager.get_job(job_id)
-            if current_job is None:
-                break
+            events = progress.read(job_id, cursor)
+            cursor += len(events)
 
-            # Emit new progress messages since last emission
-            new_messages = current_job.progress_messages[last_progress_idx:]
-            for msg in new_messages:
-                payload = json.dumps({"type": "progress", "message": msg})
-                yield f"data: {payload}\n\n"
-            last_progress_idx += len(new_messages)
+            for event in events:
+                kind = event.get("type")
+                if kind == "status":
+                    last_status = event.get("status")
+                yield f"data: {json.dumps(event, default=str)}\n\n"
 
-            # Emit status only when it has changed
-            current_status = str(current_job.status)
-            if current_status != last_emitted_status:
-                yield f"data: {json.dumps({'type': 'status', 'status': current_job.status})}\n\n"
-                last_emitted_status = current_status
+            if events:
+                idle_polls = 0
+            else:
+                idle_polls += 1
 
-            # Terminal states: emit result or error, then close
-            if current_job.status == JobStatus.COMPLETE:
-                if current_job.result is not None:
-                    result_payload = json.dumps({
-                        "type": "result",
-                        "result": current_job._cached_result_dict if current_job._cached_result_dict else asdict(current_job.result),
-                    })
-                    yield f"data: {result_payload}\n\n"
+            if last_status in ("complete", "failed"):
                 yield 'data: {"type": "done"}\n\n'
                 break
 
-            if current_job.status == JobStatus.FAILED:
-                error_payload = json.dumps({
-                    "type": "error",
-                    "error": current_job.error or "Unknown error",
-                })
-                yield f"data: {error_payload}\n\n"
-                yield 'data: {"type": "done"}\n\n'
-                break
+            if idle_polls >= max_idle_polls:
+                # Fall back to the stored row: the job may have finished in a
+                # worker whose progress has since expired, or in a process that
+                # died before publishing a terminal event.
+                async with session_scope() as session:
+                    stored = await store.get_job(session, job_id, user.id)
+                status = stored.status if stored else None
+                if status in ("complete", "failed"):
+                    yield f"data: {json.dumps({'type': 'status', 'status': status})}\n\n"
+                    if status == "failed" and stored is not None and stored.error:
+                        yield f"data: {json.dumps({'type': 'error', 'error': stored.error})}\n\n"
+                    yield 'data: {"type": "done"}\n\n'
+                    break
+                idle_polls = 0
 
             await asyncio.sleep(0.2)
 

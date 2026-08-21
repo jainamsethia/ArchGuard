@@ -58,3 +58,7 @@ test-full:
 
 setup:
 	bash scripts/setup.sh
+
+.PHONY: worker
+worker:  ## Run the analysis worker (needs REDIS_URL)
+	arq archguard.worker.main.WorkerSettings

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from archguard.db.models import (
     DependencyScan,
     Job,
+    JobStatus,
     Repository,
     Run,
     Suppression,
@@ -171,6 +172,49 @@ async def get_job_repo_url(
         return None
     job = await session.get(Job, job_id)
     if job is None or job.user_id != user_id or job.repository_id is None:
+        return None
+    repo = await session.get(Repository, job.repository_id)
+    return repo.url if repo else None
+
+
+async def running_job_ids(session: AsyncSession) -> set[str]:
+    """Ids of jobs that have not reached a terminal state.
+
+    Used by the workspace sweeper to decide which clones are still in use. It
+    read process memory before, which was wrong the moment the analysis moved
+    to a worker: the web process has no idea what is in flight, so it would
+    have swept a running job's clone out from under it.
+    """
+    rows = (
+        await session.execute(
+            select(Job.id).where(
+                Job.status.in_(
+                    [
+                        JobStatus.QUEUED.value,
+                        JobStatus.CLONING.value,
+                        JobStatus.ANALYSING.value,
+                    ]
+                )
+            )
+        )
+    ).scalars()
+    return {str(row) for row in rows}
+
+
+async def job_repo_url_unscoped(session: AsyncSession, job_id: str) -> str | None:
+    """The repository a job analysed, without a user filter.
+
+    The one deliberately unscoped read in this module, and it is named so that
+    is impossible to miss in a diff. The worker consumes a job id off a queue;
+    there is no request and therefore no user to scope by, and the ownership
+    decision was already made when the row was created. It returns a URL and
+    nothing else -- no findings, no history -- so it cannot become an
+    accidental read path for user data.
+    """
+    if not _is_job_id(job_id):
+        return None
+    job = await session.get(Job, job_id)
+    if job is None or job.repository_id is None:
         return None
     repo = await session.get(Repository, job.repository_id)
     return repo.url if repo else None

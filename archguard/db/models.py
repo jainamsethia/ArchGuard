@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from sqlalchemy import (
@@ -50,6 +51,30 @@ def _now() -> Mapped[datetime]:
     return mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class JobStatus(str, Enum):
+    """The values the ``jobs.status`` column takes.
+
+    A str Enum so a comparison against a plain string from the database still
+    works, and so it serialises without a converter. Defined here rather than in
+    the dashboard because the worker writes these values and the web process
+    only reads them -- neither owns the vocabulary.
+    """
+
+    QUEUED = "queued"
+    CLONING = "cloning"
+    ANALYSING = "analysing"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+    @classmethod
+    def is_terminal(cls, status: str | None) -> bool:
+        return status in (cls.COMPLETE.value, cls.FAILED.value)
+
+    @classmethod
+    def is_running(cls, status: str | None) -> bool:
+        return status in (cls.QUEUED.value, cls.CLONING.value, cls.ANALYSING.value)
 
 
 class User(Base):

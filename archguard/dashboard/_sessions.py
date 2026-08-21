@@ -27,6 +27,7 @@ import os
 import secrets
 import threading
 import time
+from typing import cast
 
 import redis
 
@@ -119,7 +120,9 @@ def resolve(cookie_value: str) -> int | None:
     client = get_redis()
     if client is not None:
         try:
-            raw = client.get(_key(session_id))
+            # Sync client; redis-py's shared base class is what makes the
+            # annotation ``Awaitable[T] | T``.
+            raw = cast("bytes | str | None", client.get(_key(session_id)))
         except redis.RedisError:
             # Fail closed. A session store that cannot answer is not a licence
             # to treat an unverified cookie as a signed-in user.

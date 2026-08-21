@@ -3,7 +3,7 @@
 import json
 import logging
 import threading
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -203,7 +203,9 @@ def _evo_load(job_id: str | None, user_id: int) -> dict[str, Any] | None:
     client = get_redis()
     if client is not None:
         try:
-            raw = client.get(key)
+            # Sync client; the ``Awaitable[T] | T`` annotation comes from the
+            # base class redis-py shares with its async client.
+            raw = cast("bytes | str | None", client.get(key))
             if raw is not None:
                 loaded: dict[str, Any] = json.loads(raw)
                 return loaded

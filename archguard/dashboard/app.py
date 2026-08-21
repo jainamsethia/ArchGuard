@@ -50,10 +50,16 @@ async def _periodic_workspace_cleanup() -> None:
     while True:
         await _asyncio.sleep(900)  # 15 minutes
         try:
-            # Workspaces of jobs still held in memory are exempt: a user may be
-            # reading results from one long after its clone finished.
-            from archguard.dashboard.job_manager import job_manager
-            active = {j.id for j in job_manager.list_jobs()}
+            # Workspaces of jobs that have not finished are exempt. From the
+            # database, not from process memory: the analysis runs in a worker
+            # now, so this process has no list of what is in flight -- and
+            # sweeping a running job's clone out from under it is worse than
+            # keeping a stale directory for another fifteen minutes.
+            from archguard.db.session import session_scope
+            from archguard.db.store import running_job_ids
+
+            async with session_scope() as session:
+                active = await running_job_ids(session)
             removed = await cleanup_stale_workspaces(
                 max_age_seconds=900, active_job_ids=active
             )
@@ -151,15 +157,20 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     # Release the connection pools before the loop closes. Without this the
     # engine's sockets are torn down by garbage collection at interpreter exit,
     # which surfaces as "Event loop is closed" noise on every restart.
-    from archguard.dashboard.job_manager import job_manager
     from archguard.db.session import dispose_engine
     from archguard.redis_client import close_redis
+    from archguard.worker.queue import cancel_inline_tasks
 
-    cancelled = await job_manager.cancel_all_running(timeout=5.0)
+    # Only the development path has anything to cancel. A real worker's jobs
+    # stay on the queue when the web process stops, which is the entire point
+    # of having split them apart -- a deploy used to kill every running
+    # analysis.
+    cancelled = await cancel_inline_tasks(timeout=5.0)
     if cancelled:
         _startup_logger.warning(
-            "Cancelled %d in-flight job(s) during shutdown; their /tmp workspaces "
-            "will be swept by the next startup's stale-workspace cleanup.",
+            "Cancelled %d in-process analysis job(s) during shutdown. They were "
+            "running here because no queue is configured; with REDIS_URL set "
+            "they would have survived on the queue.",
             cancelled,
         )
 
