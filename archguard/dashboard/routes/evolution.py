@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import threading
 from typing import Any, cast
 
@@ -215,8 +216,24 @@ def _evo_load(job_id: str | None, user_id: int) -> dict[str, Any] | None:
         return _EVO_LOCAL.get(key)
 
 
+#: Seconds one git-history analysis may take before it is abandoned. It had no
+#: timeout at all, so a repository whose commits are slow to analyse held a
+#: request thread indefinitely.
+EVOLUTION_TIMEOUT_SECONDS = int(
+    os.environ.get("ARCHGUARD_EVOLUTION_TIMEOUT", "300")
+)
+
+#: How long the per-user lock survives a process that dies holding it. Slightly
+#: over the timeout, so a lock outlives the work it guards but not by much.
+_LOCK_TTL_SECONDS = EVOLUTION_TIMEOUT_SECONDS + 60
+
+
 class EvolutionAnalyzeRequest(BaseModel):
-    max_commits: int = Field(default=5, ge=1, le=100)
+    #: Was 100. Each commit creates a git worktree and runs a full four-layer
+    #: analysis, so 100 is a hundred analyses in one request -- and behind a
+    #: 50/minute rate limit that is roughly five thousand a minute from one
+    #: caller (D4). Twenty is still a real trend and a twentieth of the ceiling.
+    max_commits: int = Field(default=5, ge=1, le=20)
 
 
 @app.post(
@@ -230,7 +247,16 @@ async def start_evolution(
     job_id: JobIdQuery = None,
     user: User = Depends(current_user),
 ) -> Any:
-    """Run ArchitectureEvolutionTracker against git history."""
+    """Run ArchitectureEvolutionTracker against git history.
+
+    Three bounds, because the rate limiter alone was never one (D4). Each
+    commit examined creates a git worktree and runs a full four-layer analysis,
+    four threads wide: the ceiling caps one request, the per-user lock caps
+    concurrent requests, and the timeout caps a single run that will not finish.
+    """
+    import asyncio
+
+    from archguard.dashboard._locks import LockHeld, single_flight
     from archguard.dashboard.app import get_target_path
     from archguard.db import store
     from archguard.db.session import session_scope
@@ -266,9 +292,44 @@ async def start_evolution(
             "commits_analyzed": 0,
         }
 
+    def _analyse() -> Any:
+        return ArchitectureEvolutionTracker(target).analyze_history(
+            max_commits=body.max_commits
+        )
+
     try:
-        tracker = ArchitectureEvolutionTracker(target)
-        report = tracker.analyze_history(max_commits=body.max_commits)
+        try:
+            # One at a time per user. This is the bound that actually closes
+            # D4: without it, the ceiling only caps how much damage a *single*
+            # request does, and nothing stopped a caller opening fifty.
+            with single_flight("evolution", user.id, ttl=_LOCK_TTL_SECONDS):
+                # to_thread, because analyze_history is CPU-bound and spawns
+                # worktrees: run inline it blocked the event loop, so one
+                # history analysis stalled every other request on the instance.
+                report = await asyncio.wait_for(
+                    asyncio.to_thread(_analyse), timeout=EVOLUTION_TIMEOUT_SECONDS
+                )
+        except LockHeld:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "A git-history analysis is already running for your account. "
+                    "Wait for it to finish before starting another."
+                ),
+            )
+        except TimeoutError:
+            logger.warning(
+                "Git-history analysis for job %s exceeded %ss",
+                job_id,
+                EVOLUTION_TIMEOUT_SECONDS,
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    f"Git-history analysis did not finish within "
+                    f"{EVOLUTION_TIMEOUT_SECONDS}s. Try fewer commits."
+                ),
+            )
 
         # Every attempted commit failed. Returning debt_velocity 0.0 and
         # commits_analyzed 0 here looked like a successful measurement of a
@@ -322,6 +383,12 @@ async def start_evolution(
         _evo_store(job_id, user.id, result)
 
         return result
+    except HTTPException:
+        # 409 and 504 are decisions this function made, not failures to report
+        # as one. The blanket handler below would turn both into a 200 carrying
+        # {"error": "analysis_failed"}, so a client could not tell "you already
+        # have one running" from "the analysis broke" -- and would retry.
+        raise
     except Exception as exc:
         logger.exception("Evolution analysis failed: %s", exc)
         return {"error": "analysis_failed", "message": "Could not analyze git history.", "snapshots": [], "commits_analyzed": 0}
