@@ -78,6 +78,14 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     configure_logging()
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
+    # Before anything serves traffic, and after logging so the reason is
+    # visible. Raising here fails the deploy, which is the point: every problem
+    # it catches is one that otherwise produces no error at all, only quietly
+    # weaker behaviour.
+    from archguard.dashboard._config_check import validate_configuration
+
+    validate_configuration()
+
     recommended = {
         "GEMINI_API_KEY": "L4 LLM explanations, the AI Advisor and AI fix suggestions will be disabled",
         "GITHUB_TOKEN": "GitHub API limited to 60 req/hr (unauthenticated)",
@@ -288,8 +296,22 @@ async def _security_headers(request: Request, call_next: Any) -> Any:
         "default-src 'self'; "
         "connect-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}'; "
+        # 'unsafe-inline' is still required: roughly thirty inline style=
+        # attributes are written by dashboard.js. Removing it is a frontend
+        # change, not a header change, and claiming otherwise would be worse
+        # than the honest directive.
         "style-src 'self' 'unsafe-inline'; "
-        "font-src 'self';"
+        "font-src 'self'; "
+        "img-src 'self' data: https://avatars.githubusercontent.com; "
+        # The four D8 additions. default-src does not cover any of them:
+        # object-src and base-uri fall back to it in modern browsers but not
+        # everywhere, and frame-ancestors and form-action have no fallback at
+        # all -- so without these, the page can be framed and a form on it can
+        # post anywhere.
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'"
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
