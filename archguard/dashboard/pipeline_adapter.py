@@ -77,7 +77,10 @@ class AnalysisJobResult:
 # Public interface
 # --------------------------------------------------------------------------
 
-ProgressCallback = Callable[[str], Awaitable[None]]
+#: (message, phase) -> awaitable. The phase is optional because plenty of
+#: messages describe something happening *within* a phase rather than a
+#: transition into one.
+ProgressCallback = Callable[[str, "str | None"], Awaitable[None]]
 
 def _dashboard_suppression_path(repo_url: str) -> Path | None:
     """The durable, repository-keyed suppression file for *repo_url*.
@@ -168,7 +171,6 @@ async def run_analysis_on_repo(
     job_id: str,
     repo_url: str,
     progress_callback: ProgressCallback | None = None,
-    skip_explanation: bool = True,
 ) -> AnalysisJobResult:
     """Run the full ArchGuard 4-layer pipeline against a cloned repo directory.
 
@@ -179,12 +181,19 @@ async def run_analysis_on_repo(
         repo_path:           Path to the root of the cloned repository
         job_id:              UUID string for this job (used in result)
         repo_url:            Original GitHub URL (stored in result)
-        progress_callback:   async callable(str) invoked with status messages
-        skip_explanation:    If True, skips L4 LLM explanation (faster, default)
+        progress_callback:   async callable(str, phase) for status messages
+
+    ``skip_explanation`` is gone. It was threaded from here through
+    ``AnalysisOrchestrator.run`` into ``_run_orchestrator`` and read by nothing
+    (C6) -- L4 explanations lived in the CLI, which no longer exists. Keeping a
+    parameter that describes behaviour the code does not have is how the
+    startup banner came to promise operators a feature the website has never
+    had.
     """
-    async def _emit(msg: str) -> None:
+
+    async def _emit(msg: str, phase: str | None = None) -> None:
         if progress_callback:
-            await progress_callback(msg)
+            await progress_callback(msg, phase)
         logger.info("[job %s] %s", job_id, msg)
 
     start = time.monotonic()
@@ -195,7 +204,7 @@ async def run_analysis_on_repo(
     # -- Step 1: Auto-generate contract if absent -------------------------
     archguard_yml = repo_path / ".archguard.yml"
     if not archguard_yml.exists():
-        await _emit("No .archguard.yml found - generating contract...")
+        await _emit("No .archguard.yml found - generating contract...", "contract")
         try:
             generation = await asyncio.to_thread(_generate_contract_sync, repo_path)
             contract_auto_generated = True
@@ -245,21 +254,34 @@ async def run_analysis_on_repo(
             fallback_reason=fallback_reason,
         )
 
-    await _emit(f"Found {len(py_files)} Python files. Starting 4-layer analysis...")
+    await _emit(
+        f"Found {len(py_files)} Python files. Starting 4-layer analysis...",
+        "scanning",
+    )
 
     # -- Step 3: Run analysis in thread pool -----------------------------
     try:
+        # The orchestrator runs in a worker thread, so its callback cannot be
+        # a coroutine. It publishes straight to the progress channel instead,
+        # which is a synchronous Redis write -- the reason the phase messages
+        # from inside the analysis can reach the browser at all, having
+        # previously been dropped by `progress_callback=None`.
+        loop = asyncio.get_running_loop()
+
+        def _relay(message: str, phase: str | None = None) -> None:
+            asyncio.run_coroutine_threadsafe(_emit(message, phase), loop)
+
         result, payload = await asyncio.wait_for(
             asyncio.to_thread(
                 _run_analysis_sync,
                 repo_path,
                 py_files,
-                skip_explanation,
                 job_id,
                 repo_url,
                 contract_auto_generated,
                 fallback_heuristic,
                 fallback_reason,
+                _relay,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -360,12 +382,12 @@ def _generate_contract_sync(repo_path: Path) -> ContractGenerationResult:
 def _run_analysis_sync(
     repo_path: Path,
     py_files: list[Path],
-    skip_explanation: bool,
     job_id: str,
     repo_url: str = "",
     contract_auto_generated: bool = False,
     fallback_directory_heuristic: bool = False,
     fallback_reason: str = "",
+    on_progress: Any = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -390,10 +412,13 @@ def _run_analysis_sync(
         result = orchestrator.run(
             changed_files=py_files,
             commit_sha=commit_sha,
-            skip_explanation=skip_explanation,
-            progress_callback=None,  # SSE progress handled at the adapter level
+            progress_callback=on_progress,
             fail_fast=False,
-            quiet=True,
+            # quiet=False so the callback above is actually called. It was True
+            # with a None callback, which is why every per-layer message the
+            # orchestrator emits was thrown away and the stream showed only the
+            # four the adapter itself produced.
+            quiet=on_progress is None,
         )
 
     # -- Build the persistable payload --

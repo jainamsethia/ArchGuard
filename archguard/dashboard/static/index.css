@@ -1307,3 +1307,55 @@ body.page-dashboard {
 
     .badge, .chip { border: 1px solid currentColor; }
 }
+
+/* ── Determinate analysis progress ──────────────────────────────────────
+   The terminal log below this says what is happening. This says how much is
+   left, which a scrolling log cannot -- and for an operation that runs from
+   thirty seconds to ten minutes, that is the difference between waiting and
+   wondering whether it has hung. */
+.progress {
+    margin: 24px 0 16px;
+}
+
+.progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+    font-size: 0.875rem;
+}
+
+.progress-phase {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.progress-percent {
+    color: var(--text-secondary);
+    /* Tabular figures so the number does not shuffle the layout as it counts. */
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--border-color);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 0;
+    border-radius: var(--radius-pill);
+    background: var(--accent-color);
+    transition: width var(--dur-standard) var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* The width still updates; it just stops sliding. */
+    .progress-fill { transition: none; }
+}
+
+@media (prefers-contrast: more) {
+    .progress-track { border: 1px solid var(--border-strong); }
+}

@@ -5,7 +5,11 @@ from typing import Any
 from archguard.analysis.layers import ViolationDetail
 
 #: See _orchestrator_run.EmitFn -- reports a stage transition.
-EmitFn = Callable[[str], None]
+#: ``(message, phase=None) -> None``. Spelled with ``...`` because
+#: most call sites pass only the message: a phase names a transition
+#: into a stage, and plenty of messages describe something happening
+#: within one.
+EmitFn = Callable[..., None]
 
 
 def _run_layer_4(
@@ -21,7 +25,7 @@ def _run_layer_4(
     if SKIP_ML and "duplication" not in skip_layers:
         skip_layers.append("duplication")
 
-    emit("Layer 4: duplication detection...")
+    emit("Layer 4: duplication detection...", phase="layer4")
 
     if "duplication" in skip_layers:
         layer4 = 0.0
@@ -30,7 +34,10 @@ def _run_layer_4(
         metrics.extra["layer4_skip_reason"] = (
             "duplication detection not run (ARCHGUARD_SKIP_ML or contract skip_layers)"
         )
-        emit("Layer 4 skipped (ARCHGUARD_SKIP_ML or contract skip_layers).")
+        emit(
+            "Layer 4 skipped (ARCHGUARD_SKIP_ML or contract skip_layers).",
+            phase="layer4",
+        )
     else:
         try:
             with metrics.time_layer("layer4"):

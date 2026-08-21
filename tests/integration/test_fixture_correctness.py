@@ -65,7 +65,7 @@ def _database(live_db):
     return live_db
 
 
-async def _noop_progress(_msg: str) -> None:
+async def _noop_progress(_msg: str, _phase: str | None = None) -> None:
     return None
 
 
@@ -90,7 +90,6 @@ def _analyse(repo_path: Path, repo_url: str) -> tuple:
             job_id=job_id,
             repo_url=repo_url,
             progress_callback=_noop_progress,
-            skip_explanation=True,
         )
         async with session_scope() as session:
             return result, await store.get_latest_run(session, job_id, user_id)

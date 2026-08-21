@@ -18,6 +18,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from archguard.analysis.phases import clamp_monotonic, percent_for
 from archguard.worker import progress
 
 logger = logging.getLogger(__name__)
@@ -46,23 +47,41 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
     # returned minutes earlier.
     correlation_id_var.set(job_id[:8])
 
-    async def emit(message: str) -> None:
-        progress.publish(
-            job_id,
-            {
-                "type": "progress",
-                "message": f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {message}",
-            },
+    # The bar must never go backwards: phases are skipped when the ML extras
+    # are absent, and layers 1 and 2 run in a thread pool so they can report
+    # out of order. A bar that jumps back reads as a restart.
+    percent_seen: dict[str, int | None] = {"value": None}
+
+    async def emit(message: str, phase: str | None = None) -> None:
+        percent_seen["value"] = clamp_monotonic(
+            percent_seen["value"], percent_for(phase)
         )
+        event: dict[str, Any] = {
+            "type": "progress",
+            "message": f"[{datetime.now(UTC).strftime('%H:%M:%S')}] {message}",
+        }
+        if phase:
+            event["phase"] = phase
+        if percent_seen["value"] is not None:
+            event["percent"] = percent_seen["value"]
+        progress.publish(job_id, event)
         logger.debug("[job %s] %s", job_id, message)
 
     async def set_status(status: str, error: str | None = None) -> None:
+        # Status changes carry a percent too, so the bar moves during the clone
+        # -- which on a large repository is a third of the wait.
         try:
             async with session_scope() as session:
                 await store.set_job_status(session, job_id, status, error=error)
         except Exception:
             logger.exception("[job %s] Could not record status %s", job_id, status)
-        progress.publish(job_id, {"type": "status", "status": status})
+        percent_seen["value"] = clamp_monotonic(
+            percent_seen["value"], percent_for(status)
+        )
+        event: dict[str, Any] = {"type": "status", "status": status}
+        if percent_seen["value"] is not None:
+            event["percent"] = percent_seen["value"]
+        progress.publish(job_id, event)
 
     async with session_scope() as session:
         repo_url = await store.job_repo_url_unscoped(session, job_id)
@@ -84,12 +103,17 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
                 reclaimed,
             )
 
-        await emit(f"Cloning {repo_url}...")
+        await emit(f"Cloning {repo_url}...", "cloning")
         owner, name = parse_github_url(repo_url)
         clone_url = build_safe_clone_url(owner, name)
 
         async with temp_workspace(clone_url, job_id=job_id, keep_alive=True) as repo:
             await set_status("analysing")
+            # No phase: this is the boundary between the clone and the
+            # analysis, and the next real phase is whichever the adapter
+            # reports -- contract generation when the repository has no
+            # .archguard.yml, scanning when it does. Claiming "scanning" here
+            # put the bar past the contract phase before it had run.
             await emit("Repository cloned. Starting analysis...")
 
             result = await run_analysis_on_repo(

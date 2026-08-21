@@ -190,7 +190,7 @@ class ArchitectureEvolutionTracker:
             try:
                 with AnalysisOrchestrator(Path(wt_path)) as orchestrator:
                     all_py = list(Path(wt_path).rglob("*.py"))
-                    res = orchestrator.run(all_py, sha, skip_explanation=True, quiet=True)
+                    res = orchestrator.run(all_py, sha, quiet=True)
                     return CommitHealthSnapshot(
                         sha=sha,
                         committed_at=committed_at,

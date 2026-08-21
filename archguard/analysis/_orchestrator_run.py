@@ -13,7 +13,11 @@ logger = logging.getLogger(__name__)
 
 #: Reports a stage transition. The analysis engine runs inside a web request, a
 #: queue worker and a test; none of them have a terminal to draw a spinner on.
-EmitFn = Callable[[str], None]
+#: ``(message, phase=None) -> None``. Spelled with ``...`` because
+#: most call sites pass only the message: a phase names a transition
+#: into a stage, and plenty of messages describe something happening
+#: within one.
+EmitFn = Callable[..., None]
 
 
 def _finalize_result(
@@ -100,7 +104,7 @@ def _evaluate_fitness_helper(
     if not fitness_configs:
         return
 
-    emit("Evaluating fitness functions...")
+    emit("Evaluating fitness functions...", phase="fitness")
 
     evaluator = FitnessFunctionEvaluator(orchestrator.repo_root, orchestrator.contract)
     rules = [c.rule for c in fitness_configs]
@@ -125,7 +129,6 @@ def _run_orchestrator(
     orchestrator: Any,
     changed_files: list[Path],
     commit_sha: str,
-    skip_explanation: bool = False,
     progress_callback: Any = None,
     fail_fast: bool = False,
     quiet: bool = False,
@@ -154,18 +157,21 @@ def _run_orchestrator(
         orchestrator.repo_root, orchestrator.contract, py_files
     )
 
-    def emit(message: str) -> None:
-        """Report a stage transition.
+    def emit(message: str, phase: str | None = None) -> None:
+        """Report a stage transition, and where in the run it happens.
 
         Always logged; forwarded to the caller's callback unless it asked to be
         quiet. This replaces a rich.Progress spinner and a scattering of bare
         print() calls, which assumed a terminal that a web request and a queue
-        worker do not have. progress_callback was already threaded here from
-        AnalysisOrchestrator.run() and simply never read.
+        worker do not have.
+
+        ``phase`` is what makes a determinate progress bar possible: the
+        message alone is prose, and deriving a percentage from it would mean
+        matching on strings that exist to be read by people.
         """
         logger.info("%s", message)
         if progress_callback is not None and not quiet:
-            progress_callback(message)
+            progress_callback(message, phase)
 
     def _eval_fitness(res: AnalysisResult) -> None:
         _evaluate_fitness_helper(orchestrator, res, emit)

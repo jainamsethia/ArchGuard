@@ -84,6 +84,26 @@
                 <div class="result-grade" id="res-grade">Grade: --</div>
             </div>
 
+            <!-- Determinate progress. The log below says what is happening;
+                 this says how much is left, which a scrolling log cannot. -->
+            <div id="progress" class="progress" hidden>
+                <div class="progress-row">
+                    <span id="progress-phase" class="progress-phase">Queued</span>
+                    <span id="progress-percent" class="progress-percent">0%</span>
+                </div>
+                <div
+                    class="progress-track"
+                    role="progressbar"
+                    aria-labelledby="progress-phase"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="0"
+                    id="progress-track"
+                >
+                    <div id="progress-fill" class="progress-fill"></div>
+                </div>
+            </div>
+
             <div id="terminal" class="terminal-container">
                 <div class="terminal-header">
                     <div class="term-btn red"></div>

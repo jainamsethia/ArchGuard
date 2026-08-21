@@ -58,7 +58,7 @@ def test_run_layer_3_propagates_missing_ml_runtime_error(monkeypatch):
             # The rich progress object and the quiet flag are replaced by a
             # single emit callback: the engine runs in a web request and a
             # queue worker, neither of which has a terminal.
-            emit=lambda _message: None,
+            emit=lambda _message, phase=None: None,
             fail_fast=False,
             evaluate_fitness=lambda res: None,
             metrics=DummyMetrics(),
@@ -143,14 +143,23 @@ def test_layers_report_progress_through_the_callback(monkeypatch):
             self.extra = {}
 
     messages: list[str] = []
+    phases: list[str | None] = []
+
+    def record(message: str, phase: str | None = None) -> None:
+        messages.append(message)
+        phases.append(phase)
+
     metrics = DummyMetrics()
     _violations, score = _run_layer_4(
-        orchestrator, [], [], messages.append, metrics, "abcd"
+        orchestrator, [], [], record, metrics, "abcd"
     )
 
     assert score == 0.0
     assert any("Layer 4" in m for m in messages), messages
     assert any("skipped" in m.lower() for m in messages), messages
+    # A skipped layer still reports its phase, so the progress bar advances
+    # past it rather than stalling at the layer before.
+    assert "layer4" in phases, phases
     # The skip is recorded, so a layer that never ran is not later reported as
     # a layer that ran and found nothing.
     assert metrics.extra["layer4_skipped"] is True

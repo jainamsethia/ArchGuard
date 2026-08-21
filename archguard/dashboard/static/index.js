@@ -90,6 +90,58 @@
             }
         }
 
+        // Human-readable names for the phases the analysis reports. The
+        // server sends a stable identifier; the wording belongs here, next to
+        // the rest of the page's copy.
+        const PHASE_LABELS = {
+            queued: 'Queued',
+            cloning: 'Cloning repository',
+            contract: 'Learning module boundaries',
+            scanning: 'Scanning files',
+            layer1: 'Checking import boundaries',
+            layer2: 'Measuring coupling',
+            layer3: 'Analysing semantic drift',
+            layer4: 'Detecting duplication',
+            fitness: 'Evaluating quality gates',
+            persisting: 'Saving results',
+            complete: 'Complete',
+        };
+
+        let lastPercent = 0;
+
+        function showProgress() {
+            const el = document.getElementById('progress');
+            if (el) el.hidden = false;
+        }
+
+        function hideProgress() {
+            const el = document.getElementById('progress');
+            if (el) el.hidden = true;
+            lastPercent = 0;
+        }
+
+        function updateProgress(payload) {
+            const track = document.getElementById('progress-track');
+            const fill = document.getElementById('progress-fill');
+            const phaseEl = document.getElementById('progress-phase');
+            const percentEl = document.getElementById('progress-percent');
+            if (!track || !fill) return;
+
+            // Never backwards. Phases are skipped when the ML extras are
+            // absent, and layers 1 and 2 run concurrently so they can report
+            // out of order; a bar that jumps back reads as a restart.
+            if (typeof payload.percent === 'number') {
+                lastPercent = Math.max(lastPercent, payload.percent);
+            }
+            const label = PHASE_LABELS[payload.phase || payload.status];
+            if (label && phaseEl) phaseEl.textContent = label;
+
+            fill.style.width = `${lastPercent}%`;
+            percentEl.textContent = `${lastPercent}%`;
+            track.setAttribute('aria-valuenow', String(lastPercent));
+            showProgress();
+        }
+
         function appendLog(msg, type = '') {
             const line = document.createElement('div');
             line.className = `terminal-line ${type}`;
@@ -112,6 +164,8 @@
             container.classList.add('expanded');
             terminal.classList.add('show');
             termOutput.innerHTML = '';
+            hideProgress();
+            updateProgress({ phase: 'queued', percent: 0 });
             appendLog('Initializing ArchGuard pipeline...', 'system');
             appendLog(`Target repository: ${url}`, 'system');
 
@@ -194,9 +248,14 @@
                     
                     if (payload.type === 'progress') {
                         appendLog(payload.message);
+                        updateProgress(payload);
+                    }
+                    else if (payload.type === 'status') {
+                        updateProgress(payload);
                     } 
                     else if (payload.type === 'error') {
                         appendLog(`ERROR: ${payload.error}`, 'error');
+                        hideProgress();
                         submitBtn.textContent = 'Analysis Failed';
                         evtSource.close();
                         resetSubmitButton();

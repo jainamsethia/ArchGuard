@@ -93,7 +93,12 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     validate_configuration()
 
     recommended = {
-        "GEMINI_API_KEY": "L4 LLM explanations, the AI Advisor and AI fix suggestions will be disabled",
+        # Names only what the key actually powers. It used to lead with "L4 LLM
+        # explanations", which the website has never produced: the parameter
+        # that was supposed to control them was read by nothing (C6), and the
+        # code that generated them lived in the CLI. An operator reading this
+        # would have gone looking for a feature to re-enable.
+        "GEMINI_API_KEY": "the AI Advisor and AI remediation plans will be disabled",
         "GITHUB_TOKEN": "GitHub API limited to 60 req/hr (unauthenticated)",
     }
     for var, consequence in recommended.items():

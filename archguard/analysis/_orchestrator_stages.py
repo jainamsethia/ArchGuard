@@ -21,7 +21,11 @@ from archguard.analysis.layers import AnalysisResult, ViolationDetail
 logger = logging.getLogger(__name__)
 
 #: See _orchestrator_run.EmitFn -- reports a stage transition.
-EmitFn = Callable[[str], None]
+#: ``(message, phase=None) -> None``. Spelled with ``...`` because
+#: most call sites pass only the message: a phase names a transition
+#: into a stage, and plenty of messages describe something happening
+#: within one.
+EmitFn = Callable[..., None]
 
 
 def _execute_l1_l2_concurrently(
@@ -33,7 +37,7 @@ def _execute_l1_l2_concurrently(
     commit_sha: str,
 ) -> tuple[float, list[ViolationDetail], float, list[ViolationDetail], list[Any]]:
     with ThreadPoolExecutor(max_workers=2) as executor:
-        emit("Layer 1: import boundaries, Layer 2: coupling...")
+        emit("Layer 1: import boundaries, Layer 2: coupling...", phase="layer1")
 
         l1_failures: list[Any] = []
         l2_failures: list[Any] = []
@@ -68,7 +72,7 @@ def _execute_l1_l2_concurrently(
         emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
 
         layer2, l2_viols = f_l2.result()
-        emit(f"Layer 2 complete: {len(l2_viols)} violation(s).")
+        emit(f"Layer 2 complete: {len(l2_viols)} violation(s).", phase="layer2")
 
         return layer1, l1_viols, layer2, l2_viols, l1_failures + l2_failures
 
@@ -199,7 +203,7 @@ def _execute_layer_3(
     metrics: Any,
     commit_sha: str,
 ) -> tuple[float, dict[str, float], list[ViolationDetail]]:
-    emit("Layer 3: semantic cohesion...")
+    emit("Layer 3: semantic cohesion...", phase="layer3")
 
     try:
         with metrics.time_layer("layer3"):
@@ -299,7 +303,10 @@ def _run_layer_3(
         metrics.extra["layer3_skip_reason"] = (
             "semantic drift not run (ARCHGUARD_SKIP_ML or contract skip_layers)"
         )
-        emit("Layer 3 skipped (ARCHGUARD_SKIP_ML or contract skip_layers).")
+        emit(
+            "Layer 3 skipped (ARCHGUARD_SKIP_ML or contract skip_layers).",
+            phase="layer3",
+        )
     else:
         layer3, module_drifts, l3_viols = _execute_layer_3(
             orchestrator, py_files, affected, emit, metrics, commit_sha
