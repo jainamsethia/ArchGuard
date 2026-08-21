@@ -110,6 +110,118 @@ def fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
     return {k: [str(p).replace("\\", "/") for p in v] for k, v in modules.items()}
 
 
+#: Trees that are not the architecture under test, keyed by how they are
+#: matched. Test directories are excluded at any depth, which is what
+#: ``_assign_file_to_module`` already does when it skips ``/tests/`` -- so a
+#: generated ``tests`` module was being measured by a scorer that elsewhere
+#: refuses to assign test files at all.
+#:
+#: The rest are matched at the repository root only. A package may legitimately
+#: contain ``scripts/`` or ``docs/`` of its own; a top-level ``docs/`` is
+#: documentation for the project, not part of it.
+TEST_DIR_NAMES = frozenset({"test", "tests", "testing"})
+NON_SHIPPING_ROOTS = frozenset(
+    {"docs", "doc", "examples", "example", "scripts", "benchmarks", "bench"}
+)
+
+
+def is_shipping_file(relative_path: str) -> bool:
+    """Whether a repo-relative path is part of the architecture being measured.
+
+    Test code imports broadly by design, so a coupling budget on it measures a
+    property nobody intends to hold. Measured on pallets/flask, the fan-out of
+    its own test package was the finding that produced an F on a project whose
+    every module scored 85-100.
+    """
+    parts = [p for p in relative_path.replace("\\", "/").split("/") if p]
+    if not parts:
+        return False
+    if any(part in TEST_DIR_NAMES for part in parts[:-1]):
+        return False
+    return parts[0] not in NON_SHIPPING_ROOTS
+
+
+def scope_to_shipping_files(
+    communities: dict[str, list[str]], repo_root: Path
+) -> dict[str, list[str]]:
+    """Drop files that cannot be measured, then drop the modules left empty.
+
+    Two filters, and both matter for a different reason:
+
+    *Files that no longer exist.* Co-change history is read with
+    ``--no-renames`` -- deliberately, because rename detection needs blob
+    contents and the dashboard clones are blobless. The cost is that a move
+    reads as delete+add, so a package that relocated leaves its old path in the
+    graph. Flask moved ``flask/`` to ``src/flask/`` in 2019 and still generated
+    a ``flask/`` module covering nothing. On psf/requests *every* generated
+    module was one of these, the contract covered zero files, and the analysis
+    reported 100.0/PASS having measured nothing at all.
+
+    *Files that are not the architecture.* See ``is_shipping_file``.
+
+    Filtering the files rather than the finished modules is what makes this one
+    change instead of three: module paths and names are both inferred from the
+    file lists downstream, so a community reduced to ``src/proj/*.py`` infers
+    the path ``src/proj/`` and the name ``proj`` on its own. Filtering after
+    inference would have left the ``src`` wrapper named.
+    """
+    scoped: dict[str, list[str]] = {}
+    for name, files in communities.items():
+        kept = [
+            f
+            for f in files
+            if is_shipping_file(f) and (repo_root / f).exists()
+        ]
+        if kept:
+            scoped[name] = kept
+    return scoped
+
+
+def drop_unresolvable_modules(
+    communities: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Keep only modules the scorer can actually resolve files to.
+
+    A module is addressed by one path prefix, and ``_assign_file_to_module``
+    resolves a file to it with ``path_belongs_to_module``. If that returns
+    False for every file the module was built from, the module cannot receive a
+    single file at scoring time -- it is emitted, measured against nothing, and
+    scored a meaningless 100 that dilutes the repository average.
+
+    The case that motivates this is a community whose files span several
+    top-level directories: their common prefix collapses to ``./``, which
+    ``path_belongs_to_module`` never matches, since it requires the file to
+    start with the prefix and ``"tests/x.py".startswith("./")`` is False. On
+    psf/requests that produced a `root` module covering zero files.
+
+    Checked against the real matcher rather than a rule about ``./``, because
+    the property that matters is "the scorer can find this", and reimplementing
+    that as a heuristic is how the two drift apart.
+    """
+    from archguard.contract.writer import _infer_path
+    from archguard.utils.paths import path_belongs_to_module
+
+    resolvable: dict[str, list[str]] = {}
+    unresolvable: dict[str, list[str]] = {}
+    for name, files in communities.items():
+        path = _infer_path(files)
+        if any(path_belongs_to_module(f, [path]) for f in files):
+            resolvable[name] = files
+        else:
+            unresolvable[name] = files
+
+    # A flat repository -- every .py at the top level -- infers `./` too, and
+    # that is the only description of it available. Dropping it would refuse
+    # small projects that are perfectly analysable, so it is kept when it is
+    # all there is, and dropped only when real modules exist beside it. Note
+    # that `./` still matches no file at scoring time; see
+    # `path_belongs_to_module`. That gap predates this change and is tracked
+    # separately -- fixing it alters scoring for every contract using `./`.
+    if not resolvable and len(unresolvable) == 1:
+        return unresolvable
+    return resolvable
+
+
 def _name_for_path(path: str) -> str:
     """Derive a readable module name from an inferred contract path."""
     parts = [p for p in path.strip("/").split("/") if p and p != "."]
@@ -381,8 +493,8 @@ def detect_module_communities(
         )
         communities = fallback_directory_modules(repo_root)
     else:
-        communities = consolidate_communities(
-            detect_communities(graph, seed=seed, min_community_size=2)
+        communities = scope_to_shipping_files(
+            detect_communities(graph, seed=seed, min_community_size=2), repo_root
         )
 
         # Fallback: co-change graph too thin to separate modules.
@@ -395,6 +507,16 @@ def detect_module_communities(
                 "detection.",
             )
             communities = fallback_directory_modules(repo_root)
+
+    # One scoping and one naming pass for every branch above, rather than each
+    # deciding for itself. The directory fallback used to name a module after
+    # its top-level directory, which called a `src/` build wrapper `src` -- the
+    # exact thing consolidate_communities' path inference exists to avoid. Both
+    # paths derive name and path from the surviving files now, so they cannot
+    # disagree.
+    communities = drop_unresolvable_modules(
+        consolidate_communities(scope_to_shipping_files(communities, repo_root))
+    )
 
     return {
         "seed": seed,

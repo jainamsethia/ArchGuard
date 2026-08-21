@@ -44,6 +44,17 @@ ProgressFn = Callable[[str], None]
 class ContractGenerationError(RuntimeError):
     """Raised when a contract cannot be generated at all."""
 
+class NoAnalysableModuleError(ContractGenerationError):
+    """Generation found nothing worth measuring, and said why.
+
+    Distinct from the other generation failures on purpose. Those are errors
+    the pipeline can reasonably shrug off and attempt analysis anyway -- an
+    empty repository, for instance, still produces an honest skipped result
+    with a reason. This one is a decision, and continuing past it is what
+    produced a 100.0/PASS on a repository where nothing had been measured.
+    """
+
+
 
 @dataclass(frozen=True)
 class ContractGenerationResult:
@@ -124,7 +135,20 @@ def generate_contract(
         on_progress=on_progress,
     )
     communities: dict[str, list[str]] = detected["communities"]
-    emit(f"Detected {detected['num_communities']} modules.")
+    if not communities:
+        # Refuse rather than write a contract that measures nothing. This is
+        # the psf/requests case: every candidate module pointed at a path the
+        # repository no longer has, and the analysis went on to report
+        # 100.0/PASS having assigned not one file to a module. A silent false
+        # pass is worse than no answer, so there is no answer.
+        raise NoAnalysableModuleError(
+            "Could not identify any module to analyse. Every candidate was "
+            "either a path that no longer exists in the repository, or a "
+            "tests, docs, examples or scripts tree, which are excluded from "
+            "architectural scoring. Add a .archguard.yml naming the modules "
+            "you want measured."
+        )
+    emit(f"Detected {len(communities)} modules.")
 
     if compute_embeddings:
         emit("Computing module embeddings...")

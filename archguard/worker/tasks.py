@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from archguard.analysis.phases import clamp_monotonic, percent_for
+from archguard.contract.generation import NoAnalysableModuleError
 from archguard.worker import progress
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,16 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
     except TimeoutError as exc:
         await _fail(job_id, set_status, str(exc))
         logger.exception("[job %s] Clone timeout: %s", job_id, exc)
+        return "failed"
+
+    except NoAnalysableModuleError as exc:
+        # A refusal, not a crash: generation found no module worth measuring
+        # and said why. Safe to render verbatim -- the message is static text
+        # ArchGuard composed, carrying no filesystem path or internal detail --
+        # and it is the only thing that explains why this repository produced
+        # no report. Without it the user sees "Analysis failed unexpectedly".
+        await _fail(job_id, set_status, str(exc))
+        logger.info("[job %s] No analysable module: %s", job_id, exc)
         return "failed"
 
     except ValueError:

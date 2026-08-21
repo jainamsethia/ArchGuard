@@ -28,7 +28,10 @@ from pathlib import Path
 from typing import Any
 
 from archguard.analysis.coupling import collect_unassigned
-from archguard.contract.generation import ContractGenerationResult
+from archguard.contract.generation import (
+    ContractGenerationResult,
+    NoAnalysableModuleError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +231,13 @@ async def run_analysis_on_repo(
                     f"Contract auto-generated: {generation.module_count} modules "
                     f"measured from {generation.commit_count} commits."
                 )
+        except NoAnalysableModuleError:
+            # A refusal, not a failure: generation decided there is no module
+            # here worth measuring and said why. Attempting analysis anyway
+            # would either crash on the missing contract or -- worse, and this
+            # is what used to happen -- score a repository whose contract
+            # covered no files at all and report a confident 100.0/PASS.
+            raise
         except Exception as exc:
             logger.warning("[job %s] Contract auto-generation failed: %s", job_id, exc)
             await _emit(f"Contract generation warning: {exc}. Attempting analysis anyway.")
