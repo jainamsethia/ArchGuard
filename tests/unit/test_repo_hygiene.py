@@ -36,6 +36,9 @@ _ALLOWED_ROOT_FILES = {
     "README.md",
     "SECURITY.md",
     "docker-compose.yml",
+    # The image entrypoint. It must sit in the build context root, and the
+    # Dockerfile COPYs it by that path.
+    "docker-entrypoint.sh",
     "package-lock.json",
     "package.json",
     "playwright.config.ts",

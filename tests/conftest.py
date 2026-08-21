@@ -8,6 +8,15 @@ from typing import Any
 import pytest
 import yaml
 
+# Re-exported so every test can ask for a real database without importing a
+# path-relative module. See tests/db_fixtures.py for why nothing here is faked.
+from tests.db_fixtures import (  # noqa: F401
+    _schema_at_head,
+    live_db,
+    requires_postgres,
+    seed_run,
+)
+
 
 @pytest.fixture()
 def minimal_contract() -> dict[str, Any]:
@@ -35,6 +44,19 @@ def write_config(tmp_path: Path) -> Any:
         return path
 
     return _write
+
+
+@pytest.fixture(autouse=True)
+def unpooled_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every test against an unpooled engine.
+
+    TestClient opens a fresh event loop per request when it is not used as a
+    context manager, and an asyncpg connection is bound to the loop that opened
+    it -- so a pooled connection handed to the next request raises "Event loop
+    is closed" rather than reconnecting. NullPool sidesteps it entirely, at a
+    cost (one connect per query) that only matters under load.
+    """
+    monkeypatch.setenv("ARCHGUARD_DB_POOL_SIZE", "0")
 
 
 @pytest.fixture(autouse=True)

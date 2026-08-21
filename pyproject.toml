@@ -9,7 +9,10 @@ packages = [{include = "archguard"}]
 include = [
     {path = "archguard/dashboard/static/**/*"},
     {path = "archguard/dashboard/templates/*"},
-    {path = "archguard/py.typed"}
+    {path = "archguard/py.typed"},
+    # The migration scripts are .py and ship anyway; script.py.mako is not, and
+    # without it `alembic revision` in an installed environment fails.
+    {path = "archguard/db/migrations/script.py.mako"}
 ]
 
 [tool.poetry.dependencies]

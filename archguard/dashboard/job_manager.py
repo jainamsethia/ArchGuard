@@ -1,6 +1,9 @@
-"""In-memory async job queue for ArchGuard repository analysis.
-V1 uses asyncio for concurrency (no Redis or Celery required).
-Jobs persist in memory; the last 50 are kept.
+"""Asyncio job queue for repository analysis.
+
+Jobs are recorded in PostgreSQL; the in-memory mirror here exists only to carry
+live progress to the SSE stream, and is replaced when the queue worker lands.
+Anything the dashboard reads back -- status, results, history -- comes from the
+database, so a restart no longer loses every submitted job.
 """
 
 from __future__ import annotations
@@ -11,7 +14,6 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from archguard.dashboard.routes.jobs import build_safe_clone_url, parse_github_url
@@ -40,44 +42,12 @@ class AnalysisJob:
     completed_at: datetime | None = None
     _cached_result_dict: dict | None = field(default=None, repr=False)  # type: ignore[type-arg]
 
-def _merge_run_into_global_log(job: AnalysisJob, repo_path: Path) -> None:
-    """Copy this job's newest analysis run into the server-wide dashboard log.
-
-    Blocking; call via ``asyncio.to_thread``. Never raises -- a failure here
-    costs the run its place in the cross-repository history, not the analysis.
-    """
-    import json
-
-    from archguard.audit.logger import read_last_run
-    from archguard.dashboard.app import get_audit_path
-
-    source_runs = repo_path / ".archguard-cache" / "audit.jsonl"
-    if not source_runs.exists():
-        return
-    try:
-        # read_last_run filters on the analysis_run event. Taking the literal
-        # last line instead (the previous behaviour) copied whichever entry
-        # happened to be written most recently -- a dependency scan or a
-        # skip record -- into the run history as though it were a run.
-        last_run = read_last_run(source_runs)
-        if last_run is None:
-            return
-        last_run["project_name"] = job.github_url.rstrip("/").split("/")[-1].removesuffix(".git")
-        last_run["repo_url"] = job.github_url
-        last_run["job_id"] = job.id
-
-        global_runs = get_audit_path()
-        global_runs.parent.mkdir(parents=True, exist_ok=True)
-        with open(global_runs, "a", encoding="utf-8") as f_dest:
-            f_dest.write(json.dumps(last_run, default=str) + "\n")
-    except Exception:
-        logger.exception("Failed to copy run %s to the global dashboard log", job.id)
-
-
 class JobManager:
-    """Thread-safe in-memory job store with asyncio background execution.
-    Usage:
-        job = job_manager.create_job("https://github.com/owner/repo")
+    """Job store with asyncio background execution.
+
+    Usage::
+
+        job = await job_manager.create_job("https://github.com/owner/repo")
         task = asyncio.create_task(job_manager.run_job(job))
         job_manager.track_task(job.id, task)
     """
@@ -116,9 +86,21 @@ class JobManager:
                 self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
         return self._semaphore
 
-    def create_job(self, github_url: str) -> AnalysisJob:
-        """Create and store a new QUEUED job. Evicts oldest jobs beyond MAX_STORED_JOBS."""
-        job = AnalysisJob(github_url=github_url)
+    async def create_job(self, github_url: str, user_id: int | None = None) -> AnalysisJob:
+        """Create a QUEUED job in PostgreSQL and mirror it in memory.
+
+        The database row is the record of the job; the in-memory copy exists
+        only to carry live progress to the SSE stream, and goes away when the
+        queue worker lands. The id comes from the row so both agree.
+        """
+        from archguard.db.session import session_scope
+        from archguard.db.store import create_job as db_create_job
+
+        async with session_scope() as session:
+            db_job = await db_create_job(session, github_url, user_id=user_id)
+            job_id = db_job.id
+
+        job = AnalysisJob(id=job_id, github_url=github_url)
         self._jobs[job.id] = job
         logger.info("Created job %s for %s", job.id, github_url)
 
@@ -148,6 +130,18 @@ class JobManager:
         """Return jobs sorted newest-first."""
         return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
 
+    async def _record_status(self, job_id: str, status: str, error: str | None = None) -> None:
+        """Mirror a status change into PostgreSQL. Never raises: losing the
+        status update must not also abort the analysis."""
+        try:
+            from archguard.db.session import session_scope
+            from archguard.db.store import set_job_status
+
+            async with session_scope() as session:
+                await set_job_status(session, job_id, status, error=error)
+        except Exception:
+            logger.exception("[job %s] Could not record status %s", job_id, status)
+
     async def run_job(self, job: AnalysisJob) -> None:
         """Execute the full clone + analysis pipeline for a job.
 
@@ -174,6 +168,7 @@ class JobManager:
             try:
                 # -- Clone phase ----------------------------------------
                 job.status = JobStatus.CLONING
+                await self._record_status(job.id, JobStatus.CLONING.value)
 
                 # Reclaim disk before adding to it. Only jobs that are still
                 # running are protected: a finished job's clone is a cache for
@@ -204,6 +199,7 @@ class JobManager:
                 async with temp_workspace(clone_url, job_id=job.id, keep_alive=True) as repo_path:
                     # -- Analysis phase ---------------------------------
                     job.status = JobStatus.ANALYSING
+                    await self._record_status(job.id, JobStatus.ANALYSING.value)
                     await send_progress("Repository cloned. Starting analysis...")
 
                     result = await run_analysis_on_repo(
@@ -214,17 +210,10 @@ class JobManager:
                         skip_explanation=True,   # LLM explanation skipped by default for speed
                     )
 
-                    # -- Merge temporary run into global dashboard ------
-                    # Off the event loop: the per-job log is small but the
-                    # global one is capped at 10 MB, and reading/appending it
-                    # inline stalled every other request on the server.
-                    await asyncio.to_thread(
-                        _merge_run_into_global_log, job, repo_path
-                    )
-
                     job.result = result
                     job.status = JobStatus.COMPLETE
                     job.completed_at = datetime.now(UTC)
+                    await self._record_status(job.id, JobStatus.COMPLETE.value)
                     job._cached_result_dict = asdict(job.result)
                     await send_progress(
                         f"Done. Health: {result.health_score:.1f}/100 "
@@ -237,6 +226,7 @@ class JobManager:
                 job.status = JobStatus.FAILED
                 job.error = str(exc)
                 job.completed_at = datetime.now(UTC)
+                await self._record_status(job.id, JobStatus.FAILED.value, error=job.error)
                 logger.exception("[job %s] Clone timeout: %s", job.id, exc)
 
             except ValueError:
@@ -248,6 +238,7 @@ class JobManager:
                     "Expected format: https://github.com/owner/repo"
                 )
                 job.completed_at = datetime.now(UTC)
+                await self._record_status(job.id, JobStatus.FAILED.value, error=job.error)
                 logger.warning("[job %s] Malformed GitHub URL rejected", job.id)
 
             except Exception as exc:
@@ -270,6 +261,7 @@ class JobManager:
                         f"the cause under job {job.id}."
                     )
                 job.completed_at = datetime.now(UTC)
+                await self._record_status(job.id, JobStatus.FAILED.value, error=job.error)
                 logger.exception("[job %s] Unexpected failure", job.id)
 
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
-import uuid
 from pathlib import Path
 
 import pytest
@@ -101,14 +100,41 @@ def tangled_repo(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def tangled_result(tangled_repo: Path):
-    return asyncio.run(
-        run_analysis_on_repo(
-            tangled_repo,
-            job_id=uuid.uuid4().hex[:12],
-            repo_url="local://tangled",
+def tangled_analysis(tangled_repo: Path, _schema_at_head):
+    """Analyse the tangled repo once and keep both the result and its stored run.
+
+    Module-scoped because the analysis is the expensive part; the run is read
+    back here rather than in each test so the round trip through PostgreSQL is
+    exercised exactly once.
+    """
+    import os
+
+    os.environ["DATABASE_URL"] = _schema_at_head
+    os.environ["ARCHGUARD_DB_POOL_SIZE"] = "0"
+
+    async def _go():
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            job_id = (await store.create_job(session, "local://tangled")).id
+        result = await run_analysis_on_repo(
+            tangled_repo, job_id=job_id, repo_url="local://tangled"
         )
-    )
+        async with session_scope() as session:
+            return result, await store.get_latest_run(session, job_id)
+
+    return asyncio.run(_go())
+
+
+@pytest.fixture(scope="module")
+def tangled_result(tangled_analysis):
+    return tangled_analysis[0]
+
+
+@pytest.fixture(scope="module")
+def tangled_run(tangled_analysis):
+    return tangled_analysis[1]
 
 
 @pytest.mark.integration
@@ -155,7 +181,7 @@ def test_recorded_fan_out_matches_what_layer2_grades(tangled_repo, tangled_resul
 
 
 @pytest.mark.integration
-def test_dashboard_contract_checks_for_dependency_cycles(tangled_repo, tangled_result):
+def test_dashboard_contract_checks_for_dependency_cycles(tangled_repo, tangled_run):
     """A cycle is the one wrong-direction-import signal needing no human policy.
 
     Auto-generated contracts declare no ``disallowed_imports`` -- deliberately,
@@ -171,27 +197,15 @@ def test_dashboard_contract_checks_for_dependency_cycles(tangled_repo, tangled_r
     for module in contract["modules"]:
         assert "disallowed_imports" not in module
 
-    # The evaluated outcome must reach the audit trail, not just be computed:
-    # the Fitness panel reads it from the persisted run.
-    from archguard.audit.logger import AuditLogger
-
-    run = next(
-        (
-            r
-            for r in reversed(
-                AuditLogger(
-                    tangled_repo / ".archguard-cache" / "audit.jsonl"
-                ).read_last_n_runs(n=30)
-            )
-            if r.get("job_id") == tangled_result.job_id
-        ),
-        None,
-    )
-    assert run is not None, "analysis completed but no run was persisted"
-    evaluated = {f["rule"]: f for f in run.get("metrics", {}).get("fitness_results", [])}
+    # The evaluated outcome must reach storage, not just be computed: the
+    # Fitness panel reads it back from the persisted run.
+    assert tangled_run is not None, "analysis completed but no run was persisted"
+    evaluated = {
+        f["rule"] for f in (tangled_run.get("metrics") or {}).get("fitness_results", [])
+    }
     assert "graph.cycles == 0" in evaluated, (
         "cycle check was declared in the contract but its result never reached "
-        f"the audit trail: {sorted(evaluated)}"
+        f"the stored run: {sorted(evaluated)}"
     )
 
 

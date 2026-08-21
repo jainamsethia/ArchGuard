@@ -7,13 +7,19 @@ LLM would really receive (with suppressed findings excluded from it).
 
 from __future__ import annotations
 
-import uuid
+import asyncio
 
 import pytest
 
 from archguard.analysis import violation_kinds
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard.routes import runs as runs_route
+from tests.db_fixtures import requires_postgres
+
+pytestmark = requires_postgres
+
+
+def _latest(job_id: str) -> dict:
+    return asyncio.run(runs_route.get_latest_run(job_id=job_id))
 
 
 def _violation(module, fan_out, budget=10, layer=2, severity="high"):
@@ -31,18 +37,12 @@ def _violation(module, fan_out, budget=10, layer=2, severity="high"):
 
 
 @pytest.fixture
-def persisted_run(tmp_path, monkeypatch):
-    """A run with more violations than the remediation cap allows."""
-    job_id = str(uuid.uuid4())
-    log_path = tmp_path / "audit.jsonl"
-
-    violations = [_violation(f"module_{i:02d}", fan_out=11 + i) for i in range(20)]
-    AuditLogger(log_path).log(
-        "analysis_run",
-        job_id=job_id,
+def persisted_run(seed_run):
+    """A stored run with more violations than the remediation cap allows."""
+    return seed_run(
         score=44.5,
         band="FAIL",
-        violations=violations,
+        violations=[_violation(f"module_{i:02d}", fan_out=11 + i) for i in range(20)],
         metrics={
             "fitness_results": [
                 {
@@ -55,20 +55,18 @@ def persisted_run(tmp_path, monkeypatch):
             ]
         },
     )
-    monkeypatch.setattr(runs_route, "get_audit_path", lambda jid: log_path)
-    return job_id
 
 
 def test_every_violation_is_returned_not_just_the_selected_ones(persisted_run):
     """The cap limits AI suggestions, never what the table can show."""
-    run = runs_route.get_latest_run(job_id=persisted_run)
+    run = _latest(persisted_run)
 
     assert len(run["violations"]) == 20
     assert run["remediation_selection"]["selected"] < 20
 
 
 def test_each_violation_carries_a_plain_language_explanation(persisted_run):
-    run = runs_route.get_latest_run(job_id=persisted_run)
+    run = _latest(persisted_run)
 
     for v in run["violations"]:
         plain = v["plain"]
@@ -78,7 +76,7 @@ def test_each_violation_carries_a_plain_language_explanation(persisted_run):
 
 
 def test_selection_counts_describe_what_the_llm_would_receive(persisted_run):
-    run = runs_route.get_latest_run(job_id=persisted_run)
+    run = _latest(persisted_run)
     sel = run["remediation_selection"]
 
     assert sel["detected"] == 20
@@ -92,8 +90,8 @@ def test_selection_counts_describe_what_the_llm_would_receive(persisted_run):
 
 
 def test_selection_is_stable_across_repeated_reads(persisted_run):
-    first = runs_route.get_latest_run(job_id=persisted_run)["remediation_selection"]
-    second = runs_route.get_latest_run(job_id=persisted_run)["remediation_selection"]
+    first = _latest(persisted_run)["remediation_selection"]
+    second = _latest(persisted_run)["remediation_selection"]
 
     assert first["selected_keys"] == second["selected_keys"]
 
@@ -111,9 +109,11 @@ def test_suppressed_violations_are_excluded_from_counts_and_selection(
         def is_suppressed(self, module, layer, message):
             return module in suppressed
 
-    monkeypatch.setattr(_selection, "_suppression_store_for", lambda jid: _FakeStore())
+    monkeypatch.setattr(
+        _selection, "_suppression_store_for", lambda repo_url, jid: _FakeStore()
+    )
 
-    run = runs_route.get_latest_run(job_id=persisted_run)
+    run = _latest(persisted_run)
     sel = run["remediation_selection"]
 
     assert sel["detected"] == 20, "suppressed findings still count as detected"

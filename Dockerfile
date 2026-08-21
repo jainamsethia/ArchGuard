@@ -34,6 +34,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN useradd --create-home --shell /bin/bash --uid 1000 archguard
 WORKDIR /app
 COPY --from=builder /deps /app/lib
+# Alembic needs its config at runtime, not just at build time: the entrypoint
+# brings the schema to head before uvicorn starts. The migrations themselves
+# come with the installed package -- alembic.ini names them by package
+# reference -- and alembic.ini carries no URL (env.py reads DATABASE_URL), so
+# copying it ships no credential.
+COPY alembic.ini ./
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Set correct ownership BEFORE switching user
 RUN chown -R archguard:archguard /app
@@ -57,5 +65,6 @@ USER archguard
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-ENTRYPOINT []
+ENV PATH="/app/lib/bin:${PATH}"
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["uvicorn", "archguard.dashboard.app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -16,7 +16,6 @@ from archguard.config import (
     AUDIT_EVENT_ANALYSIS,
     AUDIT_LOG_FILENAME,
     AUDIT_LOG_MAX_BYTES,
-    AUDIT_LOG_MAX_ENTRIES,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,27 +145,23 @@ class AuditLogger:
         )
 
     def _maybe_rotate(self, log_path: Path) -> None:
-        """Rotate log file by truncating to the last MAX_ENTRIES lines."""
+        """Roll the log over to ``<name>.1`` once it exceeds the size cap.
+
+        This used to truncate in place, keeping only the last 999 lines and
+        deleting everything before them. For a tamper-evident security trail
+        that is not housekeeping, it is silent evidence destruction: the entries
+        an investigation would want are the oldest ones. One generation is kept
+        (``audit.jsonl.1``, replaced on the next rotation), which bounds disk use
+        without the active file ever deleting its own history.
+        """
         if not log_path.exists():
             return
         try:
-            size = log_path.stat().st_size
-            if size < AUDIT_LOG_MAX_BYTES:
+            if log_path.stat().st_size < AUDIT_LOG_MAX_BYTES:
                 return
-            # Count lines
-            with open(log_path, encoding="utf-8") as f:
-                lines = f.readlines()
-            if len(lines) < AUDIT_LOG_MAX_ENTRIES:
-                return
-            # Keep only the last MAX_ENTRIES - 1 lines
-            keep_count = AUDIT_LOG_MAX_ENTRIES - 1
-            if keep_count > 0:
-                with open(log_path, "w", encoding="utf-8") as f:
-                    f.writelines(lines[-keep_count:])
-            else:
-                # If MAX_ENTRIES is 1, we just clear the file
-                with open(log_path, "w", encoding="utf-8") as f:
-                    pass
+            archive = log_path.with_name(log_path.name + ".1")
+            archive.unlink(missing_ok=True)
+            log_path.replace(archive)
         except Exception as e:
             logger.warning(
                 f"Non-critical failure in _maybe_rotate: {e}"

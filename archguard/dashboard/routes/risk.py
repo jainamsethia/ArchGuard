@@ -4,10 +4,9 @@ from typing import Any
 
 from fastapi import Depends, HTTPException
 
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app, get_audit_path, get_target_path
+from archguard.dashboard.app import JobIdQuery, app, get_target_path
 
 _logger = logging.getLogger(__name__)
 
@@ -50,7 +49,7 @@ def _downstream_counts(dependency_graph: dict[str, list[str]]) -> dict[str, int]
 
 
 @app.get("/api/v1/risk", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_pr_risk(job_id: JobIdQuery = None) -> Any:
+async def get_pr_risk(job_id: JobIdQuery = None) -> Any:
     """Report each module's blast radius for the analyzed repository.
 
     This is a structural metric computed from the module dependency graph: for
@@ -58,17 +57,19 @@ def get_pr_risk(job_id: JobIdQuery = None) -> Any:
     therefore be affected by a change to it). It does NOT require a PR diff —
     the dashboard analyzes a checked-out repo, not a pull request.
     """
-    # Try persisted dependency graph from audit log first
+    # The persisted graph first: it is what the analysis actually measured,
+    # and unlike the clone it is still there after the workspace is swept.
     dependency_graph: dict[str, list[str]] | None = None
     module_names: list[str] | None = None
     if job_id:
-        logger = AuditLogger(get_audit_path(job_id))
-        runs = logger.read_last_n_runs(n=100)
-        for r in reversed(runs):
-            if r.get("job_id") == job_id and r.get("dependency_graph"):
-                dependency_graph = r["dependency_graph"]
-                module_names = r.get("modules_analyzed", list(dependency_graph.keys()))
-                break
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            run = await store.get_latest_run(session, job_id)
+        if run and run.get("dependency_graph"):
+            dependency_graph = run["dependency_graph"]
+            module_names = run.get("modules_analyzed") or list(dependency_graph.keys())
 
     if dependency_graph is None:
         # Fall back to live computation from filesystem

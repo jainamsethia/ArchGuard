@@ -13,6 +13,7 @@ from archguard.llm.remediation import (
     RemediationTask,
     RemediationUnavailableError,
 )
+from tests.db_fixtures import requires_postgres
 
 # ---------------------------------------------------------------------------
 # Mock provider for deterministic tests
@@ -419,42 +420,38 @@ def test_remediation_too_many_violations_returns_422() -> None:
     assert resp.status_code == 422
 
 
+@requires_postgres
 @pytest.mark.asyncio
-async def test_remediation_job_id_filter(monkeypatch):
-    import pathlib
-    import tempfile
-
-    from archguard.audit.logger import AuditLogger
+async def test_remediation_job_id_filter(monkeypatch, seed_run):
+    """The plan is built from the requested job's findings, never another's."""
     from archguard.dashboard.routes import remediation
 
-    # This test exercises the job_id filtering in remediation_plan_from_audit.
     # Under CI's ARCHGUARD_MOCK_LLM=1 the endpoint returns a canned dict before
-    # reading the audit log at all, so the filter would never run.
+    # reading anything, so the filter would never run.
     monkeypatch.delenv("ARCHGUARD_MOCK_LLM", raising=False)
 
-    with tempfile.TemporaryDirectory() as d:
-        log_path = pathlib.Path(d) / "audit.jsonl"
-        logger = AuditLogger(log_path)
-        logger.log("analysis_run", job_id="job-A", timestamp="2026-01-01T00:00:00Z", violations=[{"id": "v1"}])
-        logger.log("analysis_run", job_id="job-B", timestamp="2026-01-02T00:00:00Z", violations=[{"id": "v2"}])
+    job_a = seed_run(violations=[{"id": "v1", "module": "a", "layer": 2,
+                                  "message": "fan_out=11 exceeds budget=10"}])
+    seed_run(violations=[{"id": "v2", "module": "b", "layer": 2,
+                          "message": "fan_out=12 exceeds budget=10"}])
 
-        monkeypatch.setattr(remediation, "get_audit_path", lambda jid: log_path)
+    # Capture what the endpoint actually forwards. The mock returns the real
+    # function's shape (a dict with "tasks"), not the violations list: the
+    # route attaches selection metadata to that result, so a mock returning a
+    # bare list would only be testing the error path.
+    forwarded: dict[str, object] = {}
 
-        # Capture what the endpoint actually forwards. The mock returns the real
-        # function's shape (a dict with "tasks"), not the violations list: the
-        # route now attaches selection metadata to that result, so a mock
-        # returning a bare list would only be testing the error path.
-        forwarded: dict[str, object] = {}
+    async def mock_gen(violations, fitness_failures=None):
+        forwarded["violations"] = violations
+        forwarded["fitness_failures"] = fitness_failures
+        return {"tasks": []}
 
-        async def mock_gen(violations, fitness_failures=None):
-            forwarded["violations"] = violations
-            forwarded["fitness_failures"] = fitness_failures
-            return {"tasks": []}
+    monkeypatch.setattr("archguard.llm.remediation.generate_remediation_plan", mock_gen)
 
-        monkeypatch.setattr("archguard.llm.remediation.generate_remediation_plan", mock_gen)
+    res = await remediation.remediation_plan_from_audit(limit=1, job_id=job_a)
 
-        res = await remediation.remediation_plan_from_audit(limit=1, job_id="job-A")
-
-        # job-A's violation is the one forwarded, not job-B's.
-        assert [v["id"] for v in forwarded["violations"]] == ["v1"]
-        assert res["selection"]["detected"] == 1
+    # job A's violation is the one forwarded, not job B's.
+    assert [v["message"] for v in forwarded["violations"]] == [
+        "fan_out=11 exceeds budget=10"
+    ]
+    assert res["selection"]["detected"] == 1

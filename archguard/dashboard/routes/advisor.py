@@ -11,7 +11,6 @@ from fastapi import Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import _llm_rate_limit
 from archguard.dashboard.app import app
@@ -63,7 +62,7 @@ def _build_context_from_violations(violations: list[Any]) -> str:
 @app.post(
     "/api/v1/advisor/ask", dependencies=[Depends(check_token), Depends(_llm_rate_limit)]
 )
-def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)) -> StreamingResponse:
+async def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)) -> StreamingResponse:
     """Stream a Gemini response to an architectural question.
 
     Returns a text/event-stream (SSE) response where each line is a raw text
@@ -79,8 +78,6 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
             detail="question must not be empty",
         )
 
-    from archguard.dashboard.app import get_audit_path
-
     # Ground the answer on *this* run only. The previous behaviour, when job_id
     # was absent, was audit.read_last_run() against the server's cwd log --
     # i.e. whichever repository anyone analysed most recently on this server.
@@ -88,15 +85,11 @@ def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)
     # repository is not. Resolve strictly, and say so when there is nothing.
     latest: dict[str, Any] | None = None
     if job_id:
-        audit = AuditLogger(get_audit_path(job_id))
-        latest = next(
-            (
-                r
-                for r in reversed(audit.read_last_n_runs(n=100))
-                if r.get("job_id") == job_id
-            ),
-            None,
-        )
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            latest = await store.get_latest_run(session, job_id)
 
     ungrounded_notice = ""
     if latest is None:

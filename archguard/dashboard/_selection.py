@@ -16,7 +16,7 @@ from archguard.analysis.ranking import Selection, finding_key, select_for_remedi
 logger = logging.getLogger(__name__)
 
 
-def _suppression_store_for(job_id: str | None) -> Any:
+def _suppression_store_for(repo_url: str | None, job_id: str | None) -> Any:
     """Resolve the dashboard's suppression store.
 
     A module-level seam rather than an inline import: it keeps the dependency on
@@ -25,7 +25,7 @@ def _suppression_store_for(job_id: str | None) -> Any:
     """
     from archguard.dashboard.routes.suppression import _suppression_store
 
-    return _suppression_store(job_id)
+    return _suppression_store(repo_url, job_id)
 
 
 def select_findings(run: dict[str, Any], job_id: str | None) -> Selection:
@@ -39,7 +39,9 @@ def select_findings(run: dict[str, Any], job_id: str | None) -> Selection:
     explaining findings the user had already dismissed.
     """
     try:
-        store = _suppression_store_for(job_id)
+        # The run records the repository it analysed, so no lookup is needed
+        # here -- which is what keeps this function synchronous.
+        store = _suppression_store_for(run.get("repo_url"), job_id)
     except Exception as exc:
         logger.warning("Suppression store unavailable (%s); ranking without it.", exc)
         store = None

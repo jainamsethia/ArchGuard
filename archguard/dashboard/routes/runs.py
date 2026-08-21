@@ -1,53 +1,76 @@
-"""Run-history, module-list, trend, and dependency-graph read endpoints."""
-import json
+"""Run-history, module-list, trend, and dependency-graph read endpoints.
+
+Every read here used to tail-scan ``.archguard-cache/audit.jsonl`` and filter in
+Python -- up to 10,000 lines per request in the module endpoint. They are
+queries now.
+
+One consequence is worth naming: ``/repos/{url}/runs`` could only ever be
+answered by scanning the whole file and string-matching ``repo_url``, and the
+file truncated itself at 10 MB, so a repository's history quietly disappeared.
+It is an indexed lookup on ``repositories.url`` now, which is what makes the
+trend chart show something other than "not enough scan history yet".
+"""
+
+from __future__ import annotations
+
 import logging
-from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, HTTPException, Query
 from fastapi import Path as FastAPIPath
 
-from archguard.audit.logger import AuditLogger
-from archguard.config import AUDIT_LOG_FILENAME
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app, get_audit_path
+from archguard.dashboard.app import JobIdQuery, app
+from archguard.db import store
+from archguard.db.session import session_scope
 
 _logger = logging.getLogger(__name__)
 
-@app.get("/api/v1/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
-@app.get("/api/repos/{repo_url:path}/runs", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
-def get_repo_runs(
+
+@app.get(
+    "/api/v1/repos/{repo_url:path}/runs",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+)
+@app.get(
+    "/api/repos/{repo_url:path}/runs",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
+)
+async def get_repo_runs(
     repo_url: str,
     limit: int = Query(default=50, ge=1, le=500),
 ) -> Any:
-    """Return run history for one repository, across all jobs that ever analyzed it."""
-    logger = AuditLogger(Path.cwd() / AUDIT_LOG_FILENAME)  # always the global log -- this view is explicitly cross-job by design
-    runs = logger.read_last_n_runs(n=500)  # read generously, then filter+limit, since read_last_n_runs has no repo_url-aware filtering itself
-    matching = [r for r in runs if r.get("repo_url") == repo_url][:limit]
-    return {"repo_url": repo_url, "runs": matching, "total": len(matching)}
+    """Every run recorded for one repository, across all jobs that analysed it."""
+    async with session_scope() as session:
+        runs = await store.get_runs_for_repository(session, repo_url, limit=limit)
+    return {"repo_url": repo_url, "runs": runs, "total": len(runs)}
 
 
 @app.get("/api/v1/runs", dependencies=[Depends(check_token), Depends(rate_limiter)])
-@app.get("/api/runs", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
-def get_runs(
-    limit: int = Query(default=50, ge=1, le=500), module: str | None = None, job_id: JobIdQuery = None
+@app.get(
+    "/api/runs",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
+)
+async def get_runs(
+    limit: int = Query(default=50, ge=1, le=500),
+    module: str | None = None,
+    job_id: JobIdQuery = None,
 ) -> Any:
-    logger = AuditLogger(get_audit_path(job_id))
-    # When filtering by job_id, read a generous number of runs so that
-    # the filter doesn't silently lose results (the naive approach of
-    # reading only `limit` lines then applying the filter misses entries
-    # deep in the log that happen to be older than the most recent N).
-    read_limit = max(limit, 10000) if (job_id or module) else limit
-    runs = logger.read_last_n_runs(n=read_limit)
-    if job_id:
-        runs = [r for r in runs if r.get("job_id") == job_id]
+    async with session_scope() as session:
+        if job_id:
+            runs = await store.get_runs_for_job(session, job_id, limit=limit)
+        else:
+            runs = await store.get_recent_runs(session, limit=limit)
     if module:
-        runs = [r for r in runs if module in r.get("modules_analyzed", [])]
+        runs = [r for r in runs if module in (r.get("modules_analyzed") or [])]
     return {"runs": runs[:limit], "total": len(runs[:limit])}
 
 
-def _with_plain_language(run: dict[str, Any], job_id: str | None = None) -> dict[str, Any]:
+async def _with_plain_language(
+    run: dict[str, Any], job_id: str | None = None
+) -> dict[str, Any]:
     """Attach plain-language explanations and the remediation-selection counts.
 
     The explanations are rendered here rather than stored, so runs persisted
@@ -66,12 +89,10 @@ def _with_plain_language(run: dict[str, Any], job_id: str | None = None) -> dict
     if not isinstance(violations, list):
         return run
 
-    enriched = []
-    for v in violations:
-        if not isinstance(v, dict):
-            enriched.append(v)
-            continue
-        enriched.append({**v, "plain": explain_dict(v)})
+    enriched = [
+        {**v, "plain": explain_dict(v)} if isinstance(v, dict) else v
+        for v in violations
+    ]
 
     out = {**run, "violations": enriched}
     try:
@@ -83,110 +104,40 @@ def _with_plain_language(run: dict[str, Any], job_id: str | None = None) -> dict
     return out
 
 
-@app.get("/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)])
-@app.get("/api/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
-def get_latest_run(job_id: JobIdQuery = None) -> Any:
-    from fastapi import HTTPException
-    logger = AuditLogger(get_audit_path(job_id))
-    if job_id:
-        runs = logger.read_last_n_runs(n=100)
-        # read_last_n_runs returns chronological order (oldest first).
-        # Iterate in reverse so we return the *newest* match for this job_id.
-        for r in reversed(runs):
-            if r.get("job_id") == job_id:
-                return _with_plain_language(r, job_id)
-        raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
-    return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
-
-
-class ParsedEdge:
-    def __init__(self, importer: str, imported: str):
-        self.importer_module = importer
-        self.imported_module = imported
-
-def _edges_from_audit(job_id: str | None) -> list[ParsedEdge] | None:
-    """Try to read pre-computed import_edges from the audit log. Returns None if unavailable."""
+@app.get(
+    "/api/v1/runs/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
+)
+@app.get(
+    "/api/runs/latest",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
+)
+async def get_latest_run(job_id: JobIdQuery = None) -> Any:
     if not job_id:
-        return None
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=100)
-    for r in reversed(runs):
-        if r.get("job_id") == job_id and r.get("import_edges"):
-            return [
-                ParsedEdge(e["from"], e["to"])
-                for e in r["import_edges"]
-                if isinstance(e, dict) and "from" in e and "to" in e
-            ]
-    return None
+        return {
+            "empty": True,
+            "message": "No analysis selected. Submit or select a repository to see health data.",
+        }
+    async with session_scope() as session:
+        run = await store.get_latest_run(session, job_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
+    return await _with_plain_language(run, job_id)
 
-def get_import_edges(job_id: JobIdQuery = None) -> list[ParsedEdge]:
-    # Prefer pre-computed edges from audit log (survive workspace deletion)
-    cached = _edges_from_audit(job_id)
-    if cached is not None:
-        return cached
-
-    from archguard.analysis._orchestrator_utils import _get_module_paths
-    from archguard.analysis.coupling import _assign_file_to_module
-    from archguard.analysis.parser import ImportParser
-    from archguard.contract.loader import load_contract
-    from archguard.dashboard.app import get_target_path
-    from archguard.utils.paths import path_belongs_to_module
-
-    try:
-        target = get_target_path(job_id)
-    except HTTPException:
-        return []
-
-    try:
-        contract = load_contract(target)
-        modules_cfg = contract.get("modules", [])
-        module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
-
-        parser = ImportParser()
-        parse_result = parser.parse_repo(target, module_paths, allow_partial=True)
-
-        edges_out = []
-        seen = set()
-        for e in parse_result.edges:
-            if e.is_stdlib or e.is_relative:
-                continue
-            importer = _assign_file_to_module(e.source_file, module_paths)
-            if not importer:
-                continue
-
-            import_as_path = e.imported_module.replace(".", "/")
-            imported = None
-            for tp_name, t_paths in module_paths.items():
-                targets_us = any(
-                    path_belongs_to_module(import_as_path, [tp])
-                    or path_belongs_to_module(tp, [import_as_path])
-                    for tp in t_paths
-                )
-                if targets_us:
-                    imported = tp_name
-                    break
-
-            if not imported:
-                imported = e.imported_module.split(".")[0]
-
-            if importer != imported:
-                k = (importer, imported)
-                if k not in seen:
-                    seen.add(k)
-                    edges_out.append(ParsedEdge(importer, imported))
-
-        return edges_out
-    except Exception as exc:
-        _logger.warning("get_import_edges failed for job_id=%s: %s", job_id, exc)
-        return []
 
 @app.get("/api/v1/modules", dependencies=[Depends(check_token), Depends(rate_limiter)])
-@app.get("/api/modules", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True)
-def get_modules(job_id: JobIdQuery = None) -> Any:
-    """Return all known modules and their latest scores."""
-    # Without a job_id there is no repository context, and reading the server's
-    # own cwd audit log here would report a different repo's modules as if they
-    # were the visitor's. Mirror /api/v1/runs/latest and say so honestly.
+@app.get(
+    "/api/modules",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
+)
+async def get_modules(job_id: JobIdQuery = None) -> Any:
+    """Module scores and the import graph for one analysis.
+
+    Without a job_id there is no repository context, and answering from
+    whatever this server analysed most recently would report a stranger's
+    modules as the visitor's.
+    """
     if not job_id:
         return {
             "empty": True,
@@ -194,97 +145,74 @@ def get_modules(job_id: JobIdQuery = None) -> Any:
             "edges": [],
             "message": "No analysis selected. Submit or select a repository to see module data.",
         }
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = [r for r in logger.read_last_n_runs(n=10000) if r.get("job_id") == job_id]
-    modules = {}
-    for run in runs:
-        for module, score in run.get("module_scores", {}).items():
-            modules[module] = score  # latest score wins
 
-    edges = [
-        {"from": e.importer_module, "to": e.imported_module}
-        for e in get_import_edges(job_id)
-    ]
-    return {"modules": modules, "edges": edges}
+    async with session_scope() as session:
+        run = await store.get_latest_run(session, job_id)
+
+    if run is None:
+        return {"empty": True, "modules": {}, "edges": [], "message": "No run found."}
+
+    return {
+        "modules": run.get("module_scores") or {},
+        # Persisted with the run, so the graph survives the workspace being
+        # swept -- it used to be recomputed from the clone, which meant the
+        # Dependencies tab went blank the moment the workspace expired.
+        "edges": run.get("import_edges") or [],
+    }
 
 
 @app.get(
     "/api/v1/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)]
 )
 @app.get(
-    "/api/trends/{module}", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
+    "/api/trends/{module}",
+    dependencies=[Depends(check_token), Depends(rate_limiter)],
+    deprecated=True,
 )
-def get_module_trends(
+async def get_module_trends(
     module: str = FastAPIPath(
         ..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_\-\.]+$"
     ),
     limit: int = Query(default=30, ge=1, le=500),
-    job_id: JobIdQuery = None
+    job_id: JobIdQuery = None,
 ) -> Any:
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
-    if job_id:
-        runs = [r for r in runs if r.get("job_id") == job_id]
+    async with session_scope() as session:
+        if job_id:
+            runs = await store.get_runs_for_job(session, job_id, limit=limit)
+        else:
+            runs = await store.get_recent_runs(session, limit=limit)
     trend = [
-        {"timestamp": r["timestamp"], "score": r.get("module_scores", {}).get(module)}
+        {"timestamp": r["timestamp"], "score": (r.get("module_scores") or {}).get(module)}
         for r in runs
-        if module in r.get("module_scores", {})
+        if module in (r.get("module_scores") or {})
     ]
     return {"module": module, "trend": trend}
 
 
-_DEPS_EVENT = "dependency_scan"
-
-
-def _persisted_deps(audit_file: Path, job_id: str) -> dict[str, Any] | None:
-    """Return the newest persisted dependency scan for *job_id*, if any.
-
-    Kept separate from ``read_last_n_runs`` (which only yields ``analysis_run``
-    events) so persisting a scan doesn't inject a bogus run into run history,
-    trends, or compare-runs.
-    """
-    if not audit_file.exists():
-        return None
-    try:
-        lines = audit_file.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        _logger.warning("Could not read audit log %s: %s", audit_file, exc)
-        return None
-    for line in reversed(lines):
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if (
-            entry.get("event") == _DEPS_EVENT
-            and entry.get("job_id") == job_id
-            and isinstance(entry.get("dependency_health"), dict)
-        ):
-            return entry["dependency_health"]  # type: ignore[no-any-return]
-    return None
-
-
 @app.get("/api/v1/deps", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_deps(job_id: JobIdQuery = None) -> Any:
-    """Run dependency analysis and return the result."""
+async def get_deps(job_id: JobIdQuery = None) -> Any:
+    """Dependency vulnerability scan for one analysis.
+
+    Stored separately from the run: the scan is triggered on demand, after the
+    analysis, and folding it into run history is what previously injected a
+    bogus entry into the trend chart.
+    """
     from archguard.analysis.deps import analyze_dependencies
     from archguard.dashboard.app import get_target_path
-    # get_audit_path is used from module scope, like every sibling endpoint --
-    # re-importing it locally would shadow it and silently ignore test patches.
 
     if not job_id:
-        raise HTTPException(status_code=400, detail="No analysis selected. Submit a job first.")
+        raise HTTPException(
+            status_code=400, detail="No analysis selected. Submit a job first."
+        )
 
-    audit_file = get_audit_path(job_id)
-    persisted = _persisted_deps(audit_file, job_id)
+    async with session_scope() as session:
+        persisted = await store.get_dependency_scan(session, job_id)
     if persisted is not None:
         return persisted
 
-    # Same contract as the Blast Radius sibling: persisted data if we have it,
-    # otherwise an honest 410 rather than a fabricated "skipped" payload — a
-    # job we have no record of must not look like a job that scanned clean.
+    # No stored scan: it can only be produced from the clone, so an expired
+    # workspace is an honest 410. A job we have no record of must not look like
+    # a job that scanned clean.
     try:
         target = get_target_path(job_id)
     except HTTPException:
@@ -295,7 +223,6 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
 
     try:
         result = analyze_dependencies(target)
-
         output = {
             "score": result.score,
             "vulnerable_packages": [
@@ -312,12 +239,14 @@ def get_deps(job_id: JobIdQuery = None) -> Any:
             "skip_reason": result.skip_reason,
             "error": result.error,
         }
-
-        # Append through AuditLogger so the entry is HMAC-signed like every
-        # other one; rewriting a line in place would silently void its
-        # signature. Survives workspace expiry, which is the whole point.
-        AuditLogger(audit_file).log(_DEPS_EVENT, job_id=job_id, dependency_health=output)
-
+        try:
+            async with session_scope() as session:
+                await store.save_dependency_scan(session, job_id, output)
+        except Exception as exc:
+            # The scan succeeded; only caching it did not. Returning the
+            # degraded payload here would report a healthy repository as
+            # unscannable because of a database hiccup.
+            _logger.warning("Could not store the dependency scan for %s: %s", job_id, exc)
         return output
     except Exception as e:
         _logger.warning("Dependency analysis failed for job_id=%s: %s", job_id, e)

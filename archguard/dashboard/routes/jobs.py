@@ -354,7 +354,7 @@ async def submit_analysis_job(
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)
-    job = job_manager.create_job(github_url=safe_url)
+    job = await job_manager.create_job(github_url=safe_url)
     task = asyncio.create_task(job_manager.run_job(job))
     job_manager.track_task(job.id, task)
 

@@ -112,22 +112,56 @@ def _collect_python_files(repo_path: Path) -> list[Path]:
     ]
 
 
-def _log_skip_or_error(job_id: str, repo_path: Path, reason: str) -> None:
+async def _persist(job_id: str, payload: dict[str, Any], commit_sha: str | None = None,
+                   health_grade: str | None = None,
+                   composite_score: float | None = None) -> None:
+    """Store a run. Never raises: a persistence failure must not also lose the
+    analysis, but it does mean the dashboard shows nothing for this job, so it
+    is logged with a traceback rather than a bare warning."""
     try:
-        from archguard.audit.logger import AuditLogger
-        from archguard.config import AUDIT_EVENT_ANALYSIS
-        audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
-        audit.log(
-            AUDIT_EVENT_ANALYSIS,
-            job_id=job_id,
-            score=0.0,
-            band="FAIL",
-            violations=[],
-            skipped=True,
-            error=reason
+        from archguard.db.session import session_scope
+        from archguard.db.store import persist_run
+
+        async with session_scope() as session:
+            await persist_run(
+                session, job_id, payload,
+                commit_sha=commit_sha,
+                health_grade=health_grade,
+                composite_score=composite_score,
+            )
+    except Exception:
+        logger.exception(
+            "[job %s] Failed to persist the analysis run; the dashboard will "
+            "show no data for this job even though the analysis completed",
+            job_id,
         )
-    except Exception as exc:
-        logger.warning("Failed to write audit log in pipeline adapter: %s", exc)
+
+
+def _skip_payload(reason: str, message: str) -> dict[str, Any]:
+    """A run that produced no findings, recorded honestly rather than dropped.
+
+    A job with no persisted run is indistinguishable from a job that never
+    happened, and the read endpoints would report "no data" with no reason.
+    """
+    return {
+        "job_id": "",
+        "score": 0.0,
+        "band": "FAIL",
+        "violations": [],
+        "skipped": True,
+        "skip_reason": message,
+        "layer_results": [],
+        "module_scores": {},
+        "modules_analyzed": [],
+        "dependency_graph": {},
+        "import_edges": [],
+        "contract": {},
+        "metrics": {"skip_detail": reason},
+        "contract_auto_generated": False,
+        "fallback_directory_heuristic": False,
+        "fallback_reason": "",
+        "derived_artifacts_error": "",
+    }
 
 async def run_analysis_on_repo(
     repo_path: Path,
@@ -196,7 +230,10 @@ async def run_analysis_on_repo(
 
     if not py_files:
         elapsed = round(time.monotonic() - start, 1)
-        _log_skip_or_error(job_id, repo_path, reason="no_python_files")
+        await _persist(
+            job_id,
+            _skip_payload("no_python_files", "No Python files found in repository"),
+        )
         return AnalysisJobResult(
             job_id=job_id, repo_url=repo_url,
             health_score=0.0, health_grade="F",
@@ -212,7 +249,7 @@ async def run_analysis_on_repo(
 
     # -- Step 3: Run analysis in thread pool -----------------------------
     try:
-        result = await asyncio.wait_for(
+        result, payload = await asyncio.wait_for(
             asyncio.to_thread(
                 _run_analysis_sync,
                 repo_path,
@@ -238,7 +275,7 @@ async def run_analysis_on_repo(
             if isinstance(exc, TimeoutError)
             else "Analysis failed. See server logs for details."
         )
-        _log_skip_or_error(job_id, repo_path, reason=f"{type(exc).__name__}: {exc}")
+        await _persist(job_id, _skip_payload(f"{type(exc).__name__}: {exc}", err_str))
         return AnalysisJobResult(
             job_id=job_id, repo_url=repo_url,
             health_score=0.0, health_grade="F",
@@ -254,6 +291,15 @@ async def run_analysis_on_repo(
     layer_results = _extract_layer_results(result)
     total_violations = len(result.violations)
 
+    if payload is not None:
+        await _persist(
+            job_id,
+            payload,
+            commit_sha=result.commit_sha,
+            health_grade=result.archdebt.health_grade,
+            composite_score=result.archdebt.composite_score,
+        )
+
     await _emit(
         f"Analysis complete in {elapsed}s. "
         f"Health: {result.archdebt.health_score:.1f}/100 ({result.archdebt.health_grade}). "
@@ -268,7 +314,7 @@ async def run_analysis_on_repo(
         composite_score=result.archdebt.composite_score,
         layer_results=layer_results,
         total_violations=total_violations,
-        modules_analyzed=[],  # populated in audit log; kept for API compat
+        modules_analyzed=list((payload or {}).get("modules_analyzed") or []),
         duration_seconds=elapsed,
         contract_auto_generated=contract_auto_generated,
         fallback_directory_heuristic=fallback_heuristic,
@@ -320,8 +366,14 @@ def _run_analysis_sync(
     contract_auto_generated: bool = False,
     fallback_directory_heuristic: bool = False,
     fallback_reason: str = "",
-) -> Any:
-    """Run AnalysisOrchestrator synchronously. Called from a thread pool."""
+) -> tuple[Any, dict[str, Any] | None]:
+    """Run AnalysisOrchestrator synchronously. Called from a thread pool.
+
+    Returns ``(result, payload)``. The payload is *returned* rather than
+    written: persistence is async now, and the async engine belongs on the
+    event loop, not in a worker thread. A caller that gets ``None`` back knows
+    the run produced nothing storable and can say so.
+    """
     from archguard.analysis.layers import AnalysisOrchestrator
 
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_path)
@@ -344,13 +396,11 @@ def _run_analysis_sync(
             quiet=True,
         )
 
-    # -- Log the result for the dashboard context --
+    # -- Build the persistable payload --
     try:
         from archguard.analysis._orchestrator_utils import _get_module_paths
         from archguard.analysis.coupling import _assign_file_to_module
         from archguard.analysis.parser import ImportParser
-        from archguard.audit.logger import AuditLogger
-        from archguard.config import AUDIT_EVENT_ANALYSIS
         from archguard.contract.loader import load_contract
         from archguard.dashboard._result_schema import (
             AnalysisResultPayload,
@@ -359,7 +409,6 @@ def _run_analysis_sync(
         )
         from archguard.utils.paths import path_belongs_to_module
 
-        audit = AuditLogger(log_path=repo_path / ".archguard-cache" / "audit.jsonl")
         band_val = str(result.archdebt.band.name).upper()
         audit_band = (
             "PASS"
@@ -500,21 +549,19 @@ def _run_analysis_sync(
             derived_artifacts_error=derived_artifacts_error,
         )
 
-        audit.log(
-            AUDIT_EVENT_ANALYSIS,
-            **payload.model_dump()
-        )
+        return result, payload.model_dump()
     except Exception:
-        # If this fires the analysis still "succeeds" for the caller, but no run
-        # is persisted -- every read endpoint will report no data for this job.
-        # Log it at exception level with a traceback; a warning line without one
-        # is how this stayed invisible.
+        # The analysis still succeeded for the caller, but there is nothing to
+        # store, so every read endpoint will report no data for this job. At
+        # exception level with a traceback: a bare warning is how this stayed
+        # invisible.
         logger.exception(
-            "[job %s] Failed to persist analysis run; the dashboard will show no "
-            "data for this job even though the analysis completed", job_id,
+            "[job %s] Could not build the analysis payload; the dashboard will "
+            "show no data for this job even though the analysis completed",
+            job_id,
         )
 
-    return result
+    return result, None
 
 def _extract_layer_results(result: Any) -> list[LayerResult]:
     """Convert AnalysisResult.layer_scores into a list of LayerResult.

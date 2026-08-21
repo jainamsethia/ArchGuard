@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from archguard.dashboard.app import app
+from tests.db_fixtures import requires_postgres
 
 
 @pytest.mark.integration
@@ -21,9 +22,10 @@ def test_validate_real_flask_repo():
     assert data["owner"] == "pallets"
     assert data["stars"] > 0
 
+@requires_postgres
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_submit_job_and_poll_to_complete():
+async def test_submit_job_and_poll_to_complete(live_db):
     """Submit a job and poll until COMPLETE or FAILED (max 5 minutes)."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

@@ -6,10 +6,9 @@ from typing import Any
 from fastapi import Depends, Query
 from pydantic import BaseModel, Field
 
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import _llm_rate_limit
-from archguard.dashboard.app import app, get_audit_path
+from archguard.dashboard.app import app
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +99,12 @@ async def remediation_plan_from_audit(
 
     from archguard.llm.remediation import RemediationUnavailableError, generate_remediation_plan
 
-    audit = AuditLogger(get_audit_path(job_id))
     if job_id:
-        runs = audit.read_last_n_runs(n=100)
-        latest = next((r for r in runs if r.get("job_id") == job_id), None)
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            latest = await store.get_latest_run(session, job_id)
         if latest is None:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")

@@ -42,13 +42,17 @@ def _alembic(*args: str, url: str) -> subprocess.CompletedProcess[str]:
 
 @pytest.fixture(scope="module")
 def migrated_database() -> Iterator[str]:
-    """A database at head, torn back down to base afterwards."""
+    """A database at head, left at head afterwards.
+
+    It used to tear down to base, which is right in isolation and wrong in a
+    suite: every other test file shares this database, so whichever ones
+    happened to run after this module found no tables at all.
+    ``test_migration_round_trips`` still exercises the full down-and-up cycle --
+    it just puts the schema back when it is done.
+    """
     result = _alembic("upgrade", "head", url=TEST_DATABASE_URL)
     assert result.returncode == 0, f"alembic upgrade failed:\n{result.stderr}"
-    try:
-        yield TEST_DATABASE_URL
-    finally:
-        _alembic("downgrade", "base", url=TEST_DATABASE_URL)
+    yield TEST_DATABASE_URL
 
 
 @pytest_asyncio.fixture

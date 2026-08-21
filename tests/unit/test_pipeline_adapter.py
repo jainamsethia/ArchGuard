@@ -36,7 +36,7 @@ async def test_run_analysis_auto_generates_contract(tmp_path):
     (tmp_path / "module.py").write_text("# empty")
 
     with patch("archguard.dashboard.pipeline_adapter._generate_contract_sync") as mock_gen, \
-         patch("archguard.dashboard.pipeline_adapter._run_analysis_sync", return_value=_mock_analysis_result()):
+         patch("archguard.dashboard.pipeline_adapter._run_analysis_sync", return_value=(_mock_analysis_result(), None)):
         result = await run_analysis_on_repo(
             repo_path=tmp_path, job_id="test-1", repo_url="https://github.com/x/y"
         )
@@ -51,7 +51,7 @@ async def test_run_analysis_skips_contract_generation_if_exists(tmp_path):
     (tmp_path / "module.py").write_text("# empty")
 
     with patch("archguard.dashboard.pipeline_adapter._generate_contract_sync") as mock_gen, \
-         patch("archguard.dashboard.pipeline_adapter._run_analysis_sync", return_value=_mock_analysis_result()):
+         patch("archguard.dashboard.pipeline_adapter._run_analysis_sync", return_value=(_mock_analysis_result(), None)):
         result = await run_analysis_on_repo(
             repo_path=tmp_path, job_id="test-2", repo_url="https://github.com/x/y"
         )

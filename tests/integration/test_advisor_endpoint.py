@@ -3,6 +3,7 @@ import os
 from fastapi.testclient import TestClient
 
 from archguard.dashboard.app import app
+from tests.db_fixtures import requires_postgres
 
 client = TestClient(app)
 
@@ -56,7 +57,8 @@ def test_deps_endpoint_requires_job_id():
     assert "No analysis selected" in data["detail"]
 
 
-def test_deps_endpoint_success(monkeypatch):
+@requires_postgres
+def test_deps_endpoint_success(monkeypatch, live_db):
     """GET /api/v1/deps?job_id=<uuid> returns 200 with dependency data.
 
     Providies a valid UUID, creates the matching workspace directory so
@@ -108,7 +110,8 @@ def test_deps_endpoint_success(monkeypatch):
         shutil.rmtree(Path(tempfile.gettempdir()) / f"archguard-{job_id}", ignore_errors=True)
 
 
-def test_evolution_endpoint():
+@requires_postgres
+def test_evolution_endpoint(live_db):
     """GET /api/evolution/summary"""
     headers = {"Authorization": "Bearer test_token"}
     response = client.get("/api/evolution/summary", headers=headers)

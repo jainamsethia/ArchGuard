@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +71,26 @@ def _normalise(url: str) -> str:
 def get_engine() -> AsyncEngine:
     if _state.engine is None:
         url = _normalise(database_url())
-        _state.engine = create_async_engine(
-            url,
+        pool_size = int(os.environ.get("ARCHGUARD_DB_POOL_SIZE", "5"))
+        kwargs: dict[str, object] = {
             # pre_ping costs one round trip per checkout and buys immunity to
             # the connection a managed Postgres closed while the pool was idle,
             # which otherwise surfaces as a random 500 after quiet periods.
-            pool_pre_ping=True,
-            pool_size=int(os.environ.get("ARCHGUARD_DB_POOL_SIZE", "5")),
-            max_overflow=int(os.environ.get("ARCHGUARD_DB_MAX_OVERFLOW", "10")),
-            echo=os.environ.get("ARCHGUARD_DB_ECHO", "").lower() in ("1", "true"),
-        )
+            "pool_pre_ping": True,
+            "echo": os.environ.get("ARCHGUARD_DB_ECHO", "").lower() in ("1", "true"),
+        }
+        if pool_size == 0:
+            # No pooling: connect per checkout. Wanted in front of an external
+            # pooler (pgbouncer) and required under tests, where asyncpg
+            # connections are bound to the event loop that opened them and a
+            # pooled one handed to a later loop raises rather than reconnects.
+            kwargs["poolclass"] = NullPool
+        else:
+            kwargs["pool_size"] = pool_size
+            kwargs["max_overflow"] = int(
+                os.environ.get("ARCHGUARD_DB_MAX_OVERFLOW", "10")
+            )
+        _state.engine = create_async_engine(url, **kwargs)
         logger.info("Database engine created for %s", _redact(url))
     return _state.engine
 

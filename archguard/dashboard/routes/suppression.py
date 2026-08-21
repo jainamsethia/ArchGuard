@@ -12,13 +12,14 @@ from archguard.dashboard.app import JobIdQuery, app
 from archguard.suppression.store import SuppressionStore
 
 
-def repo_url_for_job(job_id: str | None) -> str | None:
+async def repo_url_for_job(job_id: str | None) -> str | None:
     """Resolve a job id to the repository it analysed.
 
-    Checked in order of durability: the in-memory job manager knows about jobs
-    from this process, and the audit log still knows about them after a restart.
-    Suppressions must outlive both a job and a server restart, so the audit log
-    fallback matters -- without it a restart would silently start a new store.
+    The jobs table is the durable answer; the in-memory job map is only a
+    fast path for a job this process is still running. Suppressions must
+    outlive both a job and a server restart, so a lookup that only consulted
+    process memory would silently start a fresh store after every deploy --
+    which is what the orphaned ``suppressions-<uuid>.jsonl`` files are.
     """
     if not job_id:
         return None
@@ -33,14 +34,13 @@ def repo_url_for_job(job_id: str | None) -> str | None:
         logging.getLogger(__name__).debug("Job lookup failed for %s: %s", job_id, exc)
 
     try:
-        from archguard.audit.logger import AuditLogger
-        from archguard.dashboard.app import get_audit_path
+        from archguard.db.session import session_scope
+        from archguard.db.store import get_job_repo_url
 
-        for run in reversed(AuditLogger(get_audit_path(job_id)).read_last_n_runs(n=200)):
-            if run.get("job_id") == job_id and run.get("repo_url"):
-                return str(run["repo_url"])
+        async with session_scope() as session:
+            return await get_job_repo_url(session, job_id)
     except Exception as exc:
-        logging.getLogger(__name__).debug("Audit lookup failed for %s: %s", job_id, exc)
+        logging.getLogger(__name__).debug("Job row lookup failed for %s: %s", job_id, exc)
 
     return None
 
@@ -52,17 +52,22 @@ def suppression_base_dir() -> Path:
     return base
 
 
-def _suppression_store(job_id: str | None) -> SuppressionStore:
-    """Return the durable, repository-keyed SuppressionStore for a job.
+def _suppression_store(
+    repo_url: str | None, job_id: str | None = None
+) -> SuppressionStore:
+    """Return the durable, repository-keyed SuppressionStore.
 
     Keyed by ``owner/repo`` rather than ``job_id``: every scan creates a new job
     id, so a job-scoped store could never be found again on the next scan of the
     same repository -- which is the only time a suppression is any use.
+
+    The repository is passed in rather than looked up, because both callers
+    already know it: a route has resolved the job, and ``_selection`` has the
+    run, which records its own ``repo_url``.
     """
     from archguard.suppression.scope import suppression_path_for_repo
 
     base = suppression_base_dir()
-    repo_url = repo_url_for_job(job_id)
 
     if repo_url:
         store_path = suppression_path_for_repo(base, repo_url)
@@ -83,8 +88,8 @@ def _suppression_store(job_id: str | None) -> SuppressionStore:
 
 
 @app.get("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def get_suppressions(job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(job_id)
+async def get_suppressions(job_id: JobIdQuery = None) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id), job_id)
     suppressions = store.list_all(include_inactive=True)
     return {"suppressions": [s.__dict__ for s in suppressions]}
 
@@ -98,8 +103,8 @@ class AddSuppressionRequest(BaseModel):
     commit_sha: str | None = None
 
 @app.post("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def add_suppression(req: AddSuppressionRequest, job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(job_id)
+async def add_suppression(req: AddSuppressionRequest, job_id: JobIdQuery = None) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id), job_id)
 
     expires_at = None
     if req.expires_in_days:
@@ -125,8 +130,8 @@ class RemoveSuppressionRequest(BaseModel):
     suppression_id: str
 
 @app.delete("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-def remove_suppression(req: RemoveSuppressionRequest, job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(job_id)
+async def remove_suppression(req: RemoveSuppressionRequest, job_id: JobIdQuery = None) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id), job_id)
     if not store.delete(req.suppression_id):
         raise HTTPException(status_code=404, detail="Suppression not found")
     return {"status": "success"}

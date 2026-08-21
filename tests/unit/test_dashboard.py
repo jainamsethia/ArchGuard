@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from archguard.dashboard.app import app
+from tests.db_fixtures import requires_postgres
 
 # Create a TestClient for our app
 client = TestClient(app)
@@ -22,15 +23,18 @@ def test_dashboard_version_matches_package_version():
 
 
 @pytest.fixture
-def mock_audit_logger():
-    # Mock AuditLogger so the endpoint actually works without needing a real DB/file
-    with patch("archguard.dashboard.routes.runs.AuditLogger") as mock_logger_cls:
-        mock_instance = MagicMock()
-        mock_instance.read_last_n_runs.return_value = []
-        mock_logger_cls.return_value = mock_instance
-        yield mock_instance
+def mock_audit_logger(live_db):
+    """An empty database behind the endpoint under test.
+
+    These are auth and validation tests -- they care about status codes, not
+    rows -- but the endpoint queries PostgreSQL, so it gets PostgreSQL. Stubbing
+    the query here would mean the 200 path never proves the endpoint can serve
+    a request at all.
+    """
+    yield None
 
 
+@requires_postgres
 def test_api_runs_no_token_configured(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 200 when no token is configured."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
@@ -44,6 +48,7 @@ def test_api_runs_no_token_configured(mock_audit_logger, monkeypatch):
     assert "runs" in response.json()
 
 
+@requires_postgres
 def test_api_runs_token_configured_no_auth(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 401 when ARCHGUARD_DASHBOARD_TOKEN is set and no auth header is provided."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
@@ -53,6 +58,7 @@ def test_api_runs_token_configured_no_auth(mock_audit_logger, monkeypatch):
     assert response.json()["detail"] == "Invalid or missing token"
 
 
+@requires_postgres
 def test_api_runs_token_configured_with_correct_auth(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 200 with the correct bearer token."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
@@ -62,6 +68,7 @@ def test_api_runs_token_configured_with_correct_auth(mock_audit_logger, monkeypa
     assert "runs" in response.json()
 
 
+@requires_postgres
 def test_api_runs_token_configured_with_incorrect_auth(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 401 with an incorrect bearer token."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
@@ -76,6 +83,7 @@ from collections import namedtuple
 ClientTuple = namedtuple("ClientTuple", ["host", "port"])
 
 
+@requires_postgres
 def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
     """Test that remote IP without token returns 401."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
@@ -97,6 +105,7 @@ def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
         )
 
 
+@requires_postgres
 def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
     """Test that remote IP with correct token returns 200."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
@@ -113,6 +122,7 @@ def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
         assert response.status_code == 200
 
 
+@requires_postgres
 def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 422 if limit > 500."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
@@ -152,11 +162,22 @@ def test_response_includes_csp_header_without_hardcoded_localhost(monkeypatch) -
     assert resp.headers["X-Frame-Options"] == "DENY"
 
 
+@requires_postgres
 def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
-    """Test that /api/runs returns 429 after 50 requests in a minute."""
+    """The 51st request in a window is refused.
+
+    Time is pinned for the duration. The limiter buckets by
+    ``int(time.time()) // RATE_LIMIT_WINDOW``, so a real clock crossing a
+    boundary mid-test resets the counter and the 51st request succeeds -- a true
+    property of fixed-window limiting (a client can get 2x the limit across a
+    boundary) but not the thing under test, and a flake that only shows up when
+    the suite happens to start near a minute mark.
+    """
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    from archguard.dashboard import _rate_limit
     from archguard.dashboard._rate_limit import reset_rate_limits
 
+    monkeypatch.setattr(_rate_limit.time, "time", lambda: 1_700_000_000.0)
     reset_rate_limits()
 
     for _ in range(50):
@@ -168,6 +189,7 @@ def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
     assert response.json()["detail"] == "Too many requests"
 
 
+@requires_postgres
 def test_api_trends_invalid_module_returns_422(mock_audit_logger, monkeypatch):
     """Test that /api/trends/<invalid-chars> returns 422."""
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)

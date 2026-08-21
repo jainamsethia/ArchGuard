@@ -8,48 +8,50 @@ from typing import Any
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app, get_audit_path
+from archguard.dashboard.app import JobIdQuery, app
 
 logger = logging.getLogger(__name__)
 
 MIN_RUNS_FOR_HISTORY = 2
 
 
-def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], str | None]:
+async def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], str | None]:
     """Analysis runs belonging to the same repository as *job_id*.
 
-    Neither available log is per-repo history. The job's own workspace log holds
-    exactly one run -- the job that wrote it -- and when that workspace expires
-    ``get_audit_path`` falls back to the server-wide log, which interleaves every
-    repository this instance has ever analysed. Computing a trend over that
-    fallback produced a chart mixing unrelated projects.
-
-    Every run already records ``repo_url``, so scoping by it is enough to avoid
-    presenting one repository's history as another's. This is deliberately *not*
-    the deferred per-repo history feature: it only filters what is already
-    persisted, and still returns fewer than two runs for most repositories.
+    This is per-repository history now, not a filtered view of one shared log.
+    Runs are joined to the repository row, so every scan of a repository is
+    correlated regardless of which job produced it or when -- which is what
+    makes a trend possible at all. It used to read a workspace log holding
+    exactly one run, falling back to a server-wide log that interleaved every
+    repository this instance had ever analysed.
     """
-    logger = AuditLogger(get_audit_path(job_id))
-    runs = logger.read_last_n_runs(n=limit)
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    if job_id is None:
+        # No job means no repository context, and answering from every run this
+        # instance holds would present a stranger's history as the visitor's.
+        return [], None
+    job = job_id
 
     repo_url = None
     try:
         from archguard.dashboard.routes.suppression import repo_url_for_job
 
-        repo_url = repo_url_for_job(job_id)
+        repo_url = await repo_url_for_job(job)
     except Exception:
         repo_url = None
 
-    if repo_url:
-        runs = [r for r in runs if r.get("repo_url") == repo_url]
-    elif job_id:
-        # Repository unknown: fall back to this job's own runs rather than the
-        # whole server's, which would be cross-repo.
-        runs = [r for r in runs if r.get("job_id") == job_id]
-    return runs, repo_url
+    async with session_scope() as session:
+        if repo_url:
+            runs = await store.get_runs_for_repository(session, repo_url, limit=limit)
+        else:
+            # Repository unknown: this job's own runs rather than the whole
+            # server's, which would be cross-repo.
+            runs = await store.get_runs_for_job(session, job, limit=limit)
+    return list(runs), repo_url
 
 
 def _insufficient_history(runs: list[Any], repo_url: str | None) -> dict[str, Any]:
@@ -73,11 +75,11 @@ def _insufficient_history(runs: list[Any], repo_url: str | None) -> dict[str, An
 @app.get(
     "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return the complete evolution trend report."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
@@ -91,11 +93,11 @@ def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: 
 @app.get(
     "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return the parsed evolution snapshots."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
@@ -112,11 +114,11 @@ def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: 
 @app.get(
     "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
     """Return just the calculated trends."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)

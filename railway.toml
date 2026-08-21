@@ -4,9 +4,23 @@ dockerfilePath = "./Dockerfile"
 
 [env]
 ENVIRONMENT = "production"
+# Railway terminates TLS at its own proxy, so every request arrives from that
+# proxy's address. Without this, _real_client_ip returns the proxy IP for
+# everyone and all users share one rate-limit bucket -- one client locks out
+# the whole service, including the billable LLM endpoints.
+ARCHGUARD_TRUSTED_PROXY_IPS = "*"
+
+# DATABASE_URL, REDIS_URL, SESSION_SECRET, ARCHGUARD_DASHBOARD_TOKEN and
+# GEMINI_API_KEY are set in the Railway dashboard, not here: this file is
+# committed and they are credentials. Add the Postgres and Redis plugins and
+# reference them as ${{Postgres.DATABASE_URL}} and ${{Redis.REDIS_URL}}.
+# Note DATABASE_URL must carry the +asyncpg driver; Railway hands out the
+# driverless form, which archguard.db.session normalises on the way in.
 
 [deploy]
-startCommand = "uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port $PORT"
+# Migrations run first, in the entrypoint, so a failed migration fails the
+# deploy rather than half-starting a server against the wrong schema.
+startCommand = "docker-entrypoint.sh uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "on_failure"

@@ -16,45 +16,45 @@ fails when the network or git is unavailable.
 from __future__ import annotations
 
 import asyncio
-import uuid
 
 import pytest
 
-from archguard.audit.logger import AuditLogger
 from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
 from archguard.dashboard.workspace import temp_workspace
+from tests.db_fixtures import requires_postgres
+
+pytestmark = requires_postgres
 
 # Small, stable, permissively licensed, and rarely force-pushed.
 REPO_URL = "https://github.com/benjaminp/six.git"
 
 
 def _run_pipeline() -> tuple[object, dict | None]:
-    job_id = uuid.uuid4().hex[:12]
-
     async def _go():
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            job_id = (await store.create_job(session, REPO_URL)).id
+
         async with temp_workspace(REPO_URL, job_id=job_id, keep_alive=False) as repo:
             result = await run_analysis_on_repo(
                 repo, job_id=job_id, repo_url=REPO_URL,
             )
-            persisted = next(
-                (
-                    r
-                    for r in reversed(
-                        AuditLogger(
-                            repo / ".archguard-cache" / "audit.jsonl"
-                        ).read_last_n_runs(n=50)
-                    )
-                    if r.get("job_id") == job_id
-                ),
-                None,
-            )
-            return result, persisted
+        # Read back outside the workspace: the run has to survive the clone
+        # being swept, which is the whole point of storing it.
+        async with session_scope() as session:
+            return result, await store.get_latest_run(session, job_id)
 
     return asyncio.run(_go())
 
 
 @pytest.fixture(scope="module")
-def pipeline_run():
+def pipeline_run(_schema_at_head):
+    import os
+
+    os.environ["DATABASE_URL"] = _schema_at_head
+    os.environ["ARCHGUARD_DB_POOL_SIZE"] = "0"
     try:
         return _run_pipeline()
     except (RuntimeError, TimeoutError, OSError) as exc:
@@ -75,8 +75,8 @@ def test_pipeline_completes_without_error(pipeline_run):
 def test_pipeline_persists_a_run_for_its_job(pipeline_run):
     """A completed analysis must leave a run the API can serve.
 
-    The audit write is wrapped in a broad handler; if it fails the analysis
-    still "succeeds" while every read endpoint reports no data.
+    The write is wrapped in a broad handler; if it fails the analysis still
+    "succeeds" while every read endpoint reports no data.
     """
     _, persisted = pipeline_run
 

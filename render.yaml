@@ -30,3 +30,30 @@ services:
         sync: false
       - key: ARCHGUARD_TRUSTED_PROXY_IPS
         value: "*"
+      # Wired by reference, never as a literal: the value is a credential and
+      # this file is committed. Render substitutes it at deploy time.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: archguard-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: archguard-redis
+          property: connectionString
+      # Required from P0-6 on: the session cookie HMAC key, distinct from the
+      # ops token. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`.
+      - key: SESSION_SECRET
+        sync: false
+
+databases:
+  - name: archguard-db
+    databaseName: archguard
+    user: archguard
+    plan: basic-256mb
+
+  - type: redis
+    name: archguard-redis
+    plan: free
+    # Sessions, rate-limit counters and job progress. No inbound public access.
+    ipAllowList: []

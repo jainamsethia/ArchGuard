@@ -30,6 +30,7 @@ from archguard.contract._discovery import (
 from archguard.contract._discovery import (
     scan_commit_history as _phase2_commits,
 )
+from tests.db_fixtures import requires_postgres
 
 
 def _empty_graph_data() -> dict:
@@ -172,15 +173,21 @@ def test_payload_carries_provenance_fields():
     assert "sparse_history" in dumped["fallback_reason"]
 
 
-def test_fallback_flag_is_visible_in_runs_api(monkeypatch, tmp_path):
-    """The flag must reach /api/v1/runs, not stop at the pipeline adapter."""
-    from archguard.audit.logger import AuditLogger
+@requires_postgres
+def test_fallback_flag_is_visible_in_runs_api(seed_run):
+    """The flag must reach /api/v1/runs, not stop at the pipeline adapter.
+
+    Written through ``persist_run`` and read back through the query the API
+    uses, so it also pins that the columns carrying this provenance survive the
+    round trip -- a flag dropped by the schema would look exactly like a
+    contract that was never guessed at.
+    """
+    import asyncio
+
     from archguard.dashboard._result_schema import AnalysisResultPayload
     from archguard.dashboard.routes import runs as runs_route
 
     job_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    log_path = tmp_path / "audit.jsonl"
-
     payload = AnalysisResultPayload(
         job_id=job_id, score=72.5, band="WARN", violations=[],
         modules_analyzed=["docs", "src"],
@@ -189,10 +196,11 @@ def test_fallback_flag_is_visible_in_runs_api(monkeypatch, tmp_path):
         contract_auto_generated=True,
         fallback_reason="archguard init (directory heuristic fallback: history_unavailable)",
     )
-    AuditLogger(log_path).log("analysis_run", **payload.model_dump())
-    monkeypatch.setattr(runs_route, "get_audit_path", lambda jid: log_path)
+    stored = payload.model_dump()
+    stored.pop("job_id", None)
+    seed_run(job_id=job_id, **stored)
 
-    body = runs_route.get_runs(limit=50, job_id=job_id)
+    body = asyncio.run(runs_route.get_runs(limit=50, job_id=job_id))
     assert len(body["runs"]) == 1
     run = body["runs"][0]
 
@@ -200,5 +208,5 @@ def test_fallback_flag_is_visible_in_runs_api(monkeypatch, tmp_path):
     assert run["contract_auto_generated"] is True
     assert "history_unavailable" in run["fallback_reason"]
 
-    latest = runs_route.get_latest_run(job_id=job_id)
+    latest = asyncio.run(runs_route.get_latest_run(job_id=job_id))
     assert latest["fallback_directory_heuristic"] is True

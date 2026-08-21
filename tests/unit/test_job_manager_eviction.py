@@ -1,12 +1,17 @@
+import pytest
+
 from archguard.dashboard.job_manager import MAX_STORED_JOBS, JobManager, JobStatus
+from tests.db_fixtures import requires_postgres
 
 
-def test_eviction_skips_running_jobs():
+@requires_postgres
+@pytest.mark.asyncio
+async def test_eviction_skips_running_jobs(live_db):
     manager = JobManager()
 
     # Fill job manager to MAX_STORED_JOBS
     for i in range(MAX_STORED_JOBS):
-        job = manager.create_job(f"http://dummy/{i}")
+        job = await manager.create_job(f"http://dummy/{i}")
         # Mark all as complete, so they are evictable
         job.status = JobStatus.COMPLETE
 
@@ -18,7 +23,7 @@ def test_eviction_skips_running_jobs():
     manager._jobs[first_job_id].status = JobStatus.ANALYSING
 
     # Create one more job, which triggers eviction
-    new_job = manager.create_job("http://dummy/new")
+    new_job = await manager.create_job("http://dummy/new")
 
     # Ensure we still only have MAX_STORED_JOBS items
     assert len(manager._jobs) == MAX_STORED_JOBS
@@ -26,15 +31,17 @@ def test_eviction_skips_running_jobs():
     # The first job which is analyzing should NOT have been evicted
     assert first_job_id in manager._jobs
 
-def test_eviction_skips_when_all_running():
+@requires_postgres
+@pytest.mark.asyncio
+async def test_eviction_skips_when_all_running(live_db):
     manager = JobManager()
 
     for i in range(MAX_STORED_JOBS):
-        job = manager.create_job(f"http://dummy/{i}")
+        job = await manager.create_job(f"http://dummy/{i}")
         job.status = JobStatus.ANALYSING
 
     # Create one more job, triggers eviction but all are running
-    new_job = manager.create_job("http://dummy/new")
+    new_job = await manager.create_job("http://dummy/new")
 
     # Store size is allowed to grow past MAX_STORED_JOBS if all are running
     assert len(manager._jobs) == MAX_STORED_JOBS + 1

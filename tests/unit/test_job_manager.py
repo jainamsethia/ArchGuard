@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from archguard.dashboard.job_manager import JobManager, JobStatus
+from tests.db_fixtures import requires_postgres
 
 
 @pytest.fixture
@@ -48,37 +49,43 @@ async def test_concurrent_semaphore_creation_yields_single_instance() -> None:
         first.release()
 
 
-def test_create_job(manager):
+@requires_postgres
+@pytest.mark.asyncio
+async def test_create_job(manager, live_db):
     """create_job returns a job with QUEUED status and a UUID id."""
-    job = manager.create_job("https://github.com/owner/repo")
+    job = await manager.create_job("https://github.com/owner/repo")
     assert job.status == JobStatus.QUEUED
     assert len(job.id) == 36  # UUID4 format
     assert manager.get_job(job.id) is job
 
-def test_list_jobs_newest_first(manager):
+@requires_postgres
+@pytest.mark.asyncio
+async def test_list_jobs_newest_first(manager, live_db):
     """list_jobs returns jobs sorted newest-first."""
-    import time
-    j1 = manager.create_job("https://github.com/a/a")
-    time.sleep(0.01)
-    j2 = manager.create_job("https://github.com/b/b")
+    j1 = await manager.create_job("https://github.com/a/a")
+    await asyncio.sleep(0.01)
+    j2 = await manager.create_job("https://github.com/b/b")
     jobs = manager.list_jobs()
     assert jobs[0].id == j2.id
     assert jobs[1].id == j1.id
 
-def test_evicts_oldest_terminal_beyond_max(manager):
+@requires_postgres
+@pytest.mark.asyncio
+async def test_evicts_oldest_terminal_beyond_max(manager, live_db):
     """Terminal jobs beyond MAX_STORED_JOBS are evicted oldest-first; live jobs
     are never evicted (see test_job_manager_eviction.py for the all-live case)."""
     from archguard.dashboard.job_manager import MAX_STORED_JOBS
     for i in range(MAX_STORED_JOBS + 5):
-        job = manager.create_job(f"https://github.com/x/repo{i}")
+        job = await manager.create_job(f"https://github.com/x/repo{i}")
         job.status = JobStatus.COMPLETE
     assert len(manager._jobs) == MAX_STORED_JOBS
 
+@requires_postgres
 @pytest.mark.asyncio
-async def test_run_job_success_lifecycle(manager):
+async def test_run_job_success_lifecycle(manager, live_db):
     """run_job transitions: QUEUED → CLONING → ANALYSING → COMPLETE."""
     from archguard.dashboard.pipeline_adapter import AnalysisJobResult
-    job = manager.create_job("https://github.com/owner/repo")
+    job = await manager.create_job("https://github.com/owner/repo")
     assert job.status == JobStatus.QUEUED
 
     mock_result = AnalysisJobResult(
@@ -109,10 +116,11 @@ async def test_run_job_success_lifecycle(manager):
         assert job.result is mock_result
         assert job.completed_at is not None
 
+@requires_postgres
 @pytest.mark.asyncio
-async def test_run_job_failed_on_timeout(manager):
+async def test_run_job_failed_on_timeout(manager, live_db):
     """TimeoutError → job.status = FAILED with error message."""
-    job = manager.create_job("https://github.com/owner/repo")
+    job = await manager.create_job("https://github.com/owner/repo")
 
     with patch("archguard.dashboard.workspace.temp_workspace", side_effect=TimeoutError("clone timed out")):
         await manager.run_job(job)
@@ -120,8 +128,9 @@ async def test_run_job_failed_on_timeout(manager):
     assert job.status == JobStatus.FAILED
     assert "timed out" in job.error
 
+@requires_postgres
 @pytest.mark.asyncio
-async def test_semaphore_limits_concurrency(manager):
+async def test_semaphore_limits_concurrency(manager, live_db):
     """At most MAX_CONCURRENT_ANALYSES jobs run simultaneously."""
     from archguard.dashboard.job_manager import MAX_CONCURRENT_ANALYSES
     concurrent_count = 0
@@ -138,7 +147,7 @@ async def test_semaphore_limits_concurrency(manager):
         yield Path("/tmp/fake")
         concurrent_count -= 1
 
-    jobs = [manager.create_job(f"https://github.com/x/r{i}") for i in range(5)]
+    jobs = [await manager.create_job(f"https://github.com/x/r{i}") for i in range(5)]
 
     from archguard.dashboard.pipeline_adapter import AnalysisJobResult
     mock_res = AnalysisJobResult(job_id="x", repo_url="y", health_score=80.0, health_grade="B", composite_score=0.1, total_violations=0, duration_seconds=0.1, skipped=False, error=None, layer_results=[])

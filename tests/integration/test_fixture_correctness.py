@@ -9,8 +9,10 @@ that silently changes the output will fail this test loudly.
 
 It calls ``run_analysis_on_repo`` directly — the real pipeline_adapter the
 dashboard uses — so the analysis (Layer 1-4, scoring, ViolationPayload
-serialization, audit-log write) is exercised unmocked. The network/git-clone
-layer is bypassed because correctness lives in the analysis, not the fetch.
+serialization, the write to PostgreSQL) is exercised unmocked. The network and
+git-clone layer is bypassed because correctness lives in the analysis, not the
+fetch; the database is not, because the persisted run is what the dashboard
+actually shows and asserting on an in-memory object would not check it.
 
 Ground truth (verified by reading the fixture sources):
   - layer1_forbidden: api/routes.py:1 ``from db.models import User``;
@@ -29,9 +31,10 @@ from pathlib import Path
 
 import pytest
 
-from archguard.audit.logger import AuditLogger
-from archguard.config import AUDIT_LOG_FILENAME
 from archguard.dashboard.pipeline_adapter import run_analysis_on_repo
+from tests.db_fixtures import requires_postgres
+
+pytestmark = requires_postgres
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -56,23 +59,52 @@ _ML_SKIPPED_BY_ENV = os.environ.get("ARCHGUARD_SKIP_ML") == "1"
 _ML_AVAILABLE = _ML_INSTALLED and not _ML_SKIPPED_BY_ENV
 
 
+@pytest.fixture(autouse=True)
+def _database(live_db):
+    """Every test here runs the real pipeline, which persists its run."""
+    return live_db
+
+
 async def _noop_progress(_msg: str) -> None:
     return None
+
+
+def _analyse(repo_path: Path, repo_url: str) -> tuple:
+    """Run the real pipeline against a checkout and read its stored run back."""
+    import asyncio
+
+    async def _go() -> tuple:
+        from archguard.db import store
+        from archguard.db.session import session_scope
+
+        async with session_scope() as session:
+            job_id = (await store.create_job(session, repo_url)).id
+
+        result = await run_analysis_on_repo(
+            repo_path=repo_path,
+            job_id=job_id,
+            repo_url=repo_url,
+            progress_callback=_noop_progress,
+            skip_explanation=True,
+        )
+        async with session_scope() as session:
+            return result, await store.get_latest_run(session, job_id)
+
+    return asyncio.run(_go())
 
 
 def _run(fixture_name: str, tmp_path=None):
     """Run the real pipeline_adapter against a fixture and return (result, audit_run).
 
-    The pipeline writes violations only to the audit log (AnalysisJobResult
-    carries a count, not the list), so we read them back from
-    ``<repo>/.archguard-cache/audit.jsonl`` to assert on their content.
+    The pipeline stores violations rather than returning them (AnalysisJobResult
+    carries a count, not the list), so we read the run back out of PostgreSQL to
+    assert on their content.
 
     Runs against a *copy* of the fixture in a throwaway temp dir (created if no
     ``tmp_path`` is supplied) so the source fixture is never mutated — a prior
     run's audit log / embeddings DB can't leak into later tests (which caused
     an order-dependent failure in the full suite).
     """
-    import asyncio
     import shutil
     import tempfile
 
@@ -91,19 +123,8 @@ def _run(fixture_name: str, tmp_path=None):
         )
         _cleanup = repo_path.parent
 
-    job_id = "00000000-0000-0000-0000-000000000001"
     try:
-        result = asyncio.run(
-            run_analysis_on_repo(
-                repo_path=repo_path,
-                job_id=job_id,
-                repo_url=f"https://github.com/test/{fixture_name}.git",
-                progress_callback=_noop_progress,
-                skip_explanation=True,
-            )
-        )
-        audit_run = AuditLogger(repo_path / AUDIT_LOG_FILENAME).read_last_run()
-        return result, audit_run
+        return _analyse(repo_path, f"https://github.com/test/{fixture_name}.git")
     finally:
         if _cleanup is not None:
             shutil.rmtree(_cleanup, ignore_errors=True)
@@ -214,17 +235,7 @@ def test_planted_duplication_intra_module_no_cross_module_violation(tmp_path):
     repo = tmp_path / "repo"
     shutil.copytree(src, repo, ignore=shutil.ignore_patterns(".git", ".archguard-cache"))
 
-    import asyncio
-    result = asyncio.run(
-        run_analysis_on_repo(
-            repo_path=repo,
-            job_id="00000000-0000-0000-0000-000000000021",
-            repo_url="https://github.com/test/intra.git",
-            progress_callback=_noop_progress,
-            skip_explanation=True,
-        )
-    )
-    audit_run = AuditLogger(repo / AUDIT_LOG_FILENAME).read_last_run()
+    result, audit_run = _analyse(repo, "https://github.com/test/intra.git")
     assert result.skipped is False
     assert result.error is None, f"Layer 4 should not error: {result.error}"
     assert _violations(audit_run, layer=4) == [], (
@@ -244,7 +255,6 @@ def test_cross_module_duplication_is_detected(tmp_path):
     and ``_layer_runners._run_layer4``. This test fails loudly if either regresses
     and cross-module duplication silently stops being detected.
     """
-    import asyncio
     import shutil
 
     src = FIXTURES / "planted_duplication"
@@ -257,16 +267,7 @@ def test_cross_module_duplication_is_detected(tmp_path):
         encoding="utf-8",
     )
 
-    asyncio.run(
-        run_analysis_on_repo(
-            repo_path=repo,
-            job_id="00000000-0000-0000-0000-000000000022",
-            repo_url="https://github.com/test/cross.git",
-            progress_callback=_noop_progress,
-            skip_explanation=True,
-        )
-    )
-    audit_run = AuditLogger(repo / AUDIT_LOG_FILENAME).read_last_run()
+    _result, audit_run = _analyse(repo, "https://github.com/test/cross.git")
     layer4 = _violations(audit_run, layer=4)
     assert len(layer4) >= 1, (
         "expected Layer 4 cross-module duplication violation; "
