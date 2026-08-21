@@ -81,12 +81,47 @@ def test_tags_are_balanced(template: Path) -> None:
 
 @pytest.mark.parametrize("template", TEMPLATE_FILES, ids=lambda p: p.name)
 def test_every_referenced_static_asset_exists(template: Path) -> None:
-    """A 404 on a <script src> is invisible until the page quietly misbehaves."""
+    """A 404 on a <script src> is invisible until the page quietly misbehaves.
+
+    Only asset references are checked. A link to a page the application serves
+    is not a file on disk, so it is resolved against the route table instead --
+    a link to a route that does not exist is still a broken link, and
+    ``test_every_internal_link_resolves`` below is what catches it.
+    """
     static = TEMPLATES.parent / "static"
     html = template.read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="/([^"?#]+)"', html)
-    missing = [r for r in refs if not (static / r).exists()]
+    # An asset has a file extension; a route does not.
+    assets = [r for r in refs if "." in r.rsplit("/", 1)[-1]]
+    missing = [r for r in assets if not (static / r).exists()]
     assert not missing, f"{template.name} references missing static files: {missing}"
+
+
+@pytest.mark.parametrize("template", TEMPLATE_FILES, ids=lambda p: p.name)
+def test_every_internal_link_resolves(template: Path) -> None:
+    """A link to a page that does not exist is a broken link on a live site.
+
+    Checked against the route table rather than the filesystem, because these
+    are rendered by handlers. The landing page, the example report and the
+    policy pages all link to each other, and a typo in one of them is a 404 a
+    visitor hits rather than a test does.
+    """
+    from archguard.dashboard.app import app
+
+    routes = {getattr(r, "path", "") for r in app.routes}
+    static = TEMPLATES.parent / "static"
+
+    html = template.read_text(encoding="utf-8")
+    links = re.findall(r'href="(/[^"?#]*)"', html)
+    broken = [
+        link
+        for link in links
+        if link not in routes
+        and not (static / link.lstrip("/")).exists()
+        # "/" is the index route; the static mount also answers it.
+        and link != "/"
+    ]
+    assert not broken, f"{template.name} links to missing pages: {broken}"
 
 
 @pytest.mark.parametrize("template", TEMPLATE_FILES, ids=lambda p: p.name)

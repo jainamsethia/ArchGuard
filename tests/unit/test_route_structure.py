@@ -26,6 +26,11 @@ UNPREFIXED = {
     # Registered with GitHub as the OAuth callback.
     "/auth/github",
     "/auth/github/callback",
+    # Public marketing pages. A visitor reaches these before they have an
+    # account, so they are neither versioned nor authenticated.
+    "/example",
+    "/privacy",
+    "/terms",
     # FastAPI's own.
     "/docs",
     "/docs/oauth2-redirect",

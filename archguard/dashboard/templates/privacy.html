@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy — ArchGuard</title>
+    <meta name="description" content="What ArchGuard stores when you analyse a repository, and how to have it deleted.">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/index.css"/>
+    <script src="/theme.js"></script>
+</head>
+<body class="page-index">
+    <div class="container" id="main-container">
+        <header class="hero">
+            <h1 class="hero-title">Privacy</h1>
+            <p class="hero-lede">
+                Short version: your analyses are private to your account, and
+                ArchGuard only reads repositories that are already public.
+            </p>
+        </header>
+
+        <section class="prose-page">
+            <h2 class="section-heading">What is stored</h2>
+            <ul>
+                <li>
+                    Your GitHub numeric account id, login and avatar URL, taken
+                    from the <code>read:user</code> scope when you sign in. That
+                    is the whole of the GitHub permission ArchGuard asks for: it
+                    cannot read your private repositories, and it never acts on
+                    your behalf.
+                </li>
+                <li>
+                    The URL of each public repository you analyse, and the
+                    result of the analysis: scores, module names, file paths and
+                    findings.
+                </li>
+                <li>
+                    A session, so you stay signed in. It expires, and signing
+                    out ends it immediately.
+                </li>
+            </ul>
+
+            <h2 class="section-heading">What is not stored</h2>
+            <ul>
+                <li>
+                    Your repository's source code. It is cloned to a temporary
+                    directory, analysed, and the clone is deleted. What is kept
+                    is the measurements — including file paths and the lines a
+                    finding points at, but not the file contents.
+                </li>
+                <li>
+                    Your GitHub access token. It is used once, at sign-in, to
+                    read your account, and then discarded.
+                </li>
+            </ul>
+
+            <h2 class="section-heading">Who can see it</h2>
+            <p>
+                You. Every endpoint that returns analysis data filters on the
+                signed-in account, and another account asking for your results
+                is told they do not exist. If AI features are enabled on this
+                instance, the findings selected for an explanation are sent to
+                the configured model provider; nothing else is.
+            </p>
+
+            <h2 class="section-heading">Deleting it</h2>
+            <p>
+                Ask, and your account and every analysis attached to it are
+                removed. Deleting an account deletes its jobs, runs and findings
+                with it.
+            </p>
+        </section>
+
+        <footer class="site-footer">
+            <a href="/">Home</a>
+            <a href="/example">Example report</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+        </footer>
+    </div>
+</body>
+</html>

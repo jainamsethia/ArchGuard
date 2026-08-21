@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example report — ArchGuard</title>
+    <meta name="description" content="A real ArchGuard report: what the tool measured when it analysed its own repository, including the layers it could not run.">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/index.css"/>
+    <script src="/theme.js"></script>
+</head>
+<body class="page-index">
+    <div class="container" id="main-container">
+        <header class="hero">
+            <h1 class="hero-title">Example report</h1>
+            <p class="hero-lede">
+                This is not a mock-up. It is what ArchGuard measured when it
+                analysed <a href="{{ run.repo_url }}" rel="noopener">its own
+                repository</a> — the same output you get for yours.
+            </p>
+        </header>
+
+        <section class="glass-card card-section" aria-labelledby="example-score">
+            <h2 id="example-score" class="section-heading">Health</h2>
+            <div class="example-score-row">
+                <div>
+                    <div class="metric-title">Score</div>
+                    <div class="metric-value text-metric-lg">{{ "%.1f"|format(run.score) }}</div>
+                </div>
+                <div>
+                    <div class="metric-title">Band</div>
+                    <div class="metric-value"><span class="chip chip-pass">{{ run.band }}</span></div>
+                </div>
+                <div>
+                    <div class="metric-title">Findings</div>
+                    <div class="metric-value text-metric-lg">{{ run.violations|length }}</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="glass-card card-section" aria-labelledby="example-modules">
+            <h2 id="example-modules" class="section-heading">Modules</h2>
+            <table class="example-table">
+                <thead><tr><th scope="col">Module</th><th scope="col">Health</th></tr></thead>
+                <tbody>
+                {% for name, score in run.module_scores.items() %}
+                    <tr><td><code>{{ name }}</code></td><td>{{ "%.1f"|format(score) }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="glass-card card-section" aria-labelledby="example-layers">
+            <h2 id="example-layers" class="section-heading">What ran, and what did not</h2>
+            <p class="honesty-body">
+                A layer that could not run is reported as unmeasured and left
+                out of the score, rather than counted as a zero. This run had
+                the ML extras disabled, so two layers are marked skipped and say
+                why.
+            </p>
+            <table class="example-table">
+                <thead><tr><th scope="col">Layer</th><th scope="col">Status</th></tr></thead>
+                <tbody>
+                {% for layer in run.layer_results %}
+                    <tr>
+                        <td>{{ layer.name }}</td>
+                        <td>
+                        {% if layer.skipped %}
+                            <span class="chip">not measured</span>
+                            <span class="layer-skip-reason">{{ layer.skip_reason }}</span>
+                        {% else %}
+                            <span class="chip chip-pass">measured</span>
+                            — {{ layer.violation_count }} finding(s)
+                        {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="glass-card card-section" aria-labelledby="example-findings">
+            <h2 id="example-findings" class="section-heading">Findings</h2>
+            {% if run.violations %}
+            <ul class="example-findings">
+                {% for v in run.violations %}
+                <li>
+                    <span class="badge badge-{{ v.severity }}">{{ v.severity }}</span>
+                    <code>{{ v.module }}</code>
+                    <span class="finding-message">{{ v.message }}</span>
+                    <span class="finding-layer">Layer {{ v.layer }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            <p class="honesty-body">
+                Each finding carries the numbers behind it, so you can decide
+                whether the threshold fits your project rather than taking the
+                grade on trust.
+            </p>
+            {% else %}
+            <p class="honesty-body">Nothing over threshold in this run.</p>
+            {% endif %}
+        </section>
+
+        <p class="hero-example">
+            <a href="/">Analyse your own repository →</a>
+        </p>
+
+        <footer class="site-footer">
+            <a href="/">Home</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+        </footer>
+    </div>
+</body>
+</html>

@@ -12,7 +12,25 @@
   const signInBtn = document.getElementById('sign-in-button');
   const whoami = document.getElementById('whoami');
 
+  // Only the dashboard is gated. A first-time visitor has to be able to read
+  // what the product does before being asked to sign in -- covering the
+  // landing page with a sign-in prompt is asking for trust the page has not
+  // had a chance to earn yet.
+  // Gated pages carry the overlay markup; public ones do not. Keyed off the
+  // element rather than a class name so adding a page cannot accidentally gate
+  // it by inheriting the wrong body class.
+  const gated = overlay !== null;
+
   function showOverlay(message) {
+    if (!gated) {
+      // Public page. Surface the button in the page instead of over it.
+      if (signInBtn) signInBtn.hidden = false;
+      if (message && errEl) {
+        errEl.textContent = message;
+        errEl.style.display = 'block';
+      }
+      return;
+    }
     if (overlay) {
       overlay.style.display = 'flex';
       // `inert` removes the hidden content from the accessibility tree as well

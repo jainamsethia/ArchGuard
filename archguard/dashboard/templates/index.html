@@ -3,7 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ArchGuard - Job Submission</title>
+    <title>ArchGuard — see your Python codebase's architecture</title>
+
+    <meta name="description" content="Paste a public GitHub repository and get a measured architectural health report: import-boundary violations, module coupling, semantic drift and duplication. Every number is measured, and anything that could not be measured says so.">
+    <link rel="canonical" href="https://archguard.dev/">
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/favicon.svg">
+
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="ArchGuard — see your Python codebase's architecture">
+    <meta property="og:description" content="A measured architectural health report for any public Python repository. Import boundaries, coupling, drift and duplication.">
+    <meta property="og:url" content="https://archguard.dev/">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ArchGuard — see your Python codebase's architecture">
+    <meta name="twitter:description" content="A measured architectural health report for any public Python repository.">
     
     <link rel="stylesheet" href="/index.css"/>
     <!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
@@ -13,13 +27,13 @@
 </head>
 <body class="page-index">
 
-<!-- Sign-in overlay — shown when there is no session for this visitor.
-     No password field: the credential belongs to GitHub, not to this page. -->
-<div id="login-overlay" class="login-overlay">
-  <h2 class="login-title">Sign in to ArchGuard</h2>
-  <p class="login-subtitle">
-    Your analyses are private to your account.
-  </p>
+<!-- No sign-in overlay on this page, deliberately. A visitor who has not
+     heard of ArchGuard needs to read what it does before being asked to sign
+     in; covering the pitch with a sign-in prompt asks for trust the page has
+     not had a chance to earn. The control below appears when the visitor is
+     signed out, and submitting without a session prompts here too. -->
+<div class="account-bar">
+  <span id="whoami" class="account-name" hidden></span>
   <button id="sign-in-button" type="button" class="btn-login" hidden>
     Sign in with GitHub
   </button>
@@ -40,10 +54,31 @@
                 </button>
             </div>
         </div>
+        <!-- The pitch, above the input box. This page used to open with the
+             subtitle "Advanced Architectural AI Intelligence", which names a
+             category rather than an outcome -- a visitor who has not heard of
+             ArchGuard had nothing to go on. -->
+        <header class="hero">
+            <h1 class="hero-title">See your codebase's architecture</h1>
+            <p class="hero-lede">
+                Paste a public Python repository on GitHub. ArchGuard reads its
+                import graph and reports an architectural health score, the
+                modules carrying the most risk, and what it found — with a
+                sentence of plain English for every finding.
+            </p>
+            <p class="hero-sub">
+                Free, no setup, nothing to install. Most repositories take
+                about a minute.
+            </p>
+            <p class="hero-example">
+                <a href="/example">See an example report →</a>
+                <span class="hero-example-note">ArchGuard analysing its own repository</span>
+            </p>
+        </header>
+
         <div class="glass-card">
             <div class="header">
-                <h1>ArchGuard</h1>
-                <p>Advanced Architectural AI Intelligence</p>
+                <h2 class="form-heading">Analyse a repository</h2>
             </div>
 
             <form id="submit-form">
@@ -114,6 +149,71 @@
                 </div>
             </div>
         </div>
+
+        <!-- The four layers, in words a visitor can evaluate. Naming
+             "4-layer analysis" without saying what the layers look for asks
+             for trust the page has not earned. -->
+        <section class="layers" aria-labelledby="layers-heading">
+            <h2 id="layers-heading" class="section-heading">What it measures</h2>
+            <ul class="layer-list">
+                <li class="layer-item">
+                    <span class="layer-index" aria-hidden="true">1</span>
+                    <h3 class="layer-title">Import boundaries</h3>
+                    <p class="layer-body">
+                        Which modules import things they were not meant to. If
+                        your contract says the web layer must not reach into
+                        storage directly, this is where you find out that it
+                        does.
+                    </p>
+                </li>
+                <li class="layer-item">
+                    <span class="layer-index" aria-hidden="true">2</span>
+                    <h3 class="layer-title">Coupling</h3>
+                    <p class="layer-body">
+                        How many modules each one depends on, and how far a
+                        change would ripple. The modules everything else reaches
+                        into are the ones that are expensive to change.
+                    </p>
+                </li>
+                <li class="layer-item">
+                    <span class="layer-index" aria-hidden="true">3</span>
+                    <h3 class="layer-title">Semantic drift</h3>
+                    <p class="layer-body">
+                        Whether the code inside a module still belongs together.
+                        Modules accumulate unrelated responsibilities quietly;
+                        this measures how far one has wandered from a single
+                        subject.
+                    </p>
+                </li>
+                <li class="layer-item">
+                    <span class="layer-index" aria-hidden="true">4</span>
+                    <h3 class="layer-title">Duplication</h3>
+                    <p class="layer-body">
+                        Near-identical logic in more than one module — the kind
+                        that gets fixed in one place and stays broken in the
+                        other.
+                    </p>
+                </li>
+            </ul>
+        </section>
+
+        <section class="honesty" aria-labelledby="honesty-heading">
+            <h2 id="honesty-heading" class="section-heading">Measured, or marked unmeasured</h2>
+            <p class="honesty-body">
+                Every number in a report comes from something ArchGuard actually
+                ran. When a layer cannot run — no import rules declared, no
+                history to read — the report says so, instead of scoring it zero
+                and folding that into your grade. A missing measurement and a
+                bad one are not the same thing.
+            </p>
+        </section>
+
+        <footer class="site-footer">
+            <a href="/example">Example report</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="https://github.com/jainamsethia/ArchGuard" rel="noopener">Source</a>
+        </footer>
     </div>
 
     <script nonce="{{ csp_nonce }}" src="/index.js"></script>

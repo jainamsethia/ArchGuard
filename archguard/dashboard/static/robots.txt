@@ -1,0 +1,13 @@
+# Analysis results belong to whoever ran them, not to a search index. The
+# marketing pages are crawlable; everything that serves user data is not.
+User-agent: *
+Allow: /$
+Allow: /example
+Allow: /privacy
+Allow: /terms
+Disallow: /api/
+Disallow: /dashboard.html
+Disallow: /auth/
+Disallow: /health
+Disallow: /ready
+Disallow: /metrics

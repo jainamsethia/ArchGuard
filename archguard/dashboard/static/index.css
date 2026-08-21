@@ -27,14 +27,22 @@
     --surface-nested: #2c2c2e;
 
     --text-primary: #f5f5f7;
-    --text-secondary: #86868b;   /* Apple's dark-mode secondary label */
-    --text-tertiary: #6e6e73;
+    /* Measured against the surface these actually sit on (#1d1d1f), not
+       against --bg-color. Apple's #86868b lands at 4.65:1 there -- passing by
+       a hair -- and #6e6e73 for tertiary at 3.94:1, which fails AA outright.
+       Raised so both clear 4.5 with room, and the ordering still reads. */
+    --text-secondary: #a1a1a6;
+    --text-tertiary: #98989d;
 
     /* Apple ships one blue for filled buttons in both themes (#0071e3, the
        store CTA) and a lighter one for links and accent text in dark
        (#2997ff). Keeping them separate is Apple's own split, and it is also
        what keeps white button labels above 4.5:1 — the lighter link blue
        cannot carry white text. */
+    /* The button fill, which carries white text: 4.70:1 that way. It is NOT
+       the link colour -- as text on a dark surface it is only 3.58:1, which is
+       what --accent-text exists for. One token cannot do both jobs, because
+       the two want opposite ends of the blue. */
     --accent-color: #0071e3;
     --accent-hover: #0077ed;
     --accent-text: #2997ff;
@@ -113,8 +121,8 @@
     --surface-nested: #f5f5f7;
 
     --text-primary: #1d1d1f;
-    --text-secondary: #6e6e73;    /* Apple's light-mode secondary label */
-    --text-tertiary: #86868b;
+    --text-secondary: #55555a;
+    --text-tertiary: #66666b;
 
     --accent-color: #0071e3;
     --accent-hover: #0077ed;
@@ -1358,4 +1366,231 @@ body.page-dashboard {
 
 @media (prefers-contrast: more) {
     .progress-track { border: 1px solid var(--border-strong); }
+}
+
+/* ── Landing page ───────────────────────────────────────────────────────
+   The page was an input box with a subtitle naming a category rather than an
+   outcome. These are the sections that explain what the product does before
+   asking anyone to paste a repository URL into it. */
+.hero {
+    max-width: 42rem;
+    margin: 0 auto var(--page-pad, 32px);
+    text-align: center;
+}
+
+.hero-title {
+    font-size: clamp(2rem, 5vw, 3rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0 0 16px;
+    color: var(--text-primary);
+}
+
+.hero-lede {
+    font-size: 1.125rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin: 0 0 12px;
+}
+
+.hero-sub {
+    font-size: 0.9375rem;
+    color: var(--text-tertiary);
+    margin: 0 0 20px;
+}
+
+.hero-example {
+    margin: 20px 0 0;
+    font-size: 1rem;
+}
+
+.hero-example a {
+    /* --accent-text, not --accent-color: the latter is a fill colour chosen to
+       carry white text, and as text itself on this surface it measures 3.58:1. */
+    color: var(--accent-text);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.hero-example a:hover { text-decoration: underline; }
+
+.hero-example-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+}
+
+.form-heading {
+    font-size: 1.25rem;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.section-heading {
+    font-size: 1.375rem;
+    margin: 0 0 16px;
+    color: var(--text-primary);
+}
+
+.layers { margin: 48px auto 0; max-width: 56rem; }
+
+.layer-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    /* Two up on a wide screen, one up on a phone, with no breakpoint to
+       maintain. */
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 20px;
+}
+
+.layer-item {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    position: relative;
+}
+
+.layer-index {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-pill);
+    background: var(--accent-color);
+    color: var(--accent-contrast, #fff);
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.layer-title {
+    font-size: 1rem;
+    margin: 0 0 8px;
+    color: var(--text-primary);
+}
+
+.layer-body {
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.honesty {
+    margin: 48px auto 0;
+    max-width: 42rem;
+    text-align: center;
+}
+
+.honesty-body {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.prose-page {
+    max-width: 42rem;
+    margin: 0 auto;
+    color: var(--text-secondary);
+    line-height: 1.65;
+}
+
+.prose-page h2 { margin-top: 32px; }
+.prose-page ul { padding-left: 1.25rem; }
+.prose-page li { margin-bottom: 10px; }
+.prose-page code {
+    background: var(--surface-nested);
+    padding: 1px 5px;
+    border-radius: var(--radius-sm);
+    font-size: 0.875em;
+}
+
+.site-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+    margin: 56px 0 24px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.875rem;
+}
+
+.site-footer a {
+    color: var(--text-tertiary);
+    text-decoration: none;
+}
+
+.site-footer a:hover { color: var(--text-primary); }
+
+/* ── Example report ─────────────────────────────────────────────────── */
+.example-score-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 40px;
+}
+
+.example-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+}
+
+.example-table th,
+.example-table td {
+    text-align: left;
+    padding: 8px 12px 8px 0;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+}
+
+.example-table th { color: var(--text-tertiary); font-weight: 500; }
+
+.layer-skip-reason {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+}
+
+.example-findings {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.example-findings li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.finding-message { color: var(--text-secondary); font-size: 0.9375rem; }
+.finding-layer { color: var(--text-tertiary); font-size: 0.8125rem; margin-left: auto; }
+
+/* The signed-in name / sign-in control on public pages. Not an overlay: it
+   sits in the page so the pitch stays readable while signed out. */
+.account-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    max-width: 56rem;
+    margin: 0 auto;
+    padding: 12px var(--page-pad, 16px) 0;
+    min-height: 40px;
+}
+
+.account-name {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
 }

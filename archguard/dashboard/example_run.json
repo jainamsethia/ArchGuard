@@ -1,0 +1,59 @@
+{
+  "band": "PASS",
+  "contract_auto_generated": false,
+  "layer_results": [
+    {
+      "layer": 1,
+      "name": "Import Boundary Violations",
+      "score": 0.0,
+      "skip_reason": "",
+      "skipped": false,
+      "violation_count": 0
+    },
+    {
+      "layer": 2,
+      "name": "Coupling Delta",
+      "score": 0.05,
+      "skip_reason": "",
+      "skipped": false,
+      "violation_count": 1
+    },
+    {
+      "layer": 3,
+      "name": "Semantic Drift",
+      "score": 0.0,
+      "skip_reason": "semantic drift not run (ARCHGUARD_SKIP_ML or contract skip_layers)",
+      "skipped": true,
+      "violation_count": 0
+    },
+    {
+      "layer": 4,
+      "name": "Duplication / Explanation",
+      "score": 0.0,
+      "skip_reason": "duplication detection not run (ARCHGUARD_SKIP_ML or contract skip_layers)",
+      "skipped": true,
+      "violation_count": 0
+    }
+  ],
+  "module_scores": {
+    "archguard": 100.0,
+    "tests": 85.0
+  },
+  "modules_analyzed": [
+    "archguard",
+    "tests"
+  ],
+  "repo_url": "https://github.com/jainamsethia/ArchGuard",
+  "score": 97.5,
+  "violations": [
+    {
+      "file": null,
+      "kind": "fan_out",
+      "layer": "2",
+      "line": 0,
+      "message": "fan_out=21 exceeds budget=20",
+      "module": "tests",
+      "severity": "high"
+    }
+  ]
+}

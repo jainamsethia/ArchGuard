@@ -177,6 +177,25 @@
                     body: JSON.stringify({ github_url: url })
                 });
 
+                if (res.status === 401) {
+                    // Not an error to report as a failed analysis: the visitor
+                    // read the page and pressed the button, which is exactly
+                    // the moment to ask them to sign in.
+                    appendLog('Sign in with GitHub to analyse a repository.', 'warn');
+                    const signIn = document.getElementById('sign-in-button');
+                    if (signIn) {
+                        signIn.hidden = false;
+                        signIn.scrollIntoView({ block: 'center' });
+                    } else {
+                        window.location.href = '/auth/github';
+                    }
+                    resetSubmitButton();
+                    isJobRunning = false;
+                    urlInput.disabled = false;
+                    hideProgress();
+                    return;
+                }
+
                 if (!res.ok) {
                     const err = await res.json();
                     throw new Error(err.detail || 'Failed to submit job');

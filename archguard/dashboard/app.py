@@ -414,6 +414,63 @@ async def serve_index(request: Request) -> Response:
         {"csp_nonce": getattr(request.state, "csp_nonce", "")}
     )
 
+#: The example report, read once at import. It is a real run -- ArchGuard
+#: analysing its own repository -- captured to a committed file rather than
+#: queried, so the landing page never depends on the database being reachable
+#: or on a particular row still existing.
+_EXAMPLE_RUN_PATH = Path(__file__).parent / "example_run.json"
+
+
+def _example_run() -> dict[str, Any]:
+    import json
+
+    try:
+        with _EXAMPLE_RUN_PATH.open(encoding="utf-8") as handle:
+            data: dict[str, Any] = json.load(handle)
+            return data
+    except (OSError, ValueError):
+        _startup_logger.exception("Could not read the example run")
+        return {
+            "repo_url": "",
+            "score": 0.0,
+            "band": "",
+            "module_scores": {},
+            "layer_results": [],
+            "violations": [],
+        }
+
+
+@app.get("/example", include_in_schema=False)
+async def serve_example(request: Request) -> Response:
+    """A worked example, so the product demonstrates itself.
+
+    The most common question a visitor has is "what do I actually get?", and
+    answering it should not require handing over a repository URL first.
+    """
+    return _templates.TemplateResponse(
+        request,
+        "example.html",
+        {
+            "csp_nonce": getattr(request.state, "csp_nonce", ""),
+            "run": _example_run(),
+        },
+    )
+
+
+@app.get("/privacy", include_in_schema=False)
+async def serve_privacy(request: Request) -> Response:
+    return _templates.TemplateResponse(
+        request, "privacy.html", {"csp_nonce": getattr(request.state, "csp_nonce", "")}
+    )
+
+
+@app.get("/terms", include_in_schema=False)
+async def serve_terms(request: Request) -> Response:
+    return _templates.TemplateResponse(
+        request, "terms.html", {"csp_nonce": getattr(request.state, "csp_nonce", "")}
+    )
+
+
 @app.get("/dashboard.html")
 async def serve_dashboard(request: Request) -> Response:
     return _templates.TemplateResponse(
@@ -429,6 +486,34 @@ async def serve_dashboard(request: Request) -> Response:
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"])
 async def _api_404_catch_all() -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": "Not Found"})
+
+@app.exception_handler(404)
+async def _not_found(request: Request, exc: Any) -> Response:
+    """A page for people, JSON for programs.
+
+    A mistyped URL used to return `{"detail":"Not Found"}` with content-type
+    application/json. That is the right answer for an API client and the wrong
+    one for someone who fat-fingered an address, so the two are told apart by
+    what the caller said it accepts. Anything under /api is always JSON,
+    regardless: a browser following an API link is still an API caller.
+    """
+    # The route's own message, when it had one. Routes raise 404 with detail
+    # worth reading -- "No run found for job_id ...", "GitHub API rate limit
+    # exceeded" -- and an earlier version of this handler replaced all of them
+    # with a flat "Not Found", which turned every actionable API error into a
+    # blank one. Caught by test_validate_endpoint_rate_limit.
+    detail = getattr(exc, "detail", None) or "Not Found"
+
+    wants_html = "text/html" in request.headers.get("accept", "")
+    if request.url.path.startswith("/api/") or not wants_html:
+        return JSONResponse(status_code=404, content={"detail": detail})
+    return _templates.TemplateResponse(
+        request,
+        "404.html",
+        {"csp_nonce": getattr(request.state, "csp_nonce", "")},
+        status_code=404,
+    )
+
 
 app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
 
