@@ -232,6 +232,17 @@ def test_planted_duplication_intra_module_no_cross_module_violation(tmp_path):
     matches within a module's own files). So zero Layer-4 violations here is
     CORRECT — the duplication is intra-module, not a false negative. This test
     pins that correct behavior so it can't silently flip.
+
+    Note on what this used to prove, which was nothing. A ``./`` module path
+    matched no file in any layer: ``path_belongs_to_module`` normalised it to
+    ``"."``, added a slash, and asked whether the file started with ``"./"``,
+    which no repo-relative path does. Both files were therefore in *no* module,
+    and the zero below was the zero you get from an empty module set rather
+    than from correctly-suppressed intra-module matches. ``./`` means "every
+    file that ships" now, so the two files really are in one module and the
+    assertion means what it says. ``test_whole_repo_module.py`` pins the
+    assignment itself, so this cannot quietly go back to passing for the empty
+    reason.
     """
     import shutil
 

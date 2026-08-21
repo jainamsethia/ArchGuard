@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from archguard.utils.paths import SKIP_DIRS as _EXCLUDE_DIRS
+from archguard.utils.paths import is_shipping_file
 
 logger = logging.getLogger(__name__)
 
@@ -110,37 +111,6 @@ def fallback_directory_modules(repo_path: Path) -> dict[str, list[str]]:
     return {k: [str(p).replace("\\", "/") for p in v] for k, v in modules.items()}
 
 
-#: Trees that are not the architecture under test, keyed by how they are
-#: matched. Test directories are excluded at any depth, which is what
-#: ``_assign_file_to_module`` already does when it skips ``/tests/`` -- so a
-#: generated ``tests`` module was being measured by a scorer that elsewhere
-#: refuses to assign test files at all.
-#:
-#: The rest are matched at the repository root only. A package may legitimately
-#: contain ``scripts/`` or ``docs/`` of its own; a top-level ``docs/`` is
-#: documentation for the project, not part of it.
-TEST_DIR_NAMES = frozenset({"test", "tests", "testing"})
-NON_SHIPPING_ROOTS = frozenset(
-    {"docs", "doc", "examples", "example", "scripts", "benchmarks", "bench"}
-)
-
-
-def is_shipping_file(relative_path: str) -> bool:
-    """Whether a repo-relative path is part of the architecture being measured.
-
-    Test code imports broadly by design, so a coupling budget on it measures a
-    property nobody intends to hold. Measured on pallets/flask, the fan-out of
-    its own test package was the finding that produced an F on a project whose
-    every module scored 85-100.
-    """
-    parts = [p for p in relative_path.replace("\\", "/").split("/") if p]
-    if not parts:
-        return False
-    if any(part in TEST_DIR_NAMES for part in parts[:-1]):
-        return False
-    return parts[0] not in NON_SHIPPING_ROOTS
-
-
 def scope_to_shipping_files(
     communities: dict[str, list[str]], repo_root: Path
 ) -> dict[str, list[str]]:
@@ -199,26 +169,31 @@ def drop_unresolvable_modules(
     that as a heuristic is how the two drift apart.
     """
     from archguard.contract.writer import _infer_path
-    from archguard.utils.paths import path_belongs_to_module
+    from archguard.utils.paths import normalize_path, path_belongs_to_module
 
     resolvable: dict[str, list[str]] = {}
-    unresolvable: dict[str, list[str]] = {}
+    whole_repo: dict[str, list[str]] = {}
     for name, files in communities.items():
         path = _infer_path(files)
-        if any(path_belongs_to_module(f, [path]) for f in files):
+        if normalize_path(path) in (".", ""):
+            # A community whose files span several top-level directories has no
+            # common prefix but `./`, which means "the whole repository". As a
+            # description of one module among several that is just a junk
+            # drawer: on psf/requests it appeared beside `src/requests/` and
+            # swallowed everything the real module did not.
+            whole_repo[name] = files
+        elif any(path_belongs_to_module(f, [path]) for f in files):
             resolvable[name] = files
-        else:
-            unresolvable[name] = files
 
-    # A flat repository -- every .py at the top level -- infers `./` too, and
-    # that is the only description of it available. Dropping it would refuse
-    # small projects that are perfectly analysable, so it is kept when it is
-    # all there is, and dropped only when real modules exist beside it. Note
-    # that `./` still matches no file at scoring time; see
-    # `path_belongs_to_module`. That gap predates this change and is tracked
-    # separately -- fixing it alters scoring for every contract using `./`.
-    if not resolvable and len(unresolvable) == 1:
-        return unresolvable
+    # Kept only when it is the whole answer -- a flat repository, every .py at
+    # the top level, where `./` is the honest description and refusing it would
+    # turn away small projects that analyse perfectly well.
+    #
+    # Checked by shape rather than by whether the matcher resolves it. That was
+    # the earlier test, and it stopped discriminating the moment `./` began
+    # matching files: requests promptly grew its junk drawer back.
+    if not resolvable and len(whole_repo) == 1:
+        return whole_repo
     return resolvable
 
 
