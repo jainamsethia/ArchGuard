@@ -214,8 +214,8 @@ def test_evolution_report_round_trips_through_redis(redis_backend: object) -> No
     from archguard.dashboard.routes.evolution import _evo_load, _evo_store
 
     report = {"snapshots": [{"sha": "abc1234", "health_score": 91.0}], "debt_velocity": -0.01}
-    _evo_store("job-a", report)
-    assert _evo_load("job-a") == report
+    _evo_store("job-a", 1, report)
+    assert _evo_load("job-a", 1) == report
 
 
 @requires_redis
@@ -223,11 +223,26 @@ def test_evolution_reports_are_scoped_per_job(redis_backend: object) -> None:
     """One repository's git history must never be served as another's."""
     from archguard.dashboard.routes.evolution import _evo_load, _evo_store
 
-    _evo_store("job-a", {"debt_velocity": 1.0})
-    _evo_store("job-b", {"debt_velocity": 2.0})
-    assert _evo_load("job-a") == {"debt_velocity": 1.0}
-    assert _evo_load("job-b") == {"debt_velocity": 2.0}
-    assert _evo_load("job-c") is None
+    _evo_store("job-a", 1, {"debt_velocity": 1.0})
+    _evo_store("job-b", 1, {"debt_velocity": 2.0})
+    assert _evo_load("job-a", 1) == {"debt_velocity": 1.0}
+    assert _evo_load("job-b", 1) == {"debt_velocity": 2.0}
+    assert _evo_load("job-c", 1) is None
+
+
+@requires_redis
+def test_evolution_reports_are_scoped_per_user(redis_backend: object) -> None:
+    """Holding a job id is not the same as owning it.
+
+    The route checks ownership before running an analysis, but the cache is
+    read on a separate path, so keying it by job alone would leave a way to
+    read a report for someone else's repository.
+    """
+    from archguard.dashboard.routes.evolution import _evo_load, _evo_store
+
+    _evo_store("shared-job-id", 1, {"debt_velocity": 1.0})
+    assert _evo_load("shared-job-id", 1) == {"debt_velocity": 1.0}
+    assert _evo_load("shared-job-id", 2) is None
 
 
 @requires_redis
@@ -235,8 +250,8 @@ def test_evolution_cache_entries_expire(redis_backend: object) -> None:
     """Unbounded growth was the defect; a TTL is what fixes it."""
     from archguard.dashboard.routes.evolution import _evo_key, _evo_store
 
-    _evo_store("job-ttl", {"debt_velocity": 0.0})
-    ttl = redis_backend.ttl(_evo_key("job-ttl"))  # type: ignore[attr-defined]
+    _evo_store("job-ttl", 1, {"debt_velocity": 0.0})
+    ttl = redis_backend.ttl(_evo_key("job-ttl", 1))  # type: ignore[attr-defined]
     assert 0 < ttl <= 3600
 
 
@@ -245,6 +260,6 @@ def test_evolution_fallback_cache_is_bounded(local_backend: None) -> None:
 
     evolution._EVO_LOCAL.clear()
     for i in range(evolution._EVO_LOCAL_MAX + 50):
-        evolution._evo_store(f"job-{i}", {"n": i})
+        evolution._evo_store(f"job-{i}", 1, {"n": i})
 
     assert len(evolution._EVO_LOCAL) <= evolution._EVO_LOCAL_MAX

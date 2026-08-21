@@ -45,6 +45,11 @@ services:
       # ops token. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`.
       - key: SESSION_SECRET
         sync: false
+      # Register the OAuth app with callback <origin>/auth/github/callback.
+      - key: GITHUB_OAUTH_CLIENT_ID
+        sync: false
+      - key: GITHUB_OAUTH_CLIENT_SECRET
+        sync: false
 
 databases:
   - name: archguard-db

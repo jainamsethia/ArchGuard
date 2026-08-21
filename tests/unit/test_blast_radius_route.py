@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import shutil
 import tempfile
-import uuid
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+
+from tests.db_fixtures import requires_postgres
+
+pytestmark = requires_postgres
 
 # api -> core, utils -> core : core is depended on by api and utils (reach 2).
 _CONTRACT = """\
@@ -29,13 +32,17 @@ modules:
 
 
 @pytest.fixture
-def client(monkeypatch) -> TestClient:
-    monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "test-token-risk")
-    monkeypatch.setenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", "1")
-    token = "test-token-risk"
-    auth_headers = {"Authorization": f"Bearer {token}"}
+def client(monkeypatch, seed_run, auth_client) -> TestClient:
+    """A signed-in client whose user owns a job with a workspace on disk.
 
-    job_id = str(uuid.uuid4())
+    The job is seeded for real: the route computes blast radius from the clone
+    when no graph was persisted, and it settles ownership before going near the
+    filesystem -- otherwise anyone holding a job id could read the structure of
+    someone else's repository.
+    """
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+
+    job_id = seed_run()
     repo_dir = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
     repo_dir.mkdir(parents=True, exist_ok=True)
     (repo_dir / ".archguard.yml").write_text(_CONTRACT, encoding="utf-8")
@@ -50,12 +57,8 @@ def client(monkeypatch) -> TestClient:
         "from core import x\n", encoding="utf-8"
     )
 
-    from archguard.dashboard.app import app
-
-    client = TestClient(app, raise_server_exceptions=False)
-    client.headers.update(auth_headers)
-    client._archguard_job_id = job_id  # type: ignore[attr-defined]
-    yield client
+    auth_client._archguard_job_id = job_id  # type: ignore[attr-defined]
+    yield auth_client
     shutil.rmtree(repo_dir.parent, ignore_errors=True)
 
 

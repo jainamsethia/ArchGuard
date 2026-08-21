@@ -422,7 +422,7 @@ def test_remediation_too_many_violations_returns_422() -> None:
 
 @requires_postgres
 @pytest.mark.asyncio
-async def test_remediation_job_id_filter(monkeypatch, seed_run):
+async def test_remediation_job_id_filter(monkeypatch, seed_run, test_user):
     """The plan is built from the requested job's findings, never another's."""
     from archguard.dashboard.routes import remediation
 
@@ -448,7 +448,9 @@ async def test_remediation_job_id_filter(monkeypatch, seed_run):
 
     monkeypatch.setattr("archguard.llm.remediation.generate_remediation_plan", mock_gen)
 
-    res = await remediation.remediation_plan_from_audit(limit=1, job_id=job_a)
+    res = await remediation.remediation_plan_from_audit(
+        limit=1, job_id=job_a, user=test_user
+    )
 
     # job A's violation is the one forwarded, not job B's.
     assert [v["message"] for v in forwarded["violations"]] == [

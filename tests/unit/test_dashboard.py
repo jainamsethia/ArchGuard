@@ -59,8 +59,17 @@ def test_api_runs_token_configured_no_auth(mock_audit_logger, monkeypatch):
 
 
 @requires_postgres
-def test_api_runs_token_configured_with_correct_auth(mock_audit_logger, monkeypatch):
-    """Test that /api/runs returns 200 with the correct bearer token."""
+def test_api_runs_from_localhost_uses_the_development_account(
+    mock_audit_logger, monkeypatch
+):
+    """A loopback caller with no OAuth configured is the local dev account.
+
+    Not the bearer token, which is sent here and ignored: this passes because
+    the request came from loopback with no sign-in configured, which is the
+    only way the development fallback opens. Named for what it actually tests,
+    because it used to be called "with the correct bearer token" and that
+    reading is now false.
+    """
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
 
     response = client.get("/api/runs", headers={"Authorization": "Bearer secret-token"})
@@ -106,8 +115,16 @@ def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
 
 
 @requires_postgres
-def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
-    """Test that remote IP with correct token returns 200."""
+def test_api_runs_remote_with_the_ops_token_is_rejected(
+    mock_audit_logger, monkeypatch
+):
+    """The operator credential does not read user data. D1.
+
+    This asserted 200 before, and that was the whole vulnerability: one shared
+    token, and any holder could read every visitor's repository URLs, module
+    names and violations. The token remains valid for endpoints that belong to
+    nobody -- it simply cannot answer "whose rows?", so it gets none.
+    """
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
 
     with patch(
@@ -119,7 +136,7 @@ def test_api_runs_remote_with_token_200(mock_audit_logger, monkeypatch):
         response = client.get(
             "/api/runs", headers={"Authorization": "Bearer secret-token"}
         )
-        assert response.status_code == 200
+        assert response.status_code == 401
 
 
 @requires_postgres

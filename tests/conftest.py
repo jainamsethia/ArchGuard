@@ -12,9 +12,11 @@ import yaml
 # path-relative module. See tests/db_fixtures.py for why nothing here is faked.
 from tests.db_fixtures import (  # noqa: F401
     _schema_at_head,
+    auth_client,
     live_db,
     requires_postgres,
     seed_run,
+    test_user,
 )
 
 

@@ -117,12 +117,15 @@ def tangled_analysis(tangled_repo: Path, _schema_at_head):
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            job_id = (await store.create_job(session, "local://tangled")).id
+            user = await store.upsert_user(session, github_id=4242, login="test-user")
+            job_id, user_id = (
+                await store.create_job(session, "local://tangled", user_id=user.id)
+            ).id, user.id
         result = await run_analysis_on_repo(
             tangled_repo, job_id=job_id, repo_url="local://tangled"
         )
         async with session_scope() as session:
-            return result, await store.get_latest_run(session, job_id)
+            return result, await store.get_latest_run(session, job_id, user_id)
 
     return asyncio.run(_go())
 

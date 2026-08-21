@@ -1,12 +1,12 @@
-"""Session-cookie authentication for browser clients.
+"""Short-lived, job-scoped tokens for the SSE progress stream.
 
-Issues an HttpOnly, SameSite=Strict cookie after the user POSTs the
-dashboard token to /api/auth/login. Subsequent same-origin API calls
-carry the cookie automatically - no JavaScript header injection needed.
+Session cookies moved to :mod:`archguard.dashboard._sessions`, where they are
+keyed to a user id and stored in Redis. What remains here is the one credential
+that legitimately travels in a URL: ``EventSource`` cannot set request headers,
+so the stream endpoint has no other way to be authenticated.
 
-Cookie value format: <session_id>.<hmac-sha256>
-where session_id is random 32-byte hex and the HMAC key is ARCHGUARD_DASHBOARD_TOKEN.
-Sessions expire after ARCHGUARD_SESSION_COOKIE_TTL seconds (default: 86400 / 24h).
+Token format: ``<job_id>.<token_id>.<hmac-sha256>``. It grants read access to
+the progress of a single job, for five minutes.
 """
 import hashlib
 import hmac
@@ -14,75 +14,24 @@ import os
 import secrets
 import time
 
-COOKIE_NAME = "archguard_session"
-_TTL = int(os.environ.get("ARCHGUARD_SESSION_COOKIE_TTL", "86400"))
-# 24h default - controls auth cookie lifetime, NOT the AI Advisor session memory
-# In-memory session store: session_id -> issued_at_unix_timestamp
-# Single-instance deployments only. Multi-instance deployments should use Redis.
-_SESSIONS: dict[str, float] = {}
-
 _STREAM_TOKENS: dict[str, float] = {}
 _STREAM_TTL = 300  # 5 minutes
+#: Bounded so a caller cannot mint tokens until the process runs out of memory.
+_STREAM_MAX = 10_000
 
 
-def _sign(token: str, session_id: str) -> str:
-    """Return HMAC-SHA256(token, session_id) as hex."""
-    return hmac.new(
-        token.encode(), session_id.encode(), hashlib.sha256
-    ).hexdigest()
-
-
-def issue_session(token: str) -> str:
-    """Create a new session, store it, and return the signed cookie value."""
-    session_id = secrets.token_hex(32)
-    sig = _sign(token, session_id)
-    _SESSIONS[session_id] = time.time()
-    _evict_expired()
-    return f"{session_id}.{sig}"
-
-
-def validate_session_cookie(cookie_value: str, token: str) -> bool:
-    """Return True iff the cookie value contains a valid, unexpired session."""
-    try:
-        session_id, sig = cookie_value.split(".", 1)
-    except ValueError:
-        return False
-
-    # Verify HMAC first (constant-time)
-    expected = _sign(token, session_id)
-    if not hmac.compare_digest(expected, sig):
-        return False
-
-    # Check session exists and is not expired
-    issued_at = _SESSIONS.get(session_id)
-    if issued_at is None:
-        return False
-    if time.time() - issued_at > _TTL:
-        del _SESSIONS[session_id]
-        return False
-
-    return True
-
-
-def revoke_session(cookie_value: str) -> None:
-    """Remove the session from the store (logout)."""
-    try:
-        session_id, _ = cookie_value.split(".", 1)
-        _SESSIONS.pop(session_id, None)
-    except ValueError:
-        pass
+def _sign(token: str, payload: str) -> str:
+    """Return HMAC-SHA256(token, payload) as hex."""
+    return hmac.new(token.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
 def _evict_expired() -> None:
-    """Remove expired sessions opportunistically (called on new login)."""
+    """Drop expired stream tokens, and oldest-first if the map is still full."""
     now = time.time()
-    expired = [sid for sid, ts in list(_SESSIONS.items()) if now - ts > _TTL]
-    for sid in expired:
-        del _SESSIONS[sid]
-
-    expired_stream = [t for t, ts in list(_STREAM_TOKENS.items()) if now - ts > _STREAM_TTL]
-    for t in expired_stream:
-        del _STREAM_TOKENS[t]
+    for token in [t for t, ts in list(_STREAM_TOKENS.items()) if now - ts > _STREAM_TTL]:
+        del _STREAM_TOKENS[token]
+    while len(_STREAM_TOKENS) > _STREAM_MAX:
+        del _STREAM_TOKENS[min(_STREAM_TOKENS, key=lambda t: _STREAM_TOKENS[t])]
 
 
 def _issue_short_lived_stream_token(job_id: str) -> str:

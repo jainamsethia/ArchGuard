@@ -22,30 +22,54 @@ JOB_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
 def test_get_deps_without_job_returns_400():
-    """No job selected -> 400 with actionable detail."""
+    """No job selected -> 400 with actionable detail.
+
+    Rejected before the user is looked at, which is why this needs no database:
+    there is nothing to scope without a job in the first place.
+    """
     import asyncio
 
+    from archguard.db.models import User
+
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(runs.get_deps(job_id=None))
+        asyncio.run(runs.get_deps(job_id=None, user=User(id=1, github_id=0, login="x")))
     assert exc.value.status_code == 400
 
 
 @requires_postgres
-def test_get_deps_unknown_job_returns_410(live_db):
-    """A syntactically valid job_id with no stored scan and no workspace -> 410.
+def test_get_deps_unknown_job_returns_404(test_user):
+    """A job id that is not this user's -> 404.
 
-    Not a 200 with an empty result: a job we have no record of must not look
-    like a job whose dependencies scanned clean.
+    Not a 200 with an empty result, which would let a job nobody owns look like
+    a job whose dependencies scanned clean; and not a 410 either, which would
+    distinguish "job exists, workspace gone" from "no such job" and hand an
+    enumerator the difference.
     """
     import asyncio
 
     with pytest.raises(HTTPException) as exc:
-        asyncio.run(runs.get_deps(job_id=str(uuid.uuid4())))
-    assert exc.value.status_code == 410
+        asyncio.run(runs.get_deps(job_id=str(uuid.uuid4()), user=test_user))
+    assert exc.value.status_code == 404
 
 
 @requires_postgres
-def test_get_deps_survives_workspace_expiry(seed_run):
+def test_get_deps_on_your_own_job_with_no_workspace_returns_410(seed_run, test_user):
+    """Your job, no stored scan, clone swept -> 410 with something to do about it.
+
+    The distinction 404 does not draw for strangers is still drawn for the
+    owner, who is entitled to know their analysis existed and expired.
+    """
+    import asyncio
+
+    job_id = seed_run()
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(runs.get_deps(job_id=job_id, user=test_user))
+    assert exc.value.status_code == 410
+    assert "expired" in exc.value.detail.lower()
+
+
+@requires_postgres
+def test_get_deps_survives_workspace_expiry(seed_run, test_user):
     """The clone is gone but a scan was stored, so the panel serves the stored
     one -- the same persisted-fallback contract Modules and Blast Radius use."""
     import asyncio
@@ -65,18 +89,18 @@ def test_get_deps_survives_workspace_expiry(seed_run):
 
     async def _save():
         async with session_scope() as session:
-            await store.save_dependency_scan(session, job_id, persisted)
+            await store.save_dependency_scan(session, job_id, test_user.id, persisted)
 
     asyncio.run(_save())
 
-    result = asyncio.run(runs.get_deps(job_id=job_id))
+    result = asyncio.run(runs.get_deps(job_id=job_id, user=test_user))
     assert result["scanned_packages"] == 42
     assert result["score"] == 91.0
     assert result["skipped"] is False
 
 
 @requires_postgres
-def test_persisted_deps_does_not_pollute_run_history(seed_run):
+def test_persisted_deps_does_not_pollute_run_history(seed_run, test_user):
     """A stored dependency scan must not surface as an analysis run: doing so
     would inject a scoreless entry into run history, trends and compare-runs.
 
@@ -93,10 +117,10 @@ def test_persisted_deps_does_not_pollute_run_history(seed_run):
     async def _save_and_read():
         async with session_scope() as session:
             await store.save_dependency_scan(
-                session, job_id, {"score": 91.0, "scanned_packages": 42}
+                session, job_id, test_user.id, {"score": 91.0, "scanned_packages": 42}
             )
         async with session_scope() as session:
-            return await store.get_runs_for_job(session, job_id, limit=100)
+            return await store.get_runs_for_job(session, job_id, test_user.id, limit=100)
 
     history = asyncio.run(_save_and_read())
     assert len(history) == 1
@@ -104,30 +128,30 @@ def test_persisted_deps_does_not_pollute_run_history(seed_run):
 
 
 @requires_postgres
-def test_runs_job_id_filter(seed_run):
+def test_runs_job_id_filter(seed_run, test_user):
     """Each read is scoped to its job: one job's modules never answer another's."""
     import asyncio
 
     seed_run(job_id=JOB_A, module_scores={"auth": 0.9}, modules_analyzed=["auth"])
     seed_run(job_id=JOB_B, module_scores={"utils": 0.8}, modules_analyzed=["utils"])
 
-    res = asyncio.run(runs.get_runs(limit=50, job_id=JOB_A))
+    res = asyncio.run(runs.get_runs(limit=50, job_id=JOB_A, user=test_user))
     assert len(res["runs"]) == 1
     assert res["runs"][0]["job_id"] == JOB_A
 
-    res = asyncio.run(runs.get_modules(job_id=JOB_B))
+    res = asyncio.run(runs.get_modules(job_id=JOB_B, user=test_user))
     assert "utils" in res["modules"]
     assert "auth" not in res["modules"]
 
-    res = asyncio.run(runs.get_module_trends(module="auth", limit=30, job_id=JOB_B))
+    res = asyncio.run(runs.get_module_trends(module="auth", limit=30, job_id=JOB_B, user=test_user))
     assert len(res["trend"]) == 0
 
-    res2 = asyncio.run(runs.get_module_trends(module="auth", limit=30, job_id=JOB_A))
+    res2 = asyncio.run(runs.get_module_trends(module="auth", limit=30, job_id=JOB_A, user=test_user))
     assert len(res2["trend"]) == 1
 
 
 @requires_postgres
-def test_repo_runs(seed_run):
+def test_repo_runs(seed_run, test_user):
     """History is per repository, across jobs.
 
     This is the query the trend chart needs and could not previously have: the
@@ -142,14 +166,16 @@ def test_repo_runs(seed_run):
     seed_run(repo_url="https://github.com/b/repo-b", score=90.0)
 
     res = asyncio.run(
-        runs.get_repo_runs(repo_url="https://github.com/a/repo-a", limit=50)
+        runs.get_repo_runs(
+            repo_url="https://github.com/a/repo-a", limit=50, user=test_user
+        )
     )
     assert res["total"] == 2
     assert {r["repo_url"] for r in res["runs"]} == {"https://github.com/a/repo-a"}
 
 
 @requires_postgres
-def test_runs_by_job_id_returns_violations_for_compare(seed_run):
+def test_runs_by_job_id_returns_violations_for_compare(seed_run, test_user):
     """Compare-runs diffs the violation lists of two runs fetched via
     ``/api/v1/runs?job_id=``. Each run must carry its own violations, with the
     module+layer+message key the frontend diffs on.
@@ -180,8 +206,8 @@ def test_runs_by_job_id_returns_violations_for_compare(seed_run):
     seed_run(job_id=JOB_A, violations=viol_a, score=80.0, band="WATCH")
     seed_run(job_id=JOB_B, violations=viol_b, score=60.0, band="WARN")
 
-    res_a = asyncio.run(runs.get_runs(limit=50, job_id=JOB_A))
-    res_b = asyncio.run(runs.get_runs(limit=50, job_id=JOB_B))
+    res_a = asyncio.run(runs.get_runs(limit=50, job_id=JOB_A, user=test_user))
+    res_b = asyncio.run(runs.get_runs(limit=50, job_id=JOB_B, user=test_user))
     assert len(res_a["runs"]) == 1 and len(res_b["runs"]) == 1
     assert len(res_a["runs"][0]["violations"]) == 1
     assert len(res_b["runs"][0]["violations"]) == 2

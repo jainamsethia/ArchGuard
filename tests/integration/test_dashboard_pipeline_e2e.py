@@ -35,7 +35,10 @@ def _run_pipeline() -> tuple[object, dict | None]:
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            job_id = (await store.create_job(session, REPO_URL)).id
+            user = await store.upsert_user(session, github_id=4242, login="test-user")
+            job_id, user_id = (
+                await store.create_job(session, REPO_URL, user_id=user.id)
+            ).id, user.id
 
         async with temp_workspace(REPO_URL, job_id=job_id, keep_alive=False) as repo:
             result = await run_analysis_on_repo(
@@ -44,7 +47,7 @@ def _run_pipeline() -> tuple[object, dict | None]:
         # Read back outside the workspace: the run has to survive the clone
         # being swept, which is the whole point of storing it.
         async with session_scope() as session:
-            return result, await store.get_latest_run(session, job_id)
+            return result, await store.get_latest_run(session, job_id, user_id)
 
     return asyncio.run(_go())
 

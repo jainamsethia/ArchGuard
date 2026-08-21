@@ -5,8 +5,10 @@ from typing import Any
 from fastapi import Depends, HTTPException
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import JobIdQuery, app, get_target_path
+from archguard.db.models import User
 
 _logger = logging.getLogger(__name__)
 
@@ -49,7 +51,9 @@ def _downstream_counts(dependency_graph: dict[str, list[str]]) -> dict[str, int]
 
 
 @app.get("/api/v1/risk", dependencies=[Depends(check_token), Depends(rate_limiter)])
-async def get_pr_risk(job_id: JobIdQuery = None) -> Any:
+async def get_pr_risk(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
     """Report each module's blast radius for the analyzed repository.
 
     This is a structural metric computed from the module dependency graph: for
@@ -66,7 +70,15 @@ async def get_pr_risk(job_id: JobIdQuery = None) -> Any:
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            run = await store.get_latest_run(session, job_id)
+            # Ownership is settled before the filesystem is consulted. The
+            # fallback below reads a workspace addressed by job id alone, so
+            # letting an unowned job reach it would compute -- and return --
+            # another user's blast radius from their clone.
+            if await store.get_job(session, job_id, user.id) is None:
+                raise HTTPException(
+                    status_code=404, detail=f"No analysis found for job_id {job_id}"
+                )
+            run = await store.get_latest_run(session, job_id, user.id)
         if run and run.get("dependency_graph"):
             dependency_graph = run["dependency_graph"]
             module_names = run.get("modules_analyzed") or list(dependency_graph.keys())

@@ -10,9 +10,10 @@ ENVIRONMENT = "production"
 # the whole service, including the billable LLM endpoints.
 ARCHGUARD_TRUSTED_PROXY_IPS = "*"
 
-# DATABASE_URL, REDIS_URL, SESSION_SECRET, ARCHGUARD_DASHBOARD_TOKEN and
-# GEMINI_API_KEY are set in the Railway dashboard, not here: this file is
-# committed and they are credentials. Add the Postgres and Redis plugins and
+# DATABASE_URL, REDIS_URL, SESSION_SECRET, GITHUB_OAUTH_CLIENT_ID,
+# GITHUB_OAUTH_CLIENT_SECRET, ARCHGUARD_DASHBOARD_TOKEN and GEMINI_API_KEY are
+# set in the Railway dashboard, not here: this file is committed and they are
+# credentials. Add the Postgres and Redis plugins and
 # reference them as ${{Postgres.DATABASE_URL}} and ${{Redis.REDIS_URL}}.
 # Note DATABASE_URL must carry the +asyncpg driver; Railway hands out the
 # driverless form, which archguard.db.session normalises on the way in.

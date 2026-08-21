@@ -10,12 +10,8 @@ scans of one repository, under different job ids, correlate into a trend.
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
 
-from archguard.dashboard.app import app
 from tests.db_fixtures import requires_postgres
-
-client = TestClient(app)
 
 REPO = "https://github.com/example/evolving"
 
@@ -48,8 +44,8 @@ def improving_repo(seed_run, monkeypatch):
 
 
 @requires_postgres
-def test_api_evolution_summary(improving_repo):
-    response = client.get(f"/api/evolution/summary?job_id={improving_repo}")
+def test_api_evolution_summary(improving_repo, auth_client):
+    response = auth_client.get(f"/api/evolution/summary?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "snapshots" in data
@@ -59,8 +55,8 @@ def test_api_evolution_summary(improving_repo):
 
 
 @requires_postgres
-def test_api_evolution_history(improving_repo):
-    response = client.get(f"/api/evolution/history?job_id={improving_repo}")
+def test_api_evolution_history(improving_repo, auth_client):
+    response = auth_client.get(f"/api/evolution/history?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "history" in data
@@ -69,8 +65,8 @@ def test_api_evolution_history(improving_repo):
 
 
 @requires_postgres
-def test_api_evolution_trends(improving_repo):
-    response = client.get(f"/api/evolution/trends?job_id={improving_repo}")
+def test_api_evolution_trends(improving_repo, auth_client):
+    response = auth_client.get(f"/api/evolution/trends?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "health_trend" in data
@@ -80,7 +76,7 @@ def test_api_evolution_trends(improving_repo):
 
 
 @requires_postgres
-def test_history_is_scoped_to_one_repository(seed_run, monkeypatch):
+def test_history_is_scoped_to_one_repository(seed_run, monkeypatch, auth_client):
     """Another repository's scans must not pad this one's trend.
 
     Worth pinning explicitly: the endpoint used to read a server-wide log, and
@@ -95,7 +91,7 @@ def test_history_is_scoped_to_one_repository(seed_run, monkeypatch):
     seed_run(repo_url="https://github.com/other/project", score=20.0)
     mine = seed_run(repo_url=REPO, score=99.0)
 
-    response = client.get(f"/api/evolution/summary?job_id={mine}")
+    response = auth_client.get(f"/api/evolution/summary?job_id={mine}")
     assert response.status_code == 200
     data = response.json()
     assert data["insufficient_history"] is True
@@ -104,13 +100,13 @@ def test_history_is_scoped_to_one_repository(seed_run, monkeypatch):
 
 
 @requires_postgres
-def test_api_evolution_empty(live_db, monkeypatch):
+def test_api_evolution_empty(live_db, monkeypatch, auth_client):
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
     from archguard.dashboard._rate_limit import reset_rate_limits
 
     reset_rate_limits()
 
-    response = client.get("/api/evolution/summary")
+    response = auth_client.get("/api/evolution/summary")
     assert response.status_code == 200
     data = response.json()
     # With no runs recorded there is no history to report. The panel now says so

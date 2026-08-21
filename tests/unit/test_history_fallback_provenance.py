@@ -174,7 +174,7 @@ def test_payload_carries_provenance_fields():
 
 
 @requires_postgres
-def test_fallback_flag_is_visible_in_runs_api(seed_run):
+def test_fallback_flag_is_visible_in_runs_api(seed_run, test_user):
     """The flag must reach /api/v1/runs, not stop at the pipeline adapter.
 
     Written through ``persist_run`` and read back through the query the API
@@ -200,7 +200,7 @@ def test_fallback_flag_is_visible_in_runs_api(seed_run):
     stored.pop("job_id", None)
     seed_run(job_id=job_id, **stored)
 
-    body = asyncio.run(runs_route.get_runs(limit=50, job_id=job_id))
+    body = asyncio.run(runs_route.get_runs(limit=50, job_id=job_id, user=test_user))
     assert len(body["runs"]) == 1
     run = body["runs"][0]
 
@@ -208,5 +208,5 @@ def test_fallback_flag_is_visible_in_runs_api(seed_run):
     assert run["contract_auto_generated"] is True
     assert "history_unavailable" in run["fallback_reason"]
 
-    latest = asyncio.run(runs_route.get_latest_run(job_id=job_id))
+    latest = asyncio.run(runs_route.get_latest_run(job_id=job_id, user=test_user))
     assert latest["fallback_directory_heuristic"] is True

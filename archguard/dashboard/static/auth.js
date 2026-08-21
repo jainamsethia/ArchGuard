@@ -1,8 +1,41 @@
 // archguard/dashboard/static/auth.js
-// Gate the page behind a token when the deployment requires one.
+// Show who is signed in, or offer a way to sign in.
+//
+// This used to gate the page behind a password field for a single shared
+// token. Everyone who typed it got the same session and therefore the same
+// access to everything anyone had ever analysed. Sign-in is per account now,
+// so the overlay's job is to send the visitor to GitHub, not to collect a
+// secret this page has no business handling.
 (async function initAuth() {
   const overlay = document.getElementById('login-overlay');
   const errEl = document.getElementById('login-error');
+  const signInBtn = document.getElementById('sign-in-button');
+  const whoami = document.getElementById('whoami');
+
+  function showOverlay(message) {
+    if (overlay) {
+      overlay.style.display = 'flex';
+      // `inert` removes the hidden content from the accessibility tree as well
+      // as from the tab order. `visibility: hidden`, which this used, left
+      // every control behind the overlay reachable by screen reader and by Tab.
+      document.querySelectorAll('body > *:not(#login-overlay)').forEach((el) => {
+        el.setAttribute('inert', '');
+        el.style.visibility = 'hidden';
+      });
+    }
+    if (message && errEl) {
+      errEl.textContent = message;
+      errEl.style.display = 'block';
+    }
+  }
+
+  function hideOverlay() {
+    if (overlay) overlay.style.display = 'none';
+    document.querySelectorAll('body > *:not(#login-overlay)').forEach((el) => {
+      el.removeAttribute('inert');
+      el.style.visibility = '';
+    });
+  }
 
   let status;
   try {
@@ -10,52 +43,41 @@
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     status = await res.json();
   } catch (e) {
-    // Could not reach the auth status endpoint. If the deployment requires a
-    // token we have no way to confirm a session, so fall back to the login
-    // overlay with an actionable message rather than leaving the page blank.
-    if (overlay) {
-      overlay.style.display = 'flex';
-      document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = 'hidden');
-    }
-    if (errEl) {
-      errEl.textContent = 'Could not reach the authentication service. Check your connection and reload.';
-      errEl.style.display = 'block';
-    }
-    const loginForm = document.getElementById('login-form');
-    if (loginForm) loginForm.addEventListener('submit', doLogin);
+    // The status endpoint is unreachable, so we cannot tell whether this
+    // visitor is signed in. Say so rather than leaving a blank page.
+    showOverlay('Could not reach the authentication service. Check your connection and reload.');
     return;
   }
 
-  const { token_required, authenticated } = status;
-  if (token_required && !authenticated) {
-    if (overlay) overlay.style.display = 'flex';
-    document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = 'hidden');
+  if (status.authenticated) {
+    hideOverlay();
+    if (whoami && status.user) {
+      whoami.textContent = status.user.login;
+      whoami.hidden = false;
+    }
+    return;
   }
 
-  const loginForm = document.getElementById('login-form');
-  if (loginForm) {
-    loginForm.addEventListener('submit', doLogin);
+  if (signInBtn) {
+    signInBtn.hidden = false;
+    // A link, not a fetch: the OAuth flow is a full-page redirect to
+    // github.com and back. XHR cannot follow it, and would not carry the
+    // cookies GitHub sets.
+    signInBtn.addEventListener('click', () => {
+      window.location.href = status.sign_in_url || '/auth/github';
+    });
   }
+  showOverlay(
+    status.sign_in_available
+      ? ''
+      : 'Sign-in is not configured on this instance.'
+  );
 })();
 
-async function doLogin(event) {
-  event.preventDefault();
-  const token = document.getElementById('token-input').value;
-  const errEl = document.getElementById('login-error');
-  errEl.style.display = 'none';
-  const fd = new FormData();
-  fd.append('token', token);
+async function signOut() {
   try {
-    const res = await fetch('/api/v1/auth/login', { method: 'POST', body: fd });
-    if (res.ok) {
-      document.getElementById('login-overlay').style.display = 'none';
-      document.querySelectorAll('body > *:not(#login-overlay)').forEach(el => el.style.visibility = '');
-    } else {
-      errEl.textContent = 'Invalid token. Please try again.';
-      errEl.style.display = 'block';
-    }
-  } catch (e) {
-    errEl.textContent = 'Could not reach the authentication service. Check your connection and try again.';
-    errEl.style.display = 'block';
+    await fetch('/api/v1/auth/logout', { method: 'POST' });
+  } finally {
+    window.location.href = '/';
   }
 }

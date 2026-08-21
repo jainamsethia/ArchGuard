@@ -20,9 +20,11 @@ from fastapi import Depends, HTTPException, Query
 from fastapi import Path as FastAPIPath
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import JobIdQuery, app
 from archguard.db import store
+from archguard.db.models import User
 from archguard.db.session import session_scope
 
 _logger = logging.getLogger(__name__)
@@ -40,10 +42,19 @@ _logger = logging.getLogger(__name__)
 async def get_repo_runs(
     repo_url: str,
     limit: int = Query(default=50, ge=1, le=500),
+    user: User = Depends(current_user),
 ) -> Any:
-    """Every run recorded for one repository, across all jobs that analysed it."""
+    """This user's runs for one repository, across all their jobs that analysed it.
+
+    Scoped to the caller: two people analysing the same public repository each
+    see their own history, not a merged one. The URL is not a secret, so an
+    unscoped version of this endpoint let anyone read anyone's results simply by
+    guessing a popular repository.
+    """
     async with session_scope() as session:
-        runs = await store.get_runs_for_repository(session, repo_url, limit=limit)
+        runs = await store.get_runs_for_repository(
+            session, repo_url, user.id, limit=limit
+        )
     return {"repo_url": repo_url, "runs": runs, "total": len(runs)}
 
 
@@ -57,12 +68,13 @@ async def get_runs(
     limit: int = Query(default=50, ge=1, le=500),
     module: str | None = None,
     job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
 ) -> Any:
     async with session_scope() as session:
         if job_id:
-            runs = await store.get_runs_for_job(session, job_id, limit=limit)
+            runs = await store.get_runs_for_job(session, job_id, user.id, limit=limit)
         else:
-            runs = await store.get_recent_runs(session, limit=limit)
+            runs = await store.get_recent_runs(session, user.id, limit=limit)
     if module:
         runs = [r for r in runs if module in (r.get("modules_analyzed") or [])]
     return {"runs": runs[:limit], "total": len(runs[:limit])}
@@ -112,14 +124,16 @@ async def _with_plain_language(
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     deprecated=True,
 )
-async def get_latest_run(job_id: JobIdQuery = None) -> Any:
+async def get_latest_run(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
     if not job_id:
         return {
             "empty": True,
             "message": "No analysis selected. Submit or select a repository to see health data.",
         }
     async with session_scope() as session:
-        run = await store.get_latest_run(session, job_id)
+        run = await store.get_latest_run(session, job_id, user.id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
     return await _with_plain_language(run, job_id)
@@ -131,7 +145,9 @@ async def get_latest_run(job_id: JobIdQuery = None) -> Any:
     dependencies=[Depends(check_token), Depends(rate_limiter)],
     deprecated=True,
 )
-async def get_modules(job_id: JobIdQuery = None) -> Any:
+async def get_modules(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
     """Module scores and the import graph for one analysis.
 
     Without a job_id there is no repository context, and answering from
@@ -147,7 +163,7 @@ async def get_modules(job_id: JobIdQuery = None) -> Any:
         }
 
     async with session_scope() as session:
-        run = await store.get_latest_run(session, job_id)
+        run = await store.get_latest_run(session, job_id, user.id)
 
     if run is None:
         return {"empty": True, "modules": {}, "edges": [], "message": "No run found."}
@@ -175,12 +191,13 @@ async def get_module_trends(
     ),
     limit: int = Query(default=30, ge=1, le=500),
     job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
 ) -> Any:
     async with session_scope() as session:
         if job_id:
-            runs = await store.get_runs_for_job(session, job_id, limit=limit)
+            runs = await store.get_runs_for_job(session, job_id, user.id, limit=limit)
         else:
-            runs = await store.get_recent_runs(session, limit=limit)
+            runs = await store.get_recent_runs(session, user.id, limit=limit)
     trend = [
         {"timestamp": r["timestamp"], "score": (r.get("module_scores") or {}).get(module)}
         for r in runs
@@ -190,7 +207,9 @@ async def get_module_trends(
 
 
 @app.get("/api/v1/deps", dependencies=[Depends(check_token), Depends(rate_limiter)])
-async def get_deps(job_id: JobIdQuery = None) -> Any:
+async def get_deps(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
     """Dependency vulnerability scan for one analysis.
 
     Stored separately from the run: the scan is triggered on demand, after the
@@ -206,9 +225,17 @@ async def get_deps(job_id: JobIdQuery = None) -> Any:
         )
 
     async with session_scope() as session:
-        persisted = await store.get_dependency_scan(session, job_id)
+        persisted = await store.get_dependency_scan(session, job_id, user.id)
+        # An unknown job and someone else's job are the same answer here. Both
+        # mean "nothing of yours to show", and telling them apart is what makes
+        # a job id worth guessing.
+        owns_job = await store.get_job(session, job_id, user.id) is not None
     if persisted is not None:
         return persisted
+    if not owns_job:
+        raise HTTPException(
+            status_code=404, detail=f"No analysis found for job_id {job_id}"
+        )
 
     # No stored scan: it can only be produced from the clone, so an expired
     # workspace is an honest 410. A job we have no record of must not look like
@@ -241,7 +268,7 @@ async def get_deps(job_id: JobIdQuery = None) -> Any:
         }
         try:
             async with session_scope() as session:
-                await store.save_dependency_scan(session, job_id, output)
+                await store.save_dependency_scan(session, job_id, user.id, output)
         except Exception as exc:
             # The scan succeeded; only caching it did not. Returning the
             # degraded payload here would report a healthy repository as

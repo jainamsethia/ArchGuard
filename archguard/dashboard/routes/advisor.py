@@ -12,8 +12,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import _llm_rate_limit
 from archguard.dashboard.app import app
+from archguard.db.models import User
 from archguard.llm.advisor import ArchitectureAdvisor
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,11 @@ def _build_context_from_violations(violations: list[Any]) -> str:
 @app.post(
     "/api/v1/advisor/ask", dependencies=[Depends(check_token), Depends(_llm_rate_limit)]
 )
-async def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query(None)) -> StreamingResponse:
+async def advisor_ask_stream(
+    body: AdvisorAskRequest,
+    job_id: str | None = Query(None),
+    user: User = Depends(current_user),
+) -> StreamingResponse:
     """Stream a Gemini response to an architectural question.
 
     Returns a text/event-stream (SSE) response where each line is a raw text
@@ -89,7 +95,7 @@ async def advisor_ask_stream(body: AdvisorAskRequest, job_id: str | None = Query
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            latest = await store.get_latest_run(session, job_id)
+            latest = await store.get_latest_run(session, job_id, user.id)
 
     ungrounded_notice = ""
     if latest is None:

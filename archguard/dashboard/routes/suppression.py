@@ -7,12 +7,14 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import JobIdQuery, app
+from archguard.db.models import User
 from archguard.suppression.store import SuppressionStore
 
 
-async def repo_url_for_job(job_id: str | None) -> str | None:
+async def repo_url_for_job(job_id: str | None, user_id: int) -> str | None:
     """Resolve a job id to the repository it analysed.
 
     The jobs table is the durable answer; the in-memory job map is only a
@@ -24,21 +26,16 @@ async def repo_url_for_job(job_id: str | None) -> str | None:
     if not job_id:
         return None
 
-    try:
-        from archguard.dashboard.job_manager import job_manager
-
-        job = job_manager.get_job(job_id)
-        if job is not None and job.github_url:
-            return str(job.github_url)
-    except Exception as exc:
-        logging.getLogger(__name__).debug("Job lookup failed for %s: %s", job_id, exc)
-
+    # The in-memory map is not consulted first any more: it records no owner,
+    # so trusting it would answer "which repository is job X?" for a job that
+    # belongs to someone else. The jobs table knows, and is also the only one of
+    # the two that survives a restart.
     try:
         from archguard.db.session import session_scope
         from archguard.db.store import get_job_repo_url
 
         async with session_scope() as session:
-            return await get_job_repo_url(session, job_id)
+            return await get_job_repo_url(session, job_id, user_id)
     except Exception as exc:
         logging.getLogger(__name__).debug("Job row lookup failed for %s: %s", job_id, exc)
 
@@ -88,8 +85,10 @@ def _suppression_store(
 
 
 @app.get("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-async def get_suppressions(job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id), job_id)
+async def get_suppressions(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
     suppressions = store.list_all(include_inactive=True)
     return {"suppressions": [s.__dict__ for s in suppressions]}
 
@@ -103,8 +102,12 @@ class AddSuppressionRequest(BaseModel):
     commit_sha: str | None = None
 
 @app.post("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-async def add_suppression(req: AddSuppressionRequest, job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id), job_id)
+async def add_suppression(
+    req: AddSuppressionRequest,
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
 
     expires_at = None
     if req.expires_in_days:
@@ -130,8 +133,12 @@ class RemoveSuppressionRequest(BaseModel):
     suppression_id: str
 
 @app.delete("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
-async def remove_suppression(req: RemoveSuppressionRequest, job_id: JobIdQuery = None) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id), job_id)
+async def remove_suppression(
+    req: RemoveSuppressionRequest,
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
+    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
     if not store.delete(req.suppression_id):
         raise HTTPException(status_code=404, detail="Suppression not found")
     return {"status": "success"}

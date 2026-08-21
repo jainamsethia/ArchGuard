@@ -14,6 +14,7 @@ with the route restructure.
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -26,14 +27,60 @@ from archguard.db.models import (
     Repository,
     Run,
     Suppression,
+    User,
     Violation,
 )
 
 logger = logging.getLogger(__name__)
 
 
+def _is_job_id(job_id: str) -> bool:
+    """Whether a string could be a job id at all.
+
+    Job ids are UUIDs and appear in browser URLs, so a user editing the address
+    bar hands us arbitrary text. Postgres rejects a malformed UUID with a
+    DataError, which surfaces as a 500 -- an invalid id is a 404, not a server
+    fault, and the shape check belongs where every lookup passes rather than in
+    each route that might forget it.
+    """
+    try:
+        uuid.UUID(job_id)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
 def _project_name(url: str) -> str:
     return url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+
+
+async def upsert_user(
+    session: AsyncSession,
+    github_id: int,
+    login: str,
+    avatar_url: str | None = None,
+) -> User:
+    """Find or create the account behind a GitHub identity.
+
+    Matched on ``github_id``, never on ``login``: a login can be renamed and the
+    freed name registered by someone else, so matching on it would eventually
+    hand one person's analysis history to another. The login and avatar are
+    refreshed on every sign-in, since both change and a stale one is only ever
+    wrong.
+    """
+    user = (
+        await session.execute(select(User).where(User.github_id == github_id))
+    ).scalar_one_or_none()
+    if user is None:
+        user = User(github_id=github_id, login=login, avatar_url=avatar_url)
+        session.add(user)
+        await session.flush()
+        logger.info("Created account for github_id=%s", github_id)
+        return user
+
+    user.login = login
+    user.avatar_url = avatar_url
+    return user
 
 
 async def upsert_repository(session: AsyncSession, url: str) -> Repository:
@@ -77,6 +124,9 @@ async def set_job_status(
     status: str,
     error: str | None = None,
 ) -> None:
+    if not _is_job_id(job_id):
+        logger.warning("set_job_status: %r is not a job id", job_id)
+        return
     job = await session.get(Job, job_id)
     if job is None:
         logger.warning("set_job_status: job %s not found", job_id)
@@ -90,28 +140,55 @@ async def set_job_status(
         job.completed_at = datetime.now(UTC)
 
 
-async def get_job(session: AsyncSession, job_id: str) -> Job | None:
-    return await session.get(Job, job_id)
+async def get_job(session: AsyncSession, job_id: str, user_id: int) -> Job | None:
+    """One job, if it belongs to this user.
+
+    ``user_id`` is required rather than defaulted, on every read in this module.
+    A default meaning "all users" is the kind of parameter a new call site
+    forgets, and forgetting it here is a cross-tenant leak rather than a bug in
+    one endpoint -- so the type checker is made to ask.
+
+    Another user's job is reported as absent, not as forbidden: 403 confirms
+    the id exists, which is exactly what an enumeration attempt wants to learn.
+    """
+    if not _is_job_id(job_id):
+        return None
+    job = await session.get(Job, job_id)
+    if job is None or job.user_id != user_id:
+        return None
+    return job
 
 
-async def get_job_repo_url(session: AsyncSession, job_id: str) -> str | None:
+async def get_job_repo_url(
+    session: AsyncSession, job_id: str, user_id: int
+) -> str | None:
     """The repository URL a job analysed, or None if the job is unknown.
 
     Suppressions are keyed by repository, so this lookup has to survive a
     restart -- which is exactly what the in-memory job map could not do.
     """
+    if not _is_job_id(job_id):
+        return None
     job = await session.get(Job, job_id)
-    if job is None or job.repository_id is None:
+    if job is None or job.user_id != user_id or job.repository_id is None:
         return None
     repo = await session.get(Repository, job.repository_id)
     return repo.url if repo else None
 
 
-async def list_jobs(session: AsyncSession, limit: int = 50) -> list[dict[str, Any]]:
+async def list_jobs(
+    session: AsyncSession, user_id: int, limit: int = 50
+) -> list[dict[str, Any]]:
+    """This user's jobs, newest first.
+
+    Unscoped, this returned every job id the instance had ever issued -- the
+    enumeration step that made the rest of D1 exploitable.
+    """
     rows = (
         await session.execute(
             select(Job, Repository)
             .join(Repository, Job.repository_id == Repository.id)
+            .where(Job.user_id == user_id)
             .order_by(Job.created_at.desc())
             .limit(limit)
         )
@@ -151,7 +228,7 @@ async def persist_run(
     composite_score: float | None = None,
 ) -> Run:
     """Store one completed analysis and its findings."""
-    job = await session.get(Job, job_id)
+    job = await session.get(Job, job_id) if _is_job_id(job_id) else None
     if job is None:
         raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
 
@@ -269,10 +346,17 @@ async def _hydrate(session: AsyncSession, runs: list[Run]) -> list[dict[str, Any
     return [run_to_dict(r, repos[r.repository_id], by_run.get(r.id, [])) for r in runs]
 
 
-async def get_latest_run(session: AsyncSession, job_id: str) -> dict[str, Any] | None:
+async def get_latest_run(
+    session: AsyncSession, job_id: str, user_id: int
+) -> dict[str, Any] | None:
+    if not _is_job_id(job_id):
+        return None
     run = (
         await session.execute(
-            select(Run).where(Run.job_id == job_id).order_by(Run.id.desc()).limit(1)
+            select(Run)
+            .where(Run.job_id == job_id, Run.user_id == user_id)
+            .order_by(Run.id.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
     if run is None:
@@ -281,13 +365,15 @@ async def get_latest_run(session: AsyncSession, job_id: str) -> dict[str, Any] |
 
 
 async def get_runs_for_job(
-    session: AsyncSession, job_id: str, limit: int = 50
+    session: AsyncSession, job_id: str, user_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:
+    if not _is_job_id(job_id):
+        return []
     runs = list(
         (
             await session.execute(
                 select(Run)
-                .where(Run.job_id == job_id)
+                .where(Run.job_id == job_id, Run.user_id == user_id)
                 .order_by(Run.id.desc())
                 .limit(limit)
             )
@@ -297,24 +383,24 @@ async def get_runs_for_job(
 
 
 async def get_recent_runs(
-    session: AsyncSession, limit: int = 50
+    session: AsyncSession, user_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """The most recent runs on this instance, newest first.
-
-    Scoped to a user once accounts exist. Until then it is the same
-    cross-repository view the audit log gave, and the tenancy task is what
-    closes that.
-    """
+    """This user's most recent runs, newest first, across their repositories."""
     runs = list(
         (
-            await session.execute(select(Run).order_by(Run.id.desc()).limit(limit))
+            await session.execute(
+                select(Run)
+                .where(Run.user_id == user_id)
+                .order_by(Run.id.desc())
+                .limit(limit)
+            )
         ).scalars()
     )
     return await _hydrate(session, runs)
 
 
 async def get_runs_for_repository(
-    session: AsyncSession, repo_url: str, limit: int = 50
+    session: AsyncSession, repo_url: str, user_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:
     """Every run recorded for one repository, newest first.
 
@@ -332,7 +418,7 @@ async def get_runs_for_repository(
         (
             await session.execute(
                 select(Run)
-                .where(Run.repository_id == repo.id)
+                .where(Run.repository_id == repo.id, Run.user_id == user_id)
                 .order_by(Run.id.desc())
                 .limit(limit)
             )
@@ -347,18 +433,29 @@ async def get_runs_for_repository(
 
 
 async def save_dependency_scan(
-    session: AsyncSession, job_id: str, payload: dict[str, Any]
+    session: AsyncSession, job_id: str, user_id: int, payload: dict[str, Any]
 ) -> None:
+    """Store a scan, but only against a job this user owns.
+
+    Checked rather than assumed: the scan is triggered by a request carrying a
+    job id, so an unchecked write would let anyone attach data to a stranger's
+    job.
+    """
+    if await get_job(session, job_id, user_id) is None:
+        raise ValueError(f"cannot store a dependency scan for unknown job {job_id!r}")
     session.add(DependencyScan(job_id=job_id, payload=payload))
 
 
 async def get_dependency_scan(
-    session: AsyncSession, job_id: str
+    session: AsyncSession, job_id: str, user_id: int
 ) -> dict[str, Any] | None:
+    if not _is_job_id(job_id):
+        return None
     row = (
         await session.execute(
             select(DependencyScan)
-            .where(DependencyScan.job_id == job_id)
+            .join(Job, DependencyScan.job_id == Job.id)
+            .where(DependencyScan.job_id == job_id, Job.user_id == user_id)
             .order_by(DependencyScan.id.desc())
             .limit(1)
         )

@@ -116,7 +116,20 @@ def _run_endpoint(monkeypatch, tmp_path, report):
     monkeypatch.setattr(
         "archguard.evolution.tracker.ArchitectureEvolutionTracker", _FakeTracker
     )
-    return ev.start_evolution(ev.EvolutionAnalyzeRequest(max_commits=3), job_id=None)
+    # No job_id, so no ownership lookup runs and no database is needed. The
+    # user is still required: the report cache is keyed per user, so one
+    # visitor's history analysis cannot be served to another.
+    import asyncio
+
+    from archguard.db.models import User
+
+    return asyncio.run(
+        ev.start_evolution(
+            ev.EvolutionAnalyzeRequest(max_commits=3),
+            job_id=None,
+            user=User(id=1, github_id=0, login="test"),
+        )
+    )
 
 
 def test_endpoint_reports_the_real_cause_when_every_commit_failed(monkeypatch, tmp_path):

@@ -83,24 +83,71 @@ def _run(coro: Any) -> Any:
         return pool.submit(asyncio.run, coro).result()
 
 
+#: A fixed, obviously-not-secret key. Tests need signatures to verify, not to
+#: resist anyone.
+TEST_SESSION_SECRET = "0123456789abcdef" * 4
+
+
 @pytest.fixture()
 def live_db(_schema_at_head: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     """Point the application at the test database, empty before and after."""
+    from archguard.dashboard import _sessions
     from archguard.db.session import dispose_engine
 
     monkeypatch.setenv("DATABASE_URL", _schema_at_head)
     monkeypatch.setenv("ARCHGUARD_DB_POOL_SIZE", "0")
+    monkeypatch.setenv("SESSION_SECRET", TEST_SESSION_SECRET)
     _run(dispose_engine())
     _run(_truncate())
+    _sessions.reset_sessions()
     try:
         yield _schema_at_head
     finally:
+        _sessions.reset_sessions()
         _run(_truncate())
         _run(dispose_engine())
 
 
 @pytest.fixture()
-def seed_run(live_db: str) -> Callable[..., str]:
+def test_user(live_db: str) -> Any:
+    """A real account row.
+
+    Every route resolves a user now, so a test that wants to read anything has
+    to be somebody. A real row rather than a stub, so the same ``user_id``
+    filters run as in production.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def _create() -> Any:
+        async with session_scope() as session:
+            user = await store.upsert_user(
+                session, github_id=4242, login="test-user", avatar_url=None
+            )
+            # Detached from the session on purpose: callers pass it straight
+            # into a route as the `user` argument, long after this closes.
+            await session.refresh(user)
+            session.expunge(user)
+            return user
+
+    return _run(_create())
+
+
+@pytest.fixture()
+def auth_client(test_user: Any) -> Any:
+    """A TestClient carrying a session cookie for ``test_user``."""
+    from fastapi.testclient import TestClient
+
+    from archguard.dashboard import _sessions
+    from archguard.dashboard.app import app
+
+    client = TestClient(app)
+    client.cookies.set(_sessions.COOKIE_NAME, _sessions.issue(test_user.id))
+    return client
+
+
+@pytest.fixture()
+def seed_run(test_user: Any) -> Callable[..., str]:
     """Factory writing a completed job plus one analysis run, returning the job id.
 
     Keyword arguments map onto the payload shape ``persist_run`` consumes, so a
@@ -127,10 +174,19 @@ def seed_run(live_db: str) -> Callable[..., str]:
                 if existing is not None:
                     jid = existing.id
                 elif job_id is None:
-                    jid = (await store.create_job(session, repo_url)).id
+                    jid = (
+                        await store.create_job(
+                            session, repo_url, user_id=test_user.id
+                        )
+                    ).id
                 else:
                     repo = await store.upsert_repository(session, repo_url)
-                    job = Job(id=job_id, repository_id=repo.id, status="complete")
+                    job = Job(
+                        id=job_id,
+                        repository_id=repo.id,
+                        user_id=test_user.id,
+                        status="complete",
+                    )
                     session.add(job)
                     await session.flush()
                     jid = job.id

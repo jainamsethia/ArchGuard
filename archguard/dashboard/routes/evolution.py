@@ -9,15 +9,19 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import JobIdQuery, app
+from archguard.db.models import User
 
 logger = logging.getLogger(__name__)
 
 MIN_RUNS_FOR_HISTORY = 2
 
 
-async def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], str | None]:
+async def _repo_scoped_runs(
+    job_id: str | None, limit: int, user_id: int
+) -> tuple[list[Any], str | None]:
     """Analysis runs belonging to the same repository as *job_id*.
 
     This is per-repository history now, not a filtered view of one shared log.
@@ -40,17 +44,19 @@ async def _repo_scoped_runs(job_id: str | None, limit: int) -> tuple[list[Any], 
     try:
         from archguard.dashboard.routes.suppression import repo_url_for_job
 
-        repo_url = await repo_url_for_job(job)
+        repo_url = await repo_url_for_job(job, user_id)
     except Exception:
         repo_url = None
 
     async with session_scope() as session:
         if repo_url:
-            runs = await store.get_runs_for_repository(session, repo_url, limit=limit)
+            runs = await store.get_runs_for_repository(
+                session, repo_url, user_id, limit=limit
+            )
         else:
             # Repository unknown: this job's own runs rather than the whole
             # server's, which would be cross-repo.
-            runs = await store.get_runs_for_job(session, job, limit=limit)
+            runs = await store.get_runs_for_job(session, job, user_id, limit=limit)
     return list(runs), repo_url
 
 
@@ -75,11 +81,15 @@ def _insufficient_history(runs: list[Any], repo_url: str | None) -> dict[str, An
 @app.get(
     "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-async def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_summary(
+    limit: int = Query(default=50, ge=1, le=500),
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
     """Return the complete evolution trend report."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = await _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit, user.id)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
@@ -93,11 +103,15 @@ async def get_evolution_summary(limit: int = Query(default=50, ge=1, le=500), jo
 @app.get(
     "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-async def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_history(
+    limit: int = Query(default=50, ge=1, le=500),
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
     """Return the parsed evolution snapshots."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = await _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit, user.id)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
@@ -114,11 +128,15 @@ async def get_evolution_history(limit: int = Query(default=50, ge=1, le=500), jo
 @app.get(
     "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-async def get_evolution_trends(limit: int = Query(default=50, ge=1, le=500), job_id: JobIdQuery = None) -> Any:
+async def get_evolution_trends(
+    limit: int = Query(default=50, ge=1, le=500),
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
     """Return just the calculated trends."""
     from archguard.evolution.tracker import EvolutionTracker
 
-    runs, repo_url = await _repo_scoped_runs(job_id, limit)
+    runs, repo_url = await _repo_scoped_runs(job_id, limit, user.id)
     if len(runs) < MIN_RUNS_FOR_HISTORY:
         return _insufficient_history(runs, repo_url)
     tracker = EvolutionTracker(runs)
@@ -154,14 +172,16 @@ _EVO_LOCAL_MAX = 100
 _EVO_LOCAL: dict[str, Any] = {}
 
 
-def _evo_key(job_id: str | None) -> str:
-    return f"evolution:{job_id or '_no_job_id'}"
+def _evo_key(job_id: str | None, user_id: int) -> str:
+    # Keyed by user as well as job: the cache must not become a way to read a
+    # report for a job you do not own but whose id you happen to have.
+    return f"evolution:{user_id}:{job_id or '_no_job_id'}"
 
 
-def _evo_store(job_id: str | None, report: dict[str, Any]) -> None:
+def _evo_store(job_id: str | None, user_id: int, report: dict[str, Any]) -> None:
     from archguard.redis_client import get_redis
 
-    key = _evo_key(job_id)
+    key = _evo_key(job_id, user_id)
     client = get_redis()
     if client is not None:
         try:
@@ -176,10 +196,10 @@ def _evo_store(job_id: str | None, report: dict[str, Any]) -> None:
         _EVO_LOCAL[key] = report
 
 
-def _evo_load(job_id: str | None) -> dict[str, Any] | None:
+def _evo_load(job_id: str | None, user_id: int) -> dict[str, Any] | None:
     from archguard.redis_client import get_redis
 
-    key = _evo_key(job_id)
+    key = _evo_key(job_id, user_id)
     client = get_redis()
     if client is not None:
         try:
@@ -203,10 +223,26 @@ class EvolutionAnalyzeRequest(BaseModel):
 @app.post(
     "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) -> Any:
+async def start_evolution(
+    body: EvolutionAnalyzeRequest,
+    job_id: JobIdQuery = None,
+    user: User = Depends(current_user),
+) -> Any:
     """Run ArchitectureEvolutionTracker against git history."""
     from archguard.dashboard.app import get_target_path
+    from archguard.db import store
+    from archguard.db.session import session_scope
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
+
+    # The workspace is on disk under a path derived from the job id alone, so
+    # without this check anyone holding an id could run a full history analysis
+    # over someone else's clone -- and read the result.
+    if job_id:
+        async with session_scope() as session:
+            if await store.get_job(session, job_id, user.id) is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Job {job_id!r} not found"
+                )
 
     try:
         target = get_target_path(job_id)
@@ -281,7 +317,7 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
             "failure_reason": report.failure_summary,
         }
 
-        _evo_store(job_id, result)
+        _evo_store(job_id, user.id, result)
 
         return result
     except Exception as exc:
@@ -295,9 +331,11 @@ def start_evolution(body: EvolutionAnalyzeRequest, job_id: JobIdQuery = None) ->
 @app.get(
     "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
 )
-def get_latest_evolution(job_id: JobIdQuery = None) -> Any:
+def get_latest_evolution(
+    job_id: JobIdQuery = None, user: User = Depends(current_user)
+) -> Any:
     """Get the latest completed architecture evolution report."""
-    cached = _evo_load(job_id)
+    cached = _evo_load(job_id, user.id)
     if cached is not None:
         return cached
     return {"available": False}

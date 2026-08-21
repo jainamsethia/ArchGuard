@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from archguard.dashboard.app import app
+from tests.db_fixtures import requires_postgres
 
 
 @pytest.fixture
@@ -36,33 +37,57 @@ def test_submit_job_returns_202(client):
     assert "/api/v1/jobs/" in body["poll_url"]
     assert "/stream" in body["stream_url"]
 
-def test_get_job_not_found(client):
-    """Unknown job_id → 404."""
-    resp = client.get("/api/jobs/does-not-exist-12345")
+@requires_postgres
+def test_get_job_not_found(auth_client):
+    """Unknown job_id -> 404.
+
+    Also the answer for a job that exists but belongs to someone else: telling
+    the two apart is what makes an id worth guessing.
+    """
+    resp = auth_client.get("/api/jobs/does-not-exist-12345")
     assert resp.status_code == 404
 
-def test_get_job_status_queued(client):
-    """Freshly created job shows queued status."""
+@requires_postgres
+def test_get_job_status_queued(auth_client, seed_run):
+    """A job this user owns shows its live status."""
     from archguard.dashboard.job_manager import AnalysisJob, JobStatus
 
+    job_id = seed_run()
     fake_job = AnalysisJob(
-        id="test-uuid",
+        id=job_id,
         github_url="https://github.com/pallets/flask",
         status=JobStatus.QUEUED,
     )
 
     with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=fake_job):
-        resp = client.get("/api/jobs/test-uuid")
+        resp = auth_client.get(f"/api/jobs/{job_id}")
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "queued"
 
-def test_list_jobs_empty(client):
-    """Empty job store returns empty list."""
+
+@requires_postgres
+def test_get_job_status_survives_a_restart(auth_client, seed_run):
+    """Known to the database, unknown to this process -> the stored record.
+
+    The in-memory-only version 404d here, which made every deploy look to the
+    user like their analysis had been lost.
+    """
+    job_id = seed_run()
+    with patch("archguard.dashboard.job_manager.job_manager.get_job", return_value=None):
+        resp = auth_client.get(f"/api/jobs/{job_id}")
+
+    assert resp.status_code == 200
+    assert resp.json()["job_id"] == job_id
+    assert resp.json()["status"] == "complete"
+
+@requires_postgres
+def test_list_jobs_empty(auth_client):
+    """A user with no jobs sees no jobs -- not everyone else's."""
     from archguard.dashboard.job_manager import job_manager
     job_manager._jobs.clear()
 
-    resp = client.get("/api/jobs")
+    resp = auth_client.get("/api/jobs")
     assert resp.status_code == 200
     assert resp.json()["jobs"] == []
 

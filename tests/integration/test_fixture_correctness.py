@@ -78,7 +78,12 @@ def _analyse(repo_path: Path, repo_url: str) -> tuple:
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            job_id = (await store.create_job(session, repo_url)).id
+            # A real owner, because every read is scoped by one. Analysis does
+            # not care who submitted the job; reading the result back does.
+            user = await store.upsert_user(session, github_id=4242, login="test-user")
+            job_id, user_id = (
+                await store.create_job(session, repo_url, user_id=user.id)
+            ).id, user.id
 
         result = await run_analysis_on_repo(
             repo_path=repo_path,
@@ -88,7 +93,7 @@ def _analyse(repo_path: Path, repo_url: str) -> tuple:
             skip_explanation=True,
         )
         async with session_scope() as session:
-            return result, await store.get_latest_run(session, job_id)
+            return result, await store.get_latest_run(session, job_id, user_id)
 
     return asyncio.run(_go())
 

@@ -7,8 +7,10 @@ from fastapi import Depends, Query
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import _llm_rate_limit
 from archguard.dashboard.app import app
+from archguard.db.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +92,8 @@ async def remediation_plan(body: RemediationRequest) -> Any:
 )
 async def remediation_plan_from_audit(
     limit: int = Query(default=1, ge=1, le=10),
-    job_id: str | None = None
+    job_id: str | None = None,
+    user: User = Depends(current_user),
 ) -> Any:
     """Generate a remediation plan from the latest audit run violations."""
     import os
@@ -104,7 +107,7 @@ async def remediation_plan_from_audit(
         from archguard.db.session import session_scope
 
         async with session_scope() as session:
-            latest = await store.get_latest_run(session, job_id)
+            latest = await store.get_latest_run(session, job_id, user.id)
         if latest is None:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")

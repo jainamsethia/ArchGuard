@@ -152,11 +152,20 @@ def check_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> None:
-    """Enforce authentication for all protected endpoints.
+    """Gate an endpoint on the operator credential or a signed-in session.
 
-    Accepts EITHER:
-    1. Authorization: Bearer <token>  - for CLI / API clients
-    2. archguard_session cookie       - for browser clients (set via /api/auth/login)
+    This answers "may this request through?", which is a different and much
+    weaker question than "whose data is this?". Every route that reads user
+    data also depends on ``current_user``; this one remains for the endpoints
+    that belong to no user -- health, and future admin surfaces.
+
+    Accepts, in order:
+
+    1. ``Authorization: Bearer <ARCHGUARD_DASHBOARD_TOKEN>`` -- operators;
+    2. a valid session cookie -- any signed-in user;
+    3. a short-lived, job-scoped stream token in ``?token=`` -- EventSource
+       cannot set headers, so an SSE URL is the one place a credential may
+       legitimately appear in a query string.
 
     If ARCHGUARD_DASHBOARD_TOKEN is not set, falls back to IP-based allow/deny.
     """
@@ -167,17 +176,22 @@ def check_token(
             return  # authenticated via Bearer
 
         # Path 2: Session cookie (browser clients)
-        from archguard.dashboard._cookie_auth import validate_session_cookie
-        cookie_value = request.cookies.get("archguard_session", "")
-        if cookie_value and validate_session_cookie(cookie_value, token):
-            return  # authenticated via cookie
+        from archguard.dashboard import _sessions
 
-        # Path 3: Query parameter (SSE EventSource clients)
+        if _sessions.resolve(request.cookies.get(_sessions.COOKIE_NAME, "")) is not None:
+            return  # authenticated via a real session
+
+        # Path 3: a job-scoped stream token (SSE EventSource clients).
+        #
+        # The raw ARCHGUARD_DASHBOARD_TOKEN used to be accepted here too (D2).
+        # A query string is the worst place to put an admin credential: it
+        # lands in proxy access logs, browser history and Referer headers, and
+        # it was accepted on *every* endpoint, not just the stream. Only the
+        # short-lived, single-job token is valid in a URL now.
         qs_token = request.query_params.get("token", "")
         if qs_token:
-            if hmac.compare_digest(qs_token.encode(), token.encode()):
-                return  # authenticated via query param
             from archguard.dashboard._cookie_auth import validate_stream_token
+
             if validate_stream_token(qs_token, token):
                 return  # authenticated via short-lived stream token
 

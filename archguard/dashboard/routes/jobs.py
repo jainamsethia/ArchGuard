@@ -17,8 +17,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from archguard.dashboard._auth import check_token
+from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard.app import app
+from archguard.db.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -315,11 +317,15 @@ def _reject_if_too_large(
 async def submit_analysis_job(
     request: SubmitJobRequest,
     background_tasks: BackgroundTasks,
+    user: User = Depends(current_user),
 ) -> dict[str, Any]:
     """Validate the GitHub URL and enqueue a background analysis job.
 
     Returns immediately (HTTP 202) with a job_id.
     Poll GET /api/jobs/{job_id} or stream GET /api/jobs/{job_id}/stream.
+
+    The job records who submitted it. That single column is what every read
+    downstream filters on, so ownership is established here or nowhere.
     """
     from archguard.dashboard.job_manager import job_manager
 
@@ -354,7 +360,7 @@ async def submit_analysis_job(
 
     # Use the safe reconstructed URL (CRIT-001 fix) rather than the raw input
     safe_url = build_safe_clone_url(owner, repo_name)
-    job = await job_manager.create_job(github_url=safe_url)
+    job = await job_manager.create_job(github_url=safe_url, user_id=user.id)
     task = asyncio.create_task(job_manager.run_job(job))
     job_manager.track_task(job.id, task)
 
@@ -388,13 +394,48 @@ async def submit_analysis_job(
     summary="Get analysis job status and result",
     deprecated=True,
 )
-async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
-    """Return the current status, progress, and result of an analysis job."""
+async def get_job_status(
+    job_id: str, request: Request, user: User = Depends(current_user)
+) -> dict[str, Any]:
+    """Return the current status, progress, and result of an analysis job.
+
+    Ownership is settled against the database before the in-memory map is
+    consulted at all. The map records no owner, so answering from it first
+    would serve a stranger's job to anyone who guessed its id -- and a job id
+    appears in the browser URL, so they are not hard to come by.
+    """
     from archguard.dashboard.job_manager import JobStatus, job_manager
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async with session_scope() as session:
+        owned = await store.get_job(session, job_id, user.id)
+        if owned is None:
+            raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+        db_status, db_error, db_created, db_completed = (
+            owned.status,
+            owned.error,
+            owned.created_at,
+            owned.completed_at,
+        )
 
     job = job_manager.get_job(job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
+        # Known to the database but not to this process: either a restart or
+        # another replica ran it. Serve what was stored rather than the 404 the
+        # in-memory-only version returned, which made every deploy look like
+        # data loss.
+        stored: dict[str, Any] = {
+            "job_id": job_id,
+            "status": db_status,
+            "progress": [],
+            "created_at": db_created.isoformat(),
+        }
+        if db_completed:
+            stored["completed_at"] = db_completed.isoformat()
+        if db_error:
+            stored["error"] = db_error
+        return stored
 
     response: dict[str, Any] = {
         "job_id": job.id,
@@ -432,23 +473,19 @@ async def get_job_status(job_id: str, request: Request) -> dict[str, Any]:
     summary="List recent analysis jobs",
     deprecated=True,
 )
-async def list_jobs() -> dict[str, Any]:
-    """Return the most recent analysis jobs (up to 50)."""
-    from archguard.dashboard.job_manager import job_manager
+async def list_jobs(user: User = Depends(current_user)) -> dict[str, Any]:
+    """This user's most recent analysis jobs (up to 50).
 
-    return {
-        "jobs": [
-            {
-                "job_id": j.id,
-                "github_url": j.github_url,
-                "status": j.status,
-                "created_at": j.created_at.isoformat(),
-                "health_score": j.result.health_score if j.result else None,
-                "health_grade": j.result.health_grade if j.result else None,
-            }
-            for j in job_manager.list_jobs()
-        ]
-    }
+    From the database, not the in-memory map: the map holds only what this
+    process happens to have run since it started, and it holds every user's.
+    Together those made this endpoint both incomplete and the enumeration
+    primitive for D1 -- it returned every job id the instance had ever issued.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async with session_scope() as session:
+        return {"jobs": await store.list_jobs(session, user.id)}
 
 
 # --------------------------------------------------------------------------
@@ -479,6 +516,7 @@ async def stream_job_progress(
     # decorator's `dependencies=`, and listing it twice charged every stream
     # connection two requests against the caller's own budget.
     _auth: None = Depends(check_token),
+    user: User = Depends(current_user),
 ) -> StreamingResponse:
     """Stream real-time analysis progress for a job.
 
@@ -494,6 +532,12 @@ async def stream_job_progress(
     """
 
     from archguard.dashboard.job_manager import JobStatus, job_manager
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async with session_scope() as session:
+        if await store.get_job(session, job_id, user.id) is None:
+            raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found")
 
     job = job_manager.get_job(job_id)
     if job is None:
