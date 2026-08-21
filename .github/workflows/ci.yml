@@ -180,7 +180,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install "poetry==2.4.1" && poetry install --with dev
+      - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
 
       # A downgrade that does not drop what the upgrade created leaves the
       # second upgrade failing on objects that already exist -- discovered
@@ -305,10 +305,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: pip install "poetry==2.4.1" && poetry install --with dev
+      - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
       - name: Start the dashboard
         run: |
-          poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 &
+          poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 --log-level warning &
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:8765/health > /dev/null 2>&1 && break
             sleep 1
@@ -324,6 +324,9 @@ jobs:
       # hides every control the test then waited thirty seconds for.
       - name: Run browser behaviour tests
         run: npx playwright test tests/visual/ --grep-invert "@snapshot"
+        env:
+          # This job starts the server above; it cannot be stale.
+          PLAYWRIGHT_REUSE_SERVER: '1'
       - name: Upload diff artifacts on failure
         uses: actions/upload-artifact@v4
         if: failure()
@@ -354,9 +357,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: pip install "poetry==2.4.1" && poetry install --with dev
+      - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
       - name: Run snapshot comparisons
         run: npx playwright test tests/visual/ --grep "@snapshot"
+        env:
+          PLAYWRIGHT_REUSE_SERVER: '1'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -376,10 +381,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: pip install "poetry==2.4.1" && poetry install --with dev
+      - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
       - name: Start the dashboard
         run: |
-          poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 &
+          poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 --log-level warning &
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:8765/health > /dev/null 2>&1 && break
             sleep 1
@@ -392,3 +397,5 @@ jobs:
       # tighten this threshold once it has.
       - name: Run axe-core
         run: npx playwright test tests/a11y/
+        env:
+          PLAYWRIGHT_REUSE_SERVER: '1'
