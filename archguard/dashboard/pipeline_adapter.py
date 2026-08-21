@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from archguard.analysis.coupling import collect_unassigned
 from archguard.contract.generation import ContractGenerationResult
 
 logger = logging.getLogger(__name__)
@@ -379,6 +380,14 @@ def _generate_contract_sync(repo_path: Path) -> ContractGenerationResult:
         compute_embeddings=False,
     )
 
+# The scope for the whole pipeline pass, applied as a decorator so nothing has
+# to be re-indented around it. `contextmanager` results are `ContextDecorator`s,
+# so this is the same object the `with` statements below use.
+#
+# It spans both halves: the orchestrator run, and the derived artifacts built
+# afterwards. Both resolve every source file, and both were reporting the same
+# uncovered files -- two identical summaries where one will do.
+@collect_unassigned(context="analysis")
 def _run_analysis_sync(
     repo_path: Path,
     py_files: list[Path],
@@ -422,169 +431,176 @@ def _run_analysis_sync(
         )
 
     # -- Build the persistable payload --
-    try:
-        from archguard.analysis._orchestrator_utils import _get_module_paths
-        from archguard.analysis.coupling import _assign_file_to_module
-        from archguard.analysis.parser import ImportParser
-        from archguard.contract.loader import load_contract
-        from archguard.dashboard._result_schema import (
-            AnalysisResultPayload,
-            LayerResultPayload,
-            ViolationPayload,
-        )
-        from archguard.utils.paths import path_belongs_to_module
-
-        band_val = str(result.archdebt.band.name).upper()
-        audit_band = (
-            "PASS"
-            if band_val == "HEALTHY"
-            else ("WATCH" if band_val == "WATCH"
-            else ("WARN" if band_val == "WARN" else "FAIL"))
-        )
-
-        v_list_out = []
-        for v in result.violations:
-            raw_file = getattr(v, "file_path", "") or None
-            line = getattr(v, "line", 0)
-
-            from archguard.utils.severity import Severity
-
-            scope = "file" if raw_file else "module"
-            v_list_out.append(
-                ViolationPayload(
-                    file=raw_file,
-                    line=line,
-                    module=getattr(v, "module", None),
-                    severity=getattr(v, "severity", Severity.LOW).value,
-                    message=getattr(v, "message", ""),
-                    layer=str(getattr(v, "layer", "0")),
-                    scope=scope,
-                    kind=getattr(v, "kind", "") or "",
-                    metrics=dict(getattr(v, "metrics", {}) or {}),
-                )
-            )
-
-        # -- Compute module_scores from violations --
-        severity_weights = {"critical": 10, "high": 5, "medium": 2, "low": 1}
-        module_penalty: dict[str, float] = {}
-        for vp in v_list_out:
-            mod = vp.module or "unknown"
-            module_penalty[mod] = module_penalty.get(mod, 0) + severity_weights.get(vp.severity, 1)
-
-        # Load contract for module list and dependency graph
-        contract_dict: dict[str, Any] = {}
-        modules_analyzed_list: list[str] = []
-        dep_graph: dict[str, list[str]] = {}
-        import_edges_list: list[dict[str, str]] = []
-        derived_artifacts_error = ""
-
+    # Nested inside the function-level scope above, so this emits no summary of
+    # its own -- it joins that one. Kept because it names what this section is:
+    # two separate blocks in here walk the edge list resolving source files, the
+    # dependency graph and the import graph, and scoping them individually is
+    # how the first attempt at this left the dependency-graph one still logging
+    # once per edge.
+    with collect_unassigned(context="derived artifacts"):
         try:
-            contract_dict = load_contract(repo_path)
-            modules_cfg = contract_dict.get("modules", [])
-            module_names = [m["name"] for m in modules_cfg]
-            modules_analyzed_list = module_names
-            module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
-
-            # Per-module health: 100 - penalty, clamped to [0, 100]
-            module_scores: dict[str, float] = {}
-            for name in module_names:
-                penalty = module_penalty.get(name, 0)
-                module_scores[name] = round(max(0.0, min(100.0, 100.0 - penalty * 3)), 1)
-
-            # Dependency graph via FitnessFunctionEvaluator
-            try:
-                from archguard.fitness.evaluator import FitnessFunctionEvaluator
-                evaluator = FitnessFunctionEvaluator(repo_path, contract_dict)
-                dep_set = evaluator._get_module_dependencies()
-                dep_graph = {k: list(v) for k, v in dep_set.items()}
-                for name in module_paths:
-                    dep_graph.setdefault(name, [])
-            except Exception as dep_exc:
-                logger.warning("Failed to compute dependency graph: %s", dep_exc)
-
-            # Import edges
-            try:
-                parser = ImportParser()
-                parse_result = parser.parse_repo(repo_path, module_paths, allow_partial=True)
-                seen_edges: set[tuple[str, str]] = set()
-                for e in parse_result.edges:
-                    if e.is_stdlib or e.is_relative:
-                        continue
-                    importer = _assign_file_to_module(e.source_file, module_paths)
-                    if not importer:
-                        continue
-                    import_as_path = e.imported_module.replace(".", "/")
-                    imported = None
-                    for tp_name, t_paths in module_paths.items():
-                        targets_us = any(
-                            path_belongs_to_module(import_as_path, [tp])
-                            or path_belongs_to_module(tp, [import_as_path])
-                            for tp in t_paths
-                        )
-                        if targets_us:
-                            imported = tp_name
-                            break
-                    if not imported:
-                        imported = e.imported_module.split(".")[0]
-                    if importer != imported:
-                        k = (importer, imported)
-                        if k not in seen_edges:
-                            seen_edges.add(k)
-                            import_edges_list.append({"from": importer, "to": imported})
-            except Exception as edge_exc:
-                logger.warning("Failed to compute import edges: %s", edge_exc)
-
-        except Exception as contract_exc:
-            # The run is still persisted (the score and violations are real),
-            # but every module-keyed artifact below is now empty. Record why so
-            # the dashboard can distinguish that from a repo with no modules.
-            logger.warning(
-                "Failed to load contract for derived artifacts: %s", contract_exc,
-                exc_info=True,
+            from archguard.analysis._orchestrator_utils import _get_module_paths
+            from archguard.analysis.coupling import _assign_file_to_module
+            from archguard.analysis.parser import ImportParser
+            from archguard.contract.loader import load_contract
+            from archguard.dashboard._result_schema import (
+                AnalysisResultPayload,
+                LayerResultPayload,
+                ViolationPayload,
             )
-            derived_artifacts_error = f"{type(contract_exc).__name__}: {contract_exc}"
-            module_scores = {}
+            from archguard.utils.paths import path_belongs_to_module
 
-        payload = AnalysisResultPayload(
-            job_id=job_id,
-            score=result.archdebt.health_score,
-            band=audit_band,
-            violations=v_list_out,
-            skipped=False,
-            layer_results=[
-                LayerResultPayload(
-                    layer=lr.layer,
-                    name=lr.name,
-                    score=lr.score,
-                    violation_count=lr.violation_count,
-                    skipped=lr.skipped,
-                    skip_reason=lr.skip_reason,
+            band_val = str(result.archdebt.band.name).upper()
+            audit_band = (
+                "PASS"
+                if band_val == "HEALTHY"
+                else ("WATCH" if band_val == "WATCH"
+                else ("WARN" if band_val == "WARN" else "FAIL"))
+            )
+
+            v_list_out = []
+            for v in result.violations:
+                raw_file = getattr(v, "file_path", "") or None
+                line = getattr(v, "line", 0)
+
+                from archguard.utils.severity import Severity
+
+                scope = "file" if raw_file else "module"
+                v_list_out.append(
+                    ViolationPayload(
+                        file=raw_file,
+                        line=line,
+                        module=getattr(v, "module", None),
+                        severity=getattr(v, "severity", Severity.LOW).value,
+                        message=getattr(v, "message", ""),
+                        layer=str(getattr(v, "layer", "0")),
+                        scope=scope,
+                        kind=getattr(v, "kind", "") or "",
+                        metrics=dict(getattr(v, "metrics", {}) or {}),
+                    )
                 )
-                for lr in _extract_layer_results(result)
-            ],
-            module_scores=module_scores,
-            modules_analyzed=modules_analyzed_list,
-            dependency_graph=dep_graph,
-            import_edges=import_edges_list,
-            contract=contract_dict,
-            metrics=result.metrics if isinstance(getattr(result, "metrics", None), dict) else {},
-            contract_auto_generated=contract_auto_generated,
-            fallback_directory_heuristic=fallback_directory_heuristic,
-            fallback_reason=fallback_reason,
-            derived_artifacts_error=derived_artifacts_error,
-        )
 
-        return result, payload.model_dump()
-    except Exception:
-        # The analysis still succeeded for the caller, but there is nothing to
-        # store, so every read endpoint will report no data for this job. At
-        # exception level with a traceback: a bare warning is how this stayed
-        # invisible.
-        logger.exception(
-            "[job %s] Could not build the analysis payload; the dashboard will "
-            "show no data for this job even though the analysis completed",
-            job_id,
-        )
+            # -- Compute module_scores from violations --
+            severity_weights = {"critical": 10, "high": 5, "medium": 2, "low": 1}
+            module_penalty: dict[str, float] = {}
+            for vp in v_list_out:
+                mod = vp.module or "unknown"
+                module_penalty[mod] = module_penalty.get(mod, 0) + severity_weights.get(vp.severity, 1)
+
+            # Load contract for module list and dependency graph
+            contract_dict: dict[str, Any] = {}
+            modules_analyzed_list: list[str] = []
+            dep_graph: dict[str, list[str]] = {}
+            import_edges_list: list[dict[str, str]] = []
+            derived_artifacts_error = ""
+
+            try:
+                contract_dict = load_contract(repo_path)
+                modules_cfg = contract_dict.get("modules", [])
+                module_names = [m["name"] for m in modules_cfg]
+                modules_analyzed_list = module_names
+                module_paths = {m["name"]: _get_module_paths(m) for m in modules_cfg}
+
+                # Per-module health: 100 - penalty, clamped to [0, 100]
+                module_scores: dict[str, float] = {}
+                for name in module_names:
+                    penalty = module_penalty.get(name, 0)
+                    module_scores[name] = round(max(0.0, min(100.0, 100.0 - penalty * 3)), 1)
+
+                # Dependency graph via FitnessFunctionEvaluator
+                try:
+                    from archguard.fitness.evaluator import FitnessFunctionEvaluator
+                    evaluator = FitnessFunctionEvaluator(repo_path, contract_dict)
+                    dep_set = evaluator._get_module_dependencies()
+                    dep_graph = {k: list(v) for k, v in dep_set.items()}
+                    for name in module_paths:
+                        dep_graph.setdefault(name, [])
+                except Exception as dep_exc:
+                    logger.warning("Failed to compute dependency graph: %s", dep_exc)
+
+                # Import edges
+                try:
+                    parser = ImportParser()
+                    parse_result = parser.parse_repo(repo_path, module_paths, allow_partial=True)
+                    seen_edges: set[tuple[str, str]] = set()
+                    for e in parse_result.edges:
+                        if e.is_stdlib or e.is_relative:
+                            continue
+                        importer = _assign_file_to_module(e.source_file, module_paths)
+                        if not importer:
+                            continue
+                        import_as_path = e.imported_module.replace(".", "/")
+                        imported = None
+                        for tp_name, t_paths in module_paths.items():
+                            targets_us = any(
+                                path_belongs_to_module(import_as_path, [tp])
+                                or path_belongs_to_module(tp, [import_as_path])
+                                for tp in t_paths
+                            )
+                            if targets_us:
+                                imported = tp_name
+                                break
+                        if not imported:
+                            imported = e.imported_module.split(".")[0]
+                        if importer != imported:
+                            k = (importer, imported)
+                            if k not in seen_edges:
+                                seen_edges.add(k)
+                                import_edges_list.append({"from": importer, "to": imported})
+                except Exception as edge_exc:
+                    logger.warning("Failed to compute import edges: %s", edge_exc)
+
+            except Exception as contract_exc:
+                # The run is still persisted (the score and violations are real),
+                # but every module-keyed artifact below is now empty. Record why so
+                # the dashboard can distinguish that from a repo with no modules.
+                logger.warning(
+                    "Failed to load contract for derived artifacts: %s", contract_exc,
+                    exc_info=True,
+                )
+                derived_artifacts_error = f"{type(contract_exc).__name__}: {contract_exc}"
+                module_scores = {}
+
+            payload = AnalysisResultPayload(
+                job_id=job_id,
+                score=result.archdebt.health_score,
+                band=audit_band,
+                violations=v_list_out,
+                skipped=False,
+                layer_results=[
+                    LayerResultPayload(
+                        layer=lr.layer,
+                        name=lr.name,
+                        score=lr.score,
+                        violation_count=lr.violation_count,
+                        skipped=lr.skipped,
+                        skip_reason=lr.skip_reason,
+                    )
+                    for lr in _extract_layer_results(result)
+                ],
+                module_scores=module_scores,
+                modules_analyzed=modules_analyzed_list,
+                dependency_graph=dep_graph,
+                import_edges=import_edges_list,
+                contract=contract_dict,
+                metrics=result.metrics if isinstance(getattr(result, "metrics", None), dict) else {},
+                contract_auto_generated=contract_auto_generated,
+                fallback_directory_heuristic=fallback_directory_heuristic,
+                fallback_reason=fallback_reason,
+                derived_artifacts_error=derived_artifacts_error,
+            )
+
+            return result, payload.model_dump()
+        except Exception:
+            # The analysis still succeeded for the caller, but there is nothing to
+            # store, so every read endpoint will report no data for this job. At
+            # exception level with a traceback: a bare warning is how this stayed
+            # invisible.
+            logger.exception(
+                "[job %s] Could not build the analysis payload; the dashboard will "
+                "show no data for this job even though the analysis completed",
+                job_id,
+            )
 
     return result, None
 

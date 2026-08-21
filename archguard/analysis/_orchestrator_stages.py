@@ -6,6 +6,7 @@ import logging
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +68,12 @@ def _execute_l1_l2_concurrently(
                     l2_failures,
                 )
 
-        f_l1, f_l2 = executor.submit(run_l1), executor.submit(run_l2)
+        # copy_context, because ThreadPoolExecutor.submit does not. Two things
+        # ride on the context and both were being lost in these threads: the
+        # unassigned-file collection scope, and the correlation id -- so every
+        # log line layers 1 and 2 produced was attributed to no job at all.
+        f_l1 = executor.submit(copy_context().run, run_l1)
+        f_l2 = executor.submit(copy_context().run, run_l2)
         layer1, l1_viols = f_l1.result()
         emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
 

@@ -74,15 +74,22 @@ class AnalysisOrchestrator:
     ) -> AnalysisResult:
         """Run the full Layer 1–4 pipeline."""
         from archguard.analysis._orchestrator_run import _run_orchestrator
+        from archguard.analysis.coupling import collect_unassigned
 
-        return _run_orchestrator(
-            self,
-            changed_files,
-            commit_sha,
-            progress_callback,
-            fail_fast,
-            quiet,
-        )
+        # One run, one summary of the files the contract does not cover.
+        # `_assign_file_to_module` is called once per edge by the payload
+        # builder and once per (module x edge) by `compute_fan_in`, so a single
+        # uncovered file used to be logged dozens of times per analysis. This
+        # is the analysis boundary, which is what "once per run" has to mean.
+        with collect_unassigned(context="analysis"):
+            return _run_orchestrator(
+                self,
+                changed_files,
+                commit_sha,
+                progress_callback,
+                fail_fast,
+                quiet,
+            )
 
     # (Removed wrappers to save lines)
 
