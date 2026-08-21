@@ -17,8 +17,12 @@ UNPREFIXED = {
     "/",
     "/dashboard.html",
     # Platform health checks are unauthenticated by definition, and burying
-    # this under /api/v1 would make liveness depend on the database.
+    # these under /api/v1 would make liveness depend on the database.
     "/health",
+    # Polled by the platform and by a metrics scraper, neither of which has a
+    # session. /metrics exposes counts, not content.
+    "/ready",
+    "/metrics",
     # Registered with GitHub as the OAuth callback.
     "/auth/github",
     "/auth/github/callback",

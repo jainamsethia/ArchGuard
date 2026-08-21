@@ -44,6 +44,21 @@ say why.
 `alembic.ini` deliberately does not contain `sqlalchemy.url` for the same
 reason — `archguard/db/migrations/env.py` reads `DATABASE_URL` instead.
 
+## Health and metrics
+
+| Endpoint | Answers | On failure |
+|---|---|---|
+| `/health` | Is this process alive? | never fails while it is running |
+| `/ready` | Can it serve a request? | 503, naming which dependency is down |
+| `/metrics` | Prometheus text | reports `archguard_database_up 0` rather than 500ing |
+
+Point platform health checks at `/ready`, not `/health`. A check that returns
+200 whenever the process is alive reports a service as healthy while its
+database is unreachable and every request is failing, which stops the platform
+rolling back. `/health` exists for the opposite reason: a failing liveness
+check kills the container, so it must not depend on anything outside the
+process.
+
 ## Running the analysis worker
 
 Analyses run in a separate process:

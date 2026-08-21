@@ -88,6 +88,13 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     # no timestamp, level or logger name. Nothing in this package logs at module
     # scope, so the lifespan is early enough to catch the whole process.
     configure_logging()
+
+    # Immediately after logging, so an exception during the config check below
+    # is reported rather than only written to stdout.
+    from archguard.observability.errors import configure_error_reporting
+
+    configure_error_reporting()
+
     _startup_logger.info("ArchGuard Dashboard starting up...")
 
     # Before anything serves traffic, and after logging so the reason is
@@ -368,6 +375,7 @@ from archguard.dashboard.routes import (
     auth,
     evolution,
     jobs,
+    meta,
     remediation,
     risk,
     runs,
@@ -390,9 +398,10 @@ app.include_router(advisor.router, prefix="/api/v1")
 app.include_router(remediation.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 
-# Unprefixed: /health is what platform health checks poll, and the OAuth
+# Unprefixed and unauthenticated: /health, /ready and /metrics are polled by
+# the platform and by a scraper, neither of which has a session; and the OAuth
 # callback URL is registered with GitHub.
-app.include_router(jobs.meta_router)
+app.include_router(meta.router)
 app.include_router(auth.oauth_router)
 
 _templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

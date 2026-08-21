@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 async def startup(ctx: dict[str, Any]) -> None:
     configure_logging()
+
+    # The worker needs this more than the web process does: it has no HTTP
+    # surface, so a crash there is invisible unless something ships it out.
+    from archguard.observability.errors import configure_error_reporting
+
+    configure_error_reporting()
     logger.info("Analysis worker starting up")
 
 

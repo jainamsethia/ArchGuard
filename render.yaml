@@ -3,7 +3,10 @@ services:
     name: archguard
     runtime: docker
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
+    # /ready, not /health: a check that returns 200 whenever the process is
+    # alive reports a service as healthy while its database is unreachable and
+    # every request is failing, which stops the platform rolling back.
+    healthCheckPath: /ready
     disk:
       name: archguard-cache
       mountPath: /app/.archguard-cache

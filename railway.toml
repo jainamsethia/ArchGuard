@@ -22,7 +22,8 @@ ARCHGUARD_TRUSTED_PROXY_IPS = "*"
 # Migrations run first, in the entrypoint, so a failed migration fails the
 # deploy rather than half-starting a server against the wrong schema.
 startCommand = "docker-entrypoint.sh uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port $PORT"
-healthcheckPath = "/health"
+# /ready, not /health -- see the note in render.yaml.
+healthcheckPath = "/ready"
 healthcheckTimeout = 60
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

@@ -252,6 +252,16 @@ jobs:
           curl -sf http://localhost:8000/health | python3 -m json.tool
       - name: Smoke test the running image
         run: BASE_URL=http://localhost:8000 ./scripts/smoke_test.sh
+      # The container has no database or Redis, so readiness must say so. A
+      # /ready that returns 200 here would mean it is checking nothing.
+      - name: /ready must report 503 with no backing services
+        run: |
+          code=$(curl -s -o /tmp/ready.json -w "%{http_code}" http://localhost:8000/ready)
+          cat /tmp/ready.json
+          test "$code" = "503" || { echo "::error::/ready returned $code with no database"; exit 1; }
+      - name: /metrics must answer even with no database
+        run: |
+          curl -sf http://localhost:8000/metrics | grep -q "archguard_database_up 0"
       - name: Stop the container
         if: always()
         run: docker stop archguard-ci-web 2>/dev/null || true

@@ -28,9 +28,6 @@ router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
 #: the stream route.
 stream_router = APIRouter(dependencies=[Depends(rate_limiter)])
 
-#: Unprefixed and unauthenticated: /health.
-meta_router = APIRouter()
-
 logger = logging.getLogger(__name__)
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -618,30 +615,6 @@ async def stream_job_progress(
         },
     )
 
-# ----------------------------------------------------------------------------
-# Health Check
-# ----------------------------------------------------------------------------
 # No prefix and no auth: platform health checks are unauthenticated by
 # definition, and pointing one at /api/v1 would make liveness depend on the
 # database being reachable. /ready is the check that should (P2-2).
-@meta_router.get(
-    "/health",
-    summary="Application health check",
-    tags=["meta"],
-)
-async def health_check() -> dict[str, Any]:
-    """Return application health status.
-    Used by Docker Compose healthcheck, Railway, and Render.
-    Always returns HTTP 200 if the application is running.
-    """
-    import os
-    import time
-
-    from archguard.dashboard.app import _APP_START_TIME, _installed_version
-
-    return {
-        "status": "ok",
-        "version": _installed_version(),
-        "environment": os.environ.get("ENVIRONMENT", "development"),
-        "uptime_seconds": round(time.time() - _APP_START_TIME),
-    }
