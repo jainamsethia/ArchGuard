@@ -6,14 +6,20 @@ import os
 import threading
 from typing import Any, cast
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app
+from archguard.dashboard._workspace_paths import JobIdQuery
 from archguard.db.models import User
+
+#: Mounted at /api/v1 by app.py. The dependencies live on the router rather
+#: than on each decorator: repeating them per route is how one of them ends up
+#: missing, and every route below this line reads user data.
+router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +82,7 @@ def _insufficient_history(runs: list[Any], repo_url: str | None) -> dict[str, An
     }
 
 
-@app.get(
-    "/api/v1/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)]
-)
-@app.get(
-    "/api/evolution/summary", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
-)
+@router.get("/evolution/summary")
 async def get_evolution_summary(
     limit: int = Query(default=50, ge=1, le=500),
     job_id: JobIdQuery = None,
@@ -98,12 +99,7 @@ async def get_evolution_summary(
     return report.model_dump() if hasattr(report, "model_dump") else report.dict()
 
 
-@app.get(
-    "/api/v1/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)]
-)
-@app.get(
-    "/api/evolution/history", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
-)
+@router.get("/evolution/history")
 async def get_evolution_history(
     limit: int = Query(default=50, ge=1, le=500),
     job_id: JobIdQuery = None,
@@ -123,12 +119,7 @@ async def get_evolution_history(
     return {"history": snapshots, "total": len(snapshots)}
 
 
-@app.get(
-    "/api/v1/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)]
-)
-@app.get(
-    "/api/evolution/trends", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
-)
+@router.get("/evolution/trends")
 async def get_evolution_trends(
     limit: int = Query(default=50, ge=1, le=500),
     job_id: JobIdQuery = None,
@@ -236,12 +227,7 @@ class EvolutionAnalyzeRequest(BaseModel):
     max_commits: int = Field(default=5, ge=1, le=20)
 
 
-@app.post(
-    "/api/v1/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)]
-)
-@app.post(
-    "/api/evolution/analyze", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
-)
+@router.post("/evolution/analyze")
 async def start_evolution(
     body: EvolutionAnalyzeRequest,
     job_id: JobIdQuery = None,
@@ -257,7 +243,7 @@ async def start_evolution(
     import asyncio
 
     from archguard.dashboard._locks import LockHeld, single_flight
-    from archguard.dashboard.app import get_target_path
+    from archguard.dashboard._workspace_paths import get_target_path
     from archguard.db import store
     from archguard.db.session import session_scope
     from archguard.evolution.tracker import ArchitectureEvolutionTracker
@@ -394,12 +380,7 @@ async def start_evolution(
         return {"error": "analysis_failed", "message": "Could not analyze git history.", "snapshots": [], "commits_analyzed": 0}
 
 
-@app.get(
-    "/api/v1/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)]
-)
-@app.get(
-    "/api/evolution/latest", dependencies=[Depends(check_token), Depends(rate_limiter)], deprecated=True
-)
+@router.get("/evolution/latest")
 def get_latest_evolution(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:

@@ -35,7 +35,7 @@ def _events(raw: str) -> list[dict]:
 
 def test_stream_not_found(auth_client):
     """A job this user does not own is not found, whoever else may own it."""
-    resp = auth_client.get("/api/jobs/nonexistent/stream")
+    resp = auth_client.get("/api/v1/jobs/nonexistent/stream")
     assert resp.status_code == 404
 
 
@@ -50,7 +50,7 @@ def test_stream_complete_job(auth_client, seed_run):
     )
     progress.publish(job_id, {"type": "status", "status": "complete"})
 
-    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+    with auth_client.stream("GET", f"/api/v1/jobs/{job_id}/stream") as resp:
         assert resp.status_code == 200
         body = "".join(resp.iter_text())
 
@@ -71,7 +71,7 @@ def test_stream_failed_job(auth_client, seed_run):
     progress.publish(job_id, {"type": "error", "error": "Clone timed out"})
     progress.publish(job_id, {"type": "status", "status": "failed"})
 
-    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+    with auth_client.stream("GET", f"/api/v1/jobs/{job_id}/stream") as resp:
         body = "".join(resp.iter_text())
 
     events = _events(body)
@@ -91,7 +91,7 @@ def test_a_late_client_still_sees_the_whole_run(auth_client, seed_run):
         progress.publish(job_id, {"type": "progress", "message": f"step {i}"})
     progress.publish(job_id, {"type": "status", "status": "complete"})
 
-    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+    with auth_client.stream("GET", f"/api/v1/jobs/{job_id}/stream") as resp:
         body = "".join(resp.iter_text())
 
     messages = [e["message"] for e in _events(body) if e["type"] == "progress"]
@@ -109,7 +109,7 @@ def test_a_finished_job_with_no_progress_still_closes(auth_client, seed_run, mon
     monkeypatch.setattr(jobs_route, "ARCHGUARD_STREAM_IDLE_LIMIT", 1)
 
     job_id = seed_run()  # seed_run leaves the job 'complete'
-    with auth_client.stream("GET", f"/api/jobs/{job_id}/stream") as resp:
+    with auth_client.stream("GET", f"/api/v1/jobs/{job_id}/stream") as resp:
         body = "".join(resp.iter_text())
 
     events = _events(body)

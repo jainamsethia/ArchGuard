@@ -414,7 +414,7 @@ def test_remediation_too_many_violations_returns_422() -> None:
     client = TestClient(app)
 
     resp = client.post(
-        "/api/remediation/plan",
+        "/api/v1/remediation/plan",
         json={"violations": [{"id": str(i)} for i in range(51)]},
     )
     assert resp.status_code == 422

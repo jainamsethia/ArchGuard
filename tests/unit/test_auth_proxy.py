@@ -37,7 +37,7 @@ def test_trusted_proxy_forwards_real_client_ip_and_blocks_remote(
     # trusted — so this configuration legitimately returns 200, proving
     # X-Forwarded-For is ignored entirely when no proxies are trusted.
     resp = client.get(
-        "/api/runs", headers={"X-Forwarded-For": "203.0.113.50"}
+        "/api/v1/runs", headers={"X-Forwarded-For": "203.0.113.50"}
     )
 
     # Assert: TestClient's own host ("testclient") is always trusted
@@ -240,7 +240,7 @@ def test_hmac_compare_digest_used_for_token_check(
 
     # Act
     resp = client.get(
-        "/api/runs",
+        "/api/v1/runs",
         headers={"Authorization": "Bearer wrong-token-67890"},  # same length
     )
 

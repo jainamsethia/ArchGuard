@@ -17,7 +17,7 @@ async def test_body_too_large_chunked_returns_413():
 
         # httpx will automatically stream and omit Content-Length
         resp = await client.post(
-            "/api/remediation/plan",
+            "/api/v1/remediation/plan",
             content=generate_chunks(),
             headers={"content-type": "application/json"},
         )

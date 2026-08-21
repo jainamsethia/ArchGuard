@@ -17,17 +17,23 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import re as _re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from archguard.dashboard._auth import _real_client_ip
+
+# Re-exported: they used to be defined here, and moving them out of the import
+# cycle should not make every caller change its import line.
+from archguard.dashboard._workspace_paths import (  # noqa: F401
+    JobIdQuery,
+    get_target_path,
+)
 from archguard.observability.logger import configure_logging, correlation_id_var
 
 if sys.platform == "win32":
@@ -239,10 +245,6 @@ async def _limit_body_size(request: Request, call_next: Any) -> Any:
 
 # Reusable validated job_id type for all route query parameters.
 # UUIDs are 36 chars; allow up to 64 for flexibility. Only hex + hyphens.
-JobIdQuery = Annotated[
-    str | None,
-    Query(pattern=r"^[a-f0-9\-]{36,64}$", max_length=64)
-]
 
 _allowed_origins: list[str] = [
     o.strip()
@@ -290,15 +292,6 @@ async def _log_requests(request: Request, call_next: Any) -> Any:
         # context, so an unreset value would be visible to whatever the worker
         # handles next.
         correlation_id_var.reset(token)
-
-@app.middleware("http")
-async def _deprecation_headers(request: Request, call_next: Any) -> Any:
-    response = await call_next(request)
-    if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/"):
-        response.headers["Deprecation"] = "true"
-        response.headers["Sunset"] = "Fri, 01 Jan 2027 00:00:00 GMT"
-        response.headers["Link"] = f'</api/v1{request.url.path[4:]}>; rel="successor-version"'
-    return response
 
 @app.middleware("http")
 async def _security_headers(request: Request, call_next: Any) -> Any:
@@ -363,27 +356,6 @@ _APP_START_TIME = time.time()
 STATIC_DIR = Path(__file__).parent / "static"
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-def get_target_path(job_id: str | None = None) -> Path:
-    if job_id:
-        import tempfile
-        # Double-check even after query validation - defense in depth
-        if not _re.fullmatch(r"[a-f0-9\-]{36,64}", job_id):
-            raise HTTPException(status_code=400, detail="Invalid job_id format")
-        tmp = Path(tempfile.gettempdir())
-        path = (tmp / f"archguard-{job_id}" / "repo").resolve()
-        # Ensure the resolved path is strictly inside /tmp/archguard-<uuid>/
-        expected_prefix = (tmp / f"archguard-{job_id}").resolve()
-        if not str(path).startswith(str(expected_prefix)):
-            raise HTTPException(status_code=400, detail="Invalid job_id")
-        if path.exists():
-            return path
-        # Workspace expired — raise 410 instead of silently falling back to cwd
-        raise HTTPException(
-            status_code=410,
-            detail="Analysis workspace expired. Results are available from the stored run.",
-        )
-    return Path.cwd()
-
 # Import routes AFTER app is defined to avoid circular dependencies
 # API Versioning Policy (established 2026-06-25):
 # All new routes MUST use the /api/v1/ prefix.
@@ -391,7 +363,7 @@ def get_target_path(job_id: str | None = None) -> Path:
 # A future migration to /api/v1/ for all routes will include redirect aliases.
 from fastapi.templating import Jinja2Templates
 
-from archguard.dashboard.routes import (  # noqa: F401
+from archguard.dashboard.routes import (
     advisor,
     auth,
     evolution,
@@ -401,6 +373,27 @@ from archguard.dashboard.routes import (  # noqa: F401
     runs,
     suppression,
 )
+
+# Mounted explicitly, in order, rather than registered as a side effect of
+# importing each module. The old arrangement had every route module decorate
+# this `app` object at import time, which made registration order depend on
+# import order -- and a submodule imported before app.py finished would register
+# its routes *after* the static mount, where they are shadowed into 404s. The
+# 18-line comment in routes/__init__.py existed to hold that hazard at bay.
+app.include_router(runs.router, prefix="/api/v1")
+app.include_router(jobs.router, prefix="/api/v1")
+app.include_router(jobs.stream_router, prefix="/api/v1")
+app.include_router(evolution.router, prefix="/api/v1")
+app.include_router(risk.router, prefix="/api/v1")
+app.include_router(suppression.router, prefix="/api/v1")
+app.include_router(advisor.router, prefix="/api/v1")
+app.include_router(remediation.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+
+# Unprefixed: /health is what platform health checks poll, and the OAuth
+# callback URL is registered with GitHub.
+app.include_router(jobs.meta_router)
+app.include_router(auth.oauth_router)
 
 _templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 

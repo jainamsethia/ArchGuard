@@ -11,15 +11,25 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import app
 from archguard.db.models import JobStatus, User
+
+#: Mounted at /api/v1. The dependencies are here rather than on each
+#: decorator: repeating them per route is how one ends up missing.
+router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
+
+#: Also /api/v1, but without check_token in the decorator -- see the note on
+#: the stream route.
+stream_router = APIRouter(dependencies=[Depends(rate_limiter)])
+
+#: Unprefixed and unauthenticated: /health.
+meta_router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
@@ -205,18 +215,10 @@ def fetch_repo_metadata_public(owner: str, repo_name: str) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-@app.post(
-    "/api/v1/jobs/validate",
+@router.post(
+    "/jobs/validate",
     response_model=RepoMetadata,
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Validate a GitHub URL and return repository metadata",
-)
-@app.post(
-    "/api/jobs/validate",
-    response_model=RepoMetadata,
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
-    summary="Validate a GitHub URL and return repository metadata",
-    deprecated=True,
 )
 async def validate_repo_url(request: RepoURLRequest) -> Any:
     """Parse and validate a GitHub repository URL.
@@ -308,18 +310,10 @@ def _reject_if_too_large(
     )
 
 
-@app.post(
-    "/api/v1/jobs",
+@router.post(
+    "/jobs",
     status_code=202,
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
     summary="Submit a repository analysis job",
-)
-@app.post(
-    "/api/jobs",
-    status_code=202,
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
-    summary="Submit a repository analysis job",
-    deprecated=True,
 )
 async def submit_analysis_job(
     request: SubmitJobRequest,
@@ -414,16 +408,9 @@ async def submit_analysis_job(
 # --------------------------------------------------------------------------
 
 
-@app.get(
-    "/api/v1/jobs/{job_id}",
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
+@router.get(
+    "/jobs/{job_id}",
     summary="Get analysis job status and result",
-)
-@app.get(
-    "/api/jobs/{job_id}",
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
-    summary="Get analysis job status and result",
-    deprecated=True,
 )
 async def get_job_status(
     job_id: str, request: Request, user: User = Depends(current_user)
@@ -495,16 +482,9 @@ async def get_job_status(
 # --------------------------------------------------------------------------
 
 
-@app.get(
-    "/api/v1/jobs",
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
+@router.get(
+    "/jobs",
     summary="List recent analysis jobs",
-)
-@app.get(
-    "/api/jobs",
-    dependencies=[Depends(check_token), Depends(rate_limiter)],
-    summary="List recent analysis jobs",
-    deprecated=True,
 )
 async def list_jobs(user: User = Depends(current_user)) -> dict[str, Any]:
     """This user's most recent analysis jobs (up to 50).
@@ -526,18 +506,14 @@ async def list_jobs(user: User = Depends(current_user)) -> dict[str, Any]:
 # --------------------------------------------------------------------------
 
 
-@app.get(
-    "/api/v1/jobs/{job_id}/stream",
+# On the stream router, not the main one: check_token is taken as a signature
+# dependency below so the `token` query parameter stays in the OpenAPI schema
+# for EventSource clients, and listing rate_limiter twice charged every stream
+# connection two requests against the caller's own budget.
+@stream_router.get(
+    "/jobs/{job_id}/stream",
     response_class=StreamingResponse,
-    dependencies=[Depends(rate_limiter)],
     summary="Stream analysis progress as Server-Sent Events",
-)
-@app.get(
-    "/api/jobs/{job_id}/stream",
-    response_class=StreamingResponse,
-    dependencies=[Depends(rate_limiter)],
-    summary="Stream analysis progress as Server-Sent Events",
-    deprecated=True,
 )
 async def stream_job_progress(
     job_id: str,
@@ -645,7 +621,10 @@ async def stream_job_progress(
 # ----------------------------------------------------------------------------
 # Health Check
 # ----------------------------------------------------------------------------
-@app.get(
+# No prefix and no auth: platform health checks are unauthenticated by
+# definition, and pointing one at /api/v1 would make liveness depend on the
+# database being reachable. /ready is the check that should (P2-2).
+@meta_router.get(
     "/health",
     summary="Application health check",
     tags=["meta"],

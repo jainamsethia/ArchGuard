@@ -17,7 +17,7 @@ from archguard.dashboard import _sessions
 from archguard.dashboard.app import app
 
 JOB_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-STREAM_URL = f"/api/jobs/{JOB_ID}/stream"
+STREAM_URL = f"/api/v1/jobs/{JOB_ID}/stream"
 SECRET = "c" * 64
 
 

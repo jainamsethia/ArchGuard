@@ -11,15 +11,24 @@ import logging
 import os
 from typing import Any
 
-from fastapi import Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from archguard.dashboard import _oauth, _sessions
 from archguard.dashboard._identity import dev_login_permitted, optional_user
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import app
 
 logger = logging.getLogger(__name__)
+
+#: Mounted at /api/v1. No check_token: /auth/status is what the page asks
+#: before it knows whether it is signed in, so it has to be answerable while
+#: signed out.
+router = APIRouter(dependencies=[Depends(rate_limiter)])
+
+#: Unprefixed: the OAuth callback URL is registered with GitHub, and burying it
+#: under /api/v1 would make it look like an API endpoint rather than a
+#: browser redirect target.
+oauth_router = APIRouter(dependencies=[Depends(rate_limiter)])
 
 
 def _secure_cookies() -> bool:
@@ -38,7 +47,7 @@ def _callback_url(request: Request) -> str | None:
     return configured or None
 
 
-@app.get("/auth/github", include_in_schema=False, dependencies=[Depends(rate_limiter)])
+@oauth_router.get("/auth/github", include_in_schema=False)
 async def github_login(request: Request) -> Response:
     """Start the OAuth flow."""
     if not _oauth.is_configured():
@@ -69,11 +78,7 @@ async def github_login(request: Request) -> Response:
     return response
 
 
-@app.get(
-    "/auth/github/callback",
-    include_in_schema=False,
-    dependencies=[Depends(rate_limiter)],
-)
+@oauth_router.get("/auth/github/callback", include_in_schema=False)
 async def github_callback(
     request: Request,
     code: str | None = None,
@@ -136,15 +141,7 @@ def _constant_time_eq(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
 
 
-@app.post(
-    "/api/v1/auth/logout", include_in_schema=False, dependencies=[Depends(rate_limiter)]
-)
-@app.post(
-    "/api/auth/logout",
-    include_in_schema=False,
-    deprecated=True,
-    dependencies=[Depends(rate_limiter)],
-)
+@router.post("/auth/logout", include_in_schema=False)
 async def logout(request: Request, response: Response) -> dict[str, bool]:
     """Invalidate the current session."""
     cookie_value = request.cookies.get(_sessions.COOKIE_NAME, "")
@@ -154,15 +151,7 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get(
-    "/api/v1/auth/status", include_in_schema=False, dependencies=[Depends(rate_limiter)]
-)
-@app.get(
-    "/api/auth/status",
-    include_in_schema=False,
-    deprecated=True,
-    dependencies=[Depends(rate_limiter)],
-)
+@router.get("/auth/status", include_in_schema=False)
 async def auth_status(request: Request, user: Any = Depends(optional_user)) -> Any:
     """Who the caller is, if anyone.
 

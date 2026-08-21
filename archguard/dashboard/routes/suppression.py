@@ -3,15 +3,21 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app
+from archguard.dashboard._workspace_paths import JobIdQuery
 from archguard.db.models import User
 from archguard.suppression.store import SuppressionStore
+
+#: Mounted at /api/v1 by app.py. The dependencies live on the router rather
+#: than on each decorator: repeating them per route is how one of them ends up
+#: missing, and every route below this line reads user data.
+router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
+
 
 
 async def repo_url_for_job(job_id: str | None, user_id: int) -> str | None:
@@ -84,7 +90,7 @@ def _suppression_store(
     return SuppressionStore.at_path(store_path)
 
 
-@app.get("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@router.get("/suppressions")
 async def get_suppressions(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:
@@ -101,7 +107,7 @@ class AddSuppressionRequest(BaseModel):
     pr_number: int | None = None
     commit_sha: str | None = None
 
-@app.post("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@router.post("/suppressions")
 async def add_suppression(
     req: AddSuppressionRequest,
     job_id: JobIdQuery = None,
@@ -132,7 +138,7 @@ async def add_suppression(
 class RemoveSuppressionRequest(BaseModel):
     suppression_id: str
 
-@app.delete("/api/v1/suppressions", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@router.delete("/suppressions")
 async def remove_suppression(
     req: RemoveSuppressionRequest,
     job_id: JobIdQuery = None,

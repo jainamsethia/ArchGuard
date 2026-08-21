@@ -2,13 +2,19 @@ import logging
 from collections import deque
 from typing import Any
 
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
-from archguard.dashboard.app import JobIdQuery, app, get_target_path
+from archguard.dashboard._workspace_paths import JobIdQuery, get_target_path
 from archguard.db.models import User
+
+#: Mounted at /api/v1 by app.py. The dependencies live on the router rather
+#: than on each decorator: repeating them per route is how one of them ends up
+#: missing, and every route below this line reads user data.
+router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
+
 
 _logger = logging.getLogger(__name__)
 
@@ -50,7 +56,7 @@ def _downstream_counts(dependency_graph: dict[str, list[str]]) -> dict[str, int]
     return counts
 
 
-@app.get("/api/v1/risk", dependencies=[Depends(check_token), Depends(rate_limiter)])
+@router.get("/risk")
 async def get_pr_risk(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:

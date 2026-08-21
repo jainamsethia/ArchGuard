@@ -14,7 +14,7 @@ def test_validate_real_flask_repo():
     """Live call to GitHub API — requires network access."""
     client = TestClient(app)
     resp = client.post(
-        "/api/jobs/validate",
+        "/api/v1/jobs/validate",
         json={"github_url": "https://github.com/pallets/flask"},
     )
     assert resp.status_code == 200
@@ -30,7 +30,7 @@ async def test_submit_job_and_poll_to_complete(live_db):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         submit = await client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"github_url": "https://github.com/psf/requests"},
         )
         assert submit.status_code == 202
@@ -39,7 +39,7 @@ async def test_submit_job_and_poll_to_complete(live_db):
 
         status = None
         while time.time() < deadline:
-            status_resp = await client.get(f"/api/jobs/{job_id}")
+            status_resp = await client.get(f"/api/v1/jobs/{job_id}")
             status = status_resp.json()["status"]
             if status in ("complete", "failed"):
                 break

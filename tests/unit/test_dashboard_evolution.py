@@ -45,7 +45,7 @@ def improving_repo(seed_run, monkeypatch):
 
 @requires_postgres
 def test_api_evolution_summary(improving_repo, auth_client):
-    response = auth_client.get(f"/api/evolution/summary?job_id={improving_repo}")
+    response = auth_client.get(f"/api/v1/evolution/summary?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "snapshots" in data
@@ -56,7 +56,7 @@ def test_api_evolution_summary(improving_repo, auth_client):
 
 @requires_postgres
 def test_api_evolution_history(improving_repo, auth_client):
-    response = auth_client.get(f"/api/evolution/history?job_id={improving_repo}")
+    response = auth_client.get(f"/api/v1/evolution/history?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "history" in data
@@ -66,7 +66,7 @@ def test_api_evolution_history(improving_repo, auth_client):
 
 @requires_postgres
 def test_api_evolution_trends(improving_repo, auth_client):
-    response = auth_client.get(f"/api/evolution/trends?job_id={improving_repo}")
+    response = auth_client.get(f"/api/v1/evolution/trends?job_id={improving_repo}")
     assert response.status_code == 200
     data = response.json()
     assert "health_trend" in data
@@ -91,7 +91,7 @@ def test_history_is_scoped_to_one_repository(seed_run, monkeypatch, auth_client)
     seed_run(repo_url="https://github.com/other/project", score=20.0)
     mine = seed_run(repo_url=REPO, score=99.0)
 
-    response = auth_client.get(f"/api/evolution/summary?job_id={mine}")
+    response = auth_client.get(f"/api/v1/evolution/summary?job_id={mine}")
     assert response.status_code == 200
     data = response.json()
     assert data["insufficient_history"] is True
@@ -106,7 +106,7 @@ def test_api_evolution_empty(live_db, monkeypatch, auth_client):
 
     reset_rate_limits()
 
-    response = auth_client.get("/api/evolution/summary")
+    response = auth_client.get("/api/v1/evolution/summary")
     assert response.status_code == 200
     data = response.json()
     # With no runs recorded there is no history to report. The panel now says so

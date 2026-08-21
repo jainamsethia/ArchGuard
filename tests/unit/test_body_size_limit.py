@@ -13,7 +13,7 @@ async def test_body_too_large_returns_413():
         oversized_body = b"x" * (1 * 1024 * 1024 + 1)
         # Act
         resp = await client.post(
-            "/api/remediation/plan",
+            "/api/v1/remediation/plan",
             content=oversized_body,
             headers={"content-length": str(len(oversized_body)), "content-type": "application/json"},
         )
@@ -31,7 +31,7 @@ async def test_body_within_limit_passes_middleware():
         small_body = b'{"violations": []}'
         # Act — 422 from Pydantic is fine; we just need NOT 413
         resp = await client.post(
-            "/api/remediation/plan",
+            "/api/v1/remediation/plan",
             content=small_body,
             headers={"content-length": str(len(small_body)), "content-type": "application/json"},
         )

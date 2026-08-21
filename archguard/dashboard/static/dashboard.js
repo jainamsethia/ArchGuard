@@ -518,8 +518,12 @@ function initActionButtons() {
             box.hidden = false;
         }
 
-        // Identity of a violation row, matching archguard.analysis.ranking.finding_key.
-        // Used to mark which rows an AI fix plan actually covered.
+        // Identity of a violation row: module + layer + message, matching both
+        // archguard.analysis.ranking.finding_key and the suppression store's key.
+        // There were two of these -- violationKey and _violationKey -- computing
+        // the same thing by different means. Two implementations of one identity
+        // is how compare-runs and suppression quietly disagree about whether two
+        // findings are the same finding.
         function violationKey(v) {
             return [v.module || '', v.layer || '', v.message || ''].join('|');
         }
@@ -1832,11 +1836,6 @@ function getEmptyStateHtml(icon, title, body) {
             }
         }
 
-        function _violationKey(v) {
-            // Match key used by the suppression store: module + layer + message.
-            return `${v.module||''}|${v.layer||''}|${v.message||''}`;
-        }
-
         async function _fetchRunByJobId(jobId) {
             // /api/v1/runs?job_id=... returns all entries for that job; take the newest.
             const res = await fetch(`/api/v1/runs?limit=50&job_id=${jobId}`);
@@ -1861,8 +1860,8 @@ function getEmptyStateHtml(icon, title, body) {
                     results.innerHTML = getErrorStateHtml('Could not load both runs. Their workspace may have expired.', () => renderRunComparison(jobIdA, jobIdB));
                     return;
                 }
-                const va = new Map((a.violations || []).map(v => [_violationKey(v), v]));
-                const vb = new Map((b.violations || []).map(v => [_violationKey(v), v]));
+                const va = new Map((a.violations || []).map(v => [violationKey(v), v]));
+                const vb = new Map((b.violations || []).map(v => [violationKey(v), v]));
                 const added = [...vb.keys()].filter(k => !va.has(k)).map(k => vb.get(k));
                 const removed = [...va.keys()].filter(k => !vb.has(k)).map(k => va.get(k));
                 const persist = [...vb.keys()].filter(k => va.has(k)).map(k => vb.get(k));

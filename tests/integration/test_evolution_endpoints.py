@@ -44,7 +44,7 @@ def mock_tracker():
 
 def test_start_evolution(mock_tracker):
     # Mocking check_token logic by patching if needed, but dashboard tests usually just pass
-    response = client.post("/api/evolution/analyze", json={"max_commits": 5})
+    response = client.post("/api/v1/evolution/analyze", json={"max_commits": 5})
     # If 401, we might need a token or mock check_token. Fast API test client
     # Usually in this codebase ARCHGUARD_DASHBOARD_TOKEN env var is not set in tests.
     if response.status_code == 401:
@@ -64,9 +64,9 @@ def test_start_evolution(mock_tracker):
 
 
 def test_get_latest_evolution(mock_tracker):
-    client.post("/api/evolution/analyze", json={"max_commits": 5})
+    client.post("/api/v1/evolution/analyze", json={"max_commits": 5})
 
-    response = client.get("/api/evolution/latest")
+    response = client.get("/api/v1/evolution/latest")
     assert response.status_code == 200
     data = response.json()
     assert "snapshots" in data
@@ -77,7 +77,7 @@ def test_get_latest_evolution(mock_tracker):
 def test_start_evolution_error_handling():
     with patch("archguard.evolution.tracker.ArchitectureEvolutionTracker") as mock_cls:
         mock_cls.side_effect = Exception("Tracker error")
-        response = client.post("/api/evolution/analyze", json={"max_commits": 5})
+        response = client.post("/api/v1/evolution/analyze", json={"max_commits": 5})
         assert response.status_code == 200
         data = response.json()
         assert "error" in data

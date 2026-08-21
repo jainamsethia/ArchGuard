@@ -123,7 +123,7 @@ def test_parse_github_url_rejects_non_github_host() -> None:
 
 def test_validate_endpoint_invalid_url(client: TestClient) -> None:
     """Malformed URL → 422."""
-    resp = client.post("/api/jobs/validate", json={"github_url": "not-a-url"})
+    resp = client.post("/api/v1/jobs/validate", json={"github_url": "not-a-url"})
     assert resp.status_code == 422
 
 
@@ -134,7 +134,7 @@ def test_validate_endpoint_not_found(client: TestClient) -> None:
         side_effect=ValueError("not found"),
     ):
         resp = client.post(
-            "/api/jobs/validate",
+            "/api/v1/jobs/validate",
             json={"github_url": "https://github.com/pallets/flask"},
         )
     assert resp.status_code == 404
@@ -147,7 +147,7 @@ def test_validate_endpoint_rate_limit(client: TestClient) -> None:
         side_effect=ValueError("rate limit"),
     ):
         resp = client.post(
-            "/api/jobs/validate",
+            "/api/v1/jobs/validate",
             json={"github_url": "https://github.com/pallets/flask"},
         )
     assert resp.status_code == 404
@@ -171,7 +171,7 @@ def test_validate_endpoint_success(client: TestClient) -> None:
         },
     ):
         resp = client.post(
-            "/api/jobs/validate",
+            "/api/v1/jobs/validate",
             json={"github_url": "https://github.com/pallets/flask"},
         )
     assert resp.status_code == 200

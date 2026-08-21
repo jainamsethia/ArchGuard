@@ -146,14 +146,14 @@ for directive in "object-src 'none'" "base-uri 'self'" "frame-ancestors 'none'" 
 done
 
 # [6] Submit job — invalid URL returns 422
-check_post "POST /api/jobs — invalid URL rejected" \
-    "$BASE_URL/api/jobs" \
+check_post "POST /api/v1/jobs — invalid URL rejected" \
+    "$BASE_URL/api/v1/jobs" \
     '{"github_url":"not-a-url"}' \
     "422"
 
 # [7] Submit job — path traversal URL rejected (CRIT-001 fix)
-check_post "POST /api/jobs — path traversal URL rejected" \
-    "$BASE_URL/api/jobs" \
+check_post "POST /api/v1/jobs — path traversal URL rejected" \
+    "$BASE_URL/api/v1/jobs" \
     '{"github_url":"https://github.com/owner/repo/../../../etc/passwd"}' \
     "422"
 
@@ -177,12 +177,12 @@ check_status "Dashboard load" "$BASE_URL/dashboard.html" "200"
 
 # Validate endpoint (invalid URL - POST)
 check_post "Validate endpoint (invalid POST)" \
-  "$BASE_URL/api/jobs/validate" \
+  "$BASE_URL/api/v1/jobs/validate" \
   '{"github_url":"https://not-github.com/x/y"}' \
   "422"
 
 # Runs endpoint
-check_status "Runs endpoint" "$BASE_URL/api/runs" "200"
+check_status "Runs endpoint" "$BASE_URL/api/v1/runs" "200"
 
 echo "────────────────────────────────────────"
 echo "Results: $PASS passed, $FAIL failed"

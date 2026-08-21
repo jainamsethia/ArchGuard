@@ -3,14 +3,19 @@
 import logging
 from typing import Any
 
-from fastapi import Depends, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import _llm_rate_limit
-from archguard.dashboard.app import app
 from archguard.db.models import User
+
+#: Mounted at /api/v1 by app.py. The dependencies live on the router rather
+#: than on each decorator: repeating them per route is how one of them ends up
+#: missing, and every route below this line reads user data.
+router = APIRouter(dependencies=[Depends(check_token), Depends(_llm_rate_limit)])
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +49,7 @@ def _mock_remediation_response(violations: Any) -> dict[str, Any]:
         ]
     }
 
-@app.post(
-    "/api/v1/remediation/plan",
-    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
-)
-@app.post(
-    "/api/remediation/plan",
-    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
-    deprecated=True,
-)
+@router.post("/remediation/plan")
 async def remediation_plan(body: RemediationRequest) -> Any:
     """Generate a remediation plan from the provided violations."""
     import os
@@ -81,15 +78,7 @@ async def remediation_plan(body: RemediationRequest) -> Any:
         return {"tasks": [], "error": "An unexpected error occurred generating the remediation plan."}
 
 
-@app.get(
-    "/api/v1/remediation/plan",
-    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
-)
-@app.get(
-    "/api/remediation/plan",
-    dependencies=[Depends(check_token), Depends(_llm_rate_limit)],
-    deprecated=True,
-)
+@router.get("/remediation/plan")
 async def remediation_plan_from_audit(
     limit: int = Query(default=1, ge=1, le=10),
     job_id: str | None = None,

@@ -23,7 +23,7 @@ def client():
 @requires_postgres
 def test_submit_job_invalid_url(auth_client):
     """Invalid GitHub URL → 422."""
-    resp = auth_client.post("/api/jobs", json={"github_url": "not-a-url"})
+    resp = auth_client.post("/api/v1/jobs", json={"github_url": "not-a-url"})
     assert resp.status_code == 422
 
 @requires_postgres
@@ -37,7 +37,7 @@ def test_submit_job_returns_202(auth_client):
              return_value={"name": "flask", "full_name": "pallets/flask"},
          ):
         resp = auth_client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"github_url": "https://github.com/pallets/flask"},
         )
 
@@ -55,7 +55,7 @@ def test_get_job_not_found(auth_client):
     Also the answer for a job that exists but belongs to someone else: telling
     the two apart is what makes an id worth guessing.
     """
-    resp = auth_client.get("/api/jobs/does-not-exist-12345")
+    resp = auth_client.get("/api/v1/jobs/does-not-exist-12345")
     assert resp.status_code == 404
 
 @requires_postgres
@@ -72,7 +72,7 @@ def test_get_job_status_queued(auth_client, seed_run):
             await store.set_job_status(session, job_id, "queued")
 
     _run(_requeue())
-    resp = auth_client.get(f"/api/jobs/{job_id}")
+    resp = auth_client.get(f"/api/v1/jobs/{job_id}")
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "queued"
@@ -86,7 +86,7 @@ def test_get_job_status_survives_a_restart(auth_client, seed_run):
     user like their analysis had been lost.
     """
     job_id = seed_run()
-    resp = auth_client.get(f"/api/jobs/{job_id}")
+    resp = auth_client.get(f"/api/v1/jobs/{job_id}")
 
     assert resp.status_code == 200
     assert resp.json()["job_id"] == job_id
@@ -95,7 +95,7 @@ def test_get_job_status_survives_a_restart(auth_client, seed_run):
 @requires_postgres
 def test_list_jobs_empty(auth_client):
     """A user with no jobs sees no jobs -- not everyone else's."""
-    resp = auth_client.get("/api/jobs")
+    resp = auth_client.get("/api/v1/jobs")
     assert resp.status_code == 200
     assert resp.json()["jobs"] == []
 
@@ -109,7 +109,7 @@ def test_submit_job_nonexistent_repo_returns_404(auth_client):
     confirming the semaphore slot is never consumed for an invalid repo.
     """
     # Arrange
-    jobs_before = len(auth_client.get("/api/jobs").json()["jobs"])
+    jobs_before = len(auth_client.get("/api/v1/jobs").json()["jobs"])
 
     # Act
     with patch(
@@ -117,7 +117,7 @@ def test_submit_job_nonexistent_repo_returns_404(auth_client):
         side_effect=ValueError("Repository owner/nonexistent-repo not found"),
     ):
         resp = auth_client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"github_url": "https://github.com/owner/nonexistent-repo"},
         )
 
@@ -125,7 +125,7 @@ def test_submit_job_nonexistent_repo_returns_404(auth_client):
     assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
     # No job was created for the invalid repo — state was not corrupted
-    assert len(auth_client.get("/api/jobs").json()["jobs"]) == jobs_before
+    assert len(auth_client.get("/api/v1/jobs").json()["jobs"]) == jobs_before
 
 
 @requires_postgres
@@ -144,7 +144,7 @@ def test_submit_job_github_rate_limited_still_queues(auth_client):
              side_effect=GitHubRateLimitError("GitHub API rate limit exceeded"),
          ):
         resp = auth_client.post(
-            "/api/jobs",
+            "/api/v1/jobs",
             json={"github_url": "https://github.com/pallets/flask"},
         )
 

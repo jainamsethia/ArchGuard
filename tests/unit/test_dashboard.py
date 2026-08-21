@@ -43,7 +43,7 @@ def test_api_runs_no_token_configured(mock_audit_logger, monkeypatch):
     reset_rate_limits()
 
     # We also mock the host to simulate it being localhost
-    response = client.get("/api/runs")
+    response = client.get("/api/v1/runs")
     assert response.status_code == 200
     assert "runs" in response.json()
 
@@ -53,7 +53,7 @@ def test_api_runs_token_configured_no_auth(mock_audit_logger, monkeypatch):
     """Test that /api/runs returns 401 when ARCHGUARD_DASHBOARD_TOKEN is set and no auth header is provided."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
 
-    response = client.get("/api/runs")
+    response = client.get("/api/v1/runs")
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or missing token"
 
@@ -72,7 +72,7 @@ def test_api_runs_from_localhost_uses_the_development_account(
     """
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
 
-    response = client.get("/api/runs", headers={"Authorization": "Bearer secret-token"})
+    response = client.get("/api/v1/runs", headers={"Authorization": "Bearer secret-token"})
     assert response.status_code == 200
     assert "runs" in response.json()
 
@@ -82,7 +82,7 @@ def test_api_runs_token_configured_with_incorrect_auth(mock_audit_logger, monkey
     """Test that /api/runs returns 401 with an incorrect bearer token."""
     monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "secret-token")
 
-    response = client.get("/api/runs", headers={"Authorization": "Bearer wrong-token"})
+    response = client.get("/api/v1/runs", headers={"Authorization": "Bearer wrong-token"})
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or missing token"
 
@@ -107,7 +107,7 @@ def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
         mock_client.host = "192.168.1.100"
         mock_client.port = 12345
 
-        response = client.get("/api/runs")
+        response = client.get("/api/v1/runs")
         assert response.status_code == 401
         assert (
             "Dashboard requires ARCHGUARD_DASHBOARD_TOKEN" in response.json()["detail"]
@@ -134,7 +134,7 @@ def test_api_runs_remote_with_the_ops_token_is_rejected(
         mock_client.port = 12345
 
         response = client.get(
-            "/api/runs", headers={"Authorization": "Bearer secret-token"}
+            "/api/v1/runs", headers={"Authorization": "Bearer secret-token"}
         )
         assert response.status_code == 401
 
@@ -147,7 +147,7 @@ def test_api_runs_limit_exceeds_max_returns_422(mock_audit_logger, monkeypatch):
 
     reset_rate_limits()
 
-    response = client.get("/api/runs?limit=999999")
+    response = client.get("/api/v1/runs?limit=999999")
     assert response.status_code == 422
     assert "less than or equal to 500" in response.json()["detail"][0]["msg"]
 
@@ -198,10 +198,10 @@ def test_api_runs_rate_limiting_returns_429(mock_audit_logger, monkeypatch):
     reset_rate_limits()
 
     for _ in range(50):
-        response = client.get("/api/runs")
+        response = client.get("/api/v1/runs")
         assert response.status_code == 200
 
-    response = client.get("/api/runs")
+    response = client.get("/api/v1/runs")
     assert response.status_code == 429
     assert response.json()["detail"] == "Too many requests"
 
@@ -213,7 +213,7 @@ def test_api_trends_invalid_module_returns_422(mock_audit_logger, monkeypatch):
     from archguard.dashboard._rate_limit import reset_rate_limits
 
     reset_rate_limits()
-    response = client.get("/api/trends/invalid_@_module!")
+    response = client.get("/api/v1/trends/invalid_@_module!")
     assert response.status_code == 422
     assert "pattern" in response.json()["detail"][0]["type"]
 

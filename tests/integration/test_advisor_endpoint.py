@@ -33,7 +33,7 @@ def test_remediation_no_data():
     we skip this test or assert 404/405 on an expected missing route to document the mismatch.
     """
     headers = {"Authorization": "Bearer test_token"}
-    response = client.get("/api/remediation", headers=headers)
+    response = client.get("/api/v1/remediation", headers=headers)
     assert response.status_code == 404
 
 
@@ -111,7 +111,7 @@ def test_deps_endpoint_success(monkeypatch, seed_run, auth_client):
 @requires_postgres
 def test_evolution_endpoint(auth_client):
     """GET /api/evolution/summary"""
-    response = auth_client.get("/api/evolution/summary")
+    response = auth_client.get("/api/v1/evolution/summary")
     assert response.status_code == 200
     data = response.json()
     # It should have a status or equivalent

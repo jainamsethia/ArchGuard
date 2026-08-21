@@ -14,7 +14,7 @@ def client_with_token(monkeypatch):
 
 def test_get_job_status_with_token_no_cookie_returns_401_not_500(client_with_token):
     """Authenticated endpoint must return 401 (not 500 NameError) when no cookie."""
-    response = client_with_token.get("/api/jobs/00000000-0000-0000-0000-000000000001")
+    response = client_with_token.get("/api/v1/jobs/00000000-0000-0000-0000-000000000001")
     # Must not be 500; 401 is correct (no auth credentials provided)
     assert response.status_code == 401, (
         f"Expected 401, got {response.status_code}. "
@@ -27,7 +27,7 @@ def test_get_job_status_with_token_no_cookie_returns_401_not_500(client_with_tok
 def test_get_job_status_with_valid_token_in_querystring_returns_404_not_500(client_with_token):
     """Valid Bearer + ?token= query param must produce 404 (job not found), not 500."""
     response = client_with_token.get(
-        "/api/jobs/00000000-0000-0000-0000-000000000001?token=test-token-crit04",
+        "/api/v1/jobs/00000000-0000-0000-0000-000000000001?token=test-token-crit04",
         headers={"Authorization": "Bearer test-token-crit04"},
     )
     # 404 means auth passed and job lookup ran correctly

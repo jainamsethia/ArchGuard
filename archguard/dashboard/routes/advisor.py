@@ -7,16 +7,21 @@ import logging
 from collections.abc import Generator
 from typing import Any
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import _llm_rate_limit
-from archguard.dashboard.app import app
 from archguard.db.models import User
 from archguard.llm.advisor import ArchitectureAdvisor
+
+#: Mounted at /api/v1 by app.py. The dependencies live on the router rather
+#: than on each decorator: repeating them per route is how one of them ends up
+#: missing, and every route below this line reads user data.
+router = APIRouter(dependencies=[Depends(check_token), Depends(_llm_rate_limit)])
+
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +66,7 @@ def _build_context_from_violations(violations: list[Any]) -> str:
         )
     return "\n".join(lines)
 
-@app.post(
-    "/api/v1/advisor/ask", dependencies=[Depends(check_token), Depends(_llm_rate_limit)]
-)
+@router.post("/advisor/ask")
 async def advisor_ask_stream(
     body: AdvisorAskRequest,
     job_id: str | None = Query(None),

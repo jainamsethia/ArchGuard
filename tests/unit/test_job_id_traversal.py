@@ -11,7 +11,7 @@ async def test_path_traversal_job_id_rejected():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Act
-        resp = await client.get("/api/runs", params={"job_id": "../../etc/passwd"})
+        resp = await client.get("/api/v1/runs", params={"job_id": "../../etc/passwd"})
     # Assert
     assert resp.status_code == 422, f"Expected 422, got {resp.status_code}"
 
@@ -24,6 +24,6 @@ async def test_valid_uuid_job_id_accepted():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         valid_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         # Act
-        resp = await client.get("/api/runs", params={"job_id": valid_uuid})
+        resp = await client.get("/api/v1/runs", params={"job_id": valid_uuid})
     # Assert — 422 means the pattern rejected a valid UUID (regression)
     assert resp.status_code != 422, "Valid UUID was wrongly rejected with 422"
