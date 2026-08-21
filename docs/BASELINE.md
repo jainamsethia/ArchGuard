@@ -267,3 +267,113 @@ Deferred to CI, and required before the STARTUP-READY gate:
 Any future run that is worse than this on tests, coverage, ruff, mypy or bandit
 is a regression introduced by the work in progress, and must be fixed before the
 next task starts.
+
+---
+
+# REASSESS checkpoint — 2026-08-21
+
+The plan's re-audit gate, taken after the thirteen tasks that precede it. Same
+verification set as the baseline above, re-run in full. Nothing was fixed to
+make these numbers look better; the one failure that appeared is described
+below along with why it was a correct failure.
+
+**At commit** `5121578`. 28 commits ahead of `origin/main`; nothing pushed.
+
+## Environment, and how it differs from the baseline
+
+| | Baseline | Now |
+|---|---|---|
+| PostgreSQL | not available | 18.6, WSL2, reachable at `127.0.0.1:5432` |
+| Redis | not available | 8.0.5, WSL2, reachable at `127.0.0.1:6379` |
+| Docker | not available | installed but **will not start unattended** |
+| Playwright browsers | not installed | Chromium 1228 installed |
+
+The database and Redis are why most of these numbers can be trusted now: at
+baseline the persistence layer did not exist, and the tests that would have
+exercised it could not have run.
+
+## Results
+
+| Gate | Baseline | Now |
+|---|---|---|
+| Tests passed | 790 | **784** |
+| Tests failed | 1 (`test_planted_duplication_detected_with_ml`) | **0** |
+| Line coverage | 79.76% | — (combined figure below) |
+| Branch coverage | 68.54% | — |
+| Combined coverage (branch on) | — | **80.97%** |
+| Coverage gate | 76% | **79%** |
+| Integration-marked | not run | **40 passed, 1 skipped** |
+| ruff | clean | **clean** |
+| mypy | clean | **clean** (112 files) |
+| bandit | clean | **clean** |
+| pip-audit | 7 findings, all local `setuptools` | **unchanged, same cause** |
+| Frontend (jsdom) | did not exist | **7 passed** |
+| Browser behaviour | could not fail the build | **8 passed, blocking** |
+| Accessibility (axe-core) | did not exist | **6 passed, 2 skipped** |
+| Smoke test | 2 assertions structurally unable to pass | **20 passed** |
+
+The test count fell by six while coverage rose, which is the expected shape:
+`test_job_manager.py`, `test_job_manager_eviction.py`, `test_cookie_auth.py`
+and `test_app_versioning.py` were deleted because the code they tested is gone,
+and `test_tenancy.py`, `test_oauth.py`, `test_sessions.py`,
+`test_config_check.py`, `test_evolution_bounds.py`, `test_progress_phases.py`,
+`test_meta_endpoints.py`, `test_route_structure.py` and
+`test_worker_roundtrip.py` were added.
+
+The baseline's known failure is fixed: `test_planted_duplication_detected_with_ml`
+now passes.
+
+## The one failure this gate found
+
+`test_github_url_e2e.py::test_submit_job_and_poll_to_complete` polled for five
+minutes and the job never left `queued`.
+
+That was correct behaviour, not a regression. Submission hands the job to the
+queue now, and no worker was running, so nothing consumed it. The test forces
+`ARCHGUARD_INLINE_ANALYSIS=1`; the worker path is covered by
+`test_worker_roundtrip.py` against a real arq worker.
+
+Worth recording as a product observation: **a deployment with `REDIS_URL` set
+and no worker running leaves every job queued indefinitely, and the user sees a
+spinner that never stops.** `/metrics` exposes it
+(`archguard_jobs_total{status="queued"}` and `archguard_queue_depth`), so an
+operator can see it, but nothing tells the user. A stale-job reaper is not yet
+written.
+
+## Verified against real services, not mocks
+
+- Migration `upgrade -> downgrade -> upgrade` on PostgreSQL 18.6: 8 tables -> 0 -> 8.
+- `alembic check`: no model drift.
+- A job enqueued from the web side, consumed by `arq
+  archguard.worker.main.WorkerSettings`, cloning benjaminp/six and writing
+  `complete / 100 / A` to PostgreSQL, with an 11-event progress stream the web
+  process read back in full.
+- Analysis progress strictly increasing 3 -> 12 -> 28 -> 34 -> 42 -> 55 -> 78
+  -> 92 -> 100 across a real run.
+- Redis stopped mid-flight: `/ready` returned 503 naming `redis: PING failed`
+  while the other three checks still reported, `/health` stayed 200, and
+  restarting Redis restored `/ready` to 200.
+- A production-configured process with `ALLOWED_ORIGINS='*'` refused to start
+  and named all four problems.
+
+## Still unverified
+
+**`docker build --target web` and `--target worker`.** Docker Desktop is
+installed on this machine but its WSL distros will not start unattended, so the
+two assertions — the web image cannot import torch; the worker image has
+pip-audit on PATH and loads the embedding model with `--network none` — are
+written into the CI `docker` job and have not been executed anywhere yet.
+
+## Deliberate deviations from the plan
+
+- **P0-5** bounds `/evolution/analyze` in place (ceiling 100 -> 20, per-user
+  single-flight lock in Redis, 300s timeout, work moved off the event loop)
+  rather than routing it through the arq queue. The amplification is closed by
+  the lock, not by where the work runs; queueing it would change a synchronous
+  API the frontend depends on and make history analyses compete with real ones
+  for worker slots.
+- **Visual snapshot comparisons** are an advisory CI job rather than a blocking
+  one. Baselines are platform-specific and go stale whenever the UI changes
+  deliberately, which is not a regression. The behaviour tests in the same file
+  are blocking. The committed `-linux` baselines predate the determinate
+  progress bar and the sign-in overlay and need regenerating on Linux.
