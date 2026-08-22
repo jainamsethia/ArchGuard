@@ -77,7 +77,7 @@ def test_tiny_responses_are_not_compressed():
 
 def test_static_assets_carry_a_cache_policy():
     """Every one of them was served with no Cache-Control at all."""
-    for path in ("/index.css", "/dashboard.js", "/vendor/chart.umd.min.js"):
+    for path in ("/index.css", "/js/main.js", "/vendor/chart.umd.min.js"):
         response = client.get(path)
         assert response.status_code == 200
         assert "cache-control" in response.headers, f"{path} has no cache policy"
@@ -91,10 +91,10 @@ def test_a_fingerprinted_asset_is_cached_for_a_year():
 
 
 def test_an_unfingerprinted_asset_is_not_cached_for_a_year():
-    """A bare /dashboard.js must stay short-lived: nothing invalidates it, so a
-    year-long immutable policy would strand a deploy in every browser that had
-    ever loaded the old one."""
-    policy = client.get("/dashboard.js").headers.get("cache-control", "")
+    """A bare URL must stay short-lived: nothing invalidates it, so a year-long
+    immutable policy would strand a deploy in every browser that had ever
+    loaded the old one."""
+    policy = client.get("/js/main.js").headers.get("cache-control", "")
     assert "immutable" not in policy
     assert "max-age=31536000" not in policy
 
@@ -102,7 +102,7 @@ def test_an_unfingerprinted_asset_is_not_cached_for_a_year():
 def test_the_templates_request_fingerprinted_assets():
     """Otherwise the long cache policy is never used by anything."""
     body = client.get("/dashboard.html").text
-    for asset in ("index.css", "dashboard.js"):
+    for asset in ("index.css", "js/main.js"):
         assert f"{asset}?v=" in body, f"{asset} is referenced without a fingerprint"
 
 
@@ -140,7 +140,7 @@ def test_the_chart_library_is_still_loaded_eagerly():
 
 def test_the_dependency_tab_knows_how_to_fetch_the_library():
     """The lazy path has to exist in the shipped script, not just in intent."""
-    script = client.get("/dashboard.js").text
+    script = client.get("/js/render/deps.js").text
     assert "vis-network" in script, (
-        "nothing in dashboard.js loads the graph library on demand"
+        "nothing in the dependency module loads the graph library on demand"
     )

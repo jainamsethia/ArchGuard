@@ -1,22 +1,55 @@
 /**
  * Loads the real dashboard page into jsdom so its behaviour can be asserted.
  *
- * dashboard.js is a plain script, not a module: it defines its functions on the
- * global scope and calls fetchData() at the bottom. So the harness builds a
- * window from the real template, installs the globals the page expects a
- * browser and two vendored libraries to provide, and evaluates the file in that
- * context. Everything it defines is then reachable on `window`.
+ * The dashboard is a graph of ES modules now, entered at js/main.js. jsdom does
+ * not execute `<script type="module">`, so the harness builds the window from
+ * the real template, installs the globals a browser and two vendored libraries
+ * would provide, publishes them on globalThis, and imports the entry module --
+ * which binds to those globals exactly as it would in a page.
+ *
+ * The import is cache-busted per load. Module state is per-URL and would
+ * otherwise persist across tests, so the second test in a file would inherit
+ * the first one's chart handles, polling flags and store.
  *
  * Nothing here stubs the code under test -- only the browser around it.
  */
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JSDOM, VirtualConsole } from 'jsdom';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DASHBOARD = resolve(HERE, '../../archguard/dashboard');
+
+/** Globals the page modules read as free identifiers. */
+const GLOBALS = [
+  'document',
+  'fetch',
+  // setInterval/clearInterval are the harness's own stubs below, so hoisting
+  // them is safe. setTimeout is NOT: jsdom implements window.setTimeout in
+  // terms of the global one, so pointing the global back at it recurses until
+  // the stack dies. Node's own timers serve the modules fine.
+  'setInterval',
+  'clearInterval',
+  'Chart',
+  'vis',
+  'location',
+  'history',
+  'Event',
+  'URL',
+  'Blob',
+  'IntersectionObserver',
+  'HTMLElement',
+  'Node',
+  'getComputedStyle',
+];
+
+/** Distinguishes each load's module registry. See the note at the top. */
+let loadCounter = 0;
+
+/** Set by loadDashboard; imports a module from the current load. */
+let moduleFor = null;
 
 /** Minimal stand-ins for Chart.js and vis-network, which are vendored blobs. */
 function installVendorStubs(window) {
@@ -122,8 +155,38 @@ export async function loadDashboard({ respond = () => ({}), search = '' } = {}) 
   window.__requests = requests;
   window.__consoleErrors = consoleErrors;
 
-  const source = readFileSync(resolve(DASHBOARD, 'static/dashboard.js'), 'utf8');
-  window.eval(source);
+  // The modules reference `document`, `window`, `fetch`, `Chart` and `vis` as
+  // free identifiers, which resolve to globalThis under Node. Publishing the
+  // jsdom window's versions there is what makes an unmodified page module run
+  // outside a browser.
+  // Installed for the lifetime of the test, not just for the import. The page
+  // reads these when its handlers run, not when the module is evaluated, so
+  // restoring them afterwards left every later call looking at an undefined
+  // `document`. Each load overwrites them with its own window; node:test runs
+  // files sequentially, so there is nothing to interleave.
+  for (const key of GLOBALS) {
+    globalThis[key] = window[key];
+  }
+  globalThis.window = window;
+
+  {
+    const load = loadCounter++;
+    // Imports a page module sharing this load's registry, so a test reaches
+    // the same instances main.js wired -- the same store, the same polling
+    // handle, the same in-flight loader promise. The cache-buster has to match
+    // exactly, or the test gets a second, unrelated copy of the module.
+    moduleFor = (rel) =>
+      import(`${pathToFileURL(resolve(DASHBOARD, 'static/js', rel)).href}?load=${load}`);
+
+    const mod = await moduleFor('main.js');
+    window.__module = mod;
+    // Re-export what the page put on globalThis, so tests can drive the page
+    // through the same names they used when it was one script.
+    for (const [name, value] of Object.entries(mod)) {
+      if (typeof value === 'function') window[name] = value;
+    }
+    window.__state = (await moduleFor('state.js')).state;
+  }
 
   // Let the page's own DOMContentLoaded handlers and the initial fetchData()
   // settle before anything is asserted.
@@ -133,6 +196,11 @@ export async function loadDashboard({ respond = () => ({}), search = '' } = {}) 
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
 
+  // The window itself, with the module accessor hung off it. Callers written
+  // against the old harness do `const window = await loadDashboard()`; newer
+  // ones destructure `{ window, module }`. jsdom's window.window is itself, so
+  // both read correctly from one return value.
+  window.module = moduleFor;
   return window;
 }
 

@@ -16,7 +16,7 @@
 <!-- vis-network for dependency graph panel -->
     <!-- vis-network is NOT loaded here. At 628.7 KB it was 63% of this page's
          static payload, downloaded by every visitor for a graph that only
-         renders when the Dependencies tab is opened. dashboard.js fetches it
+         renders when the Dependencies tab is opened. js/render/deps.js fetches it
          on first activation of that tab. -->
 </head>
 <body class="page-dashboard">
@@ -87,7 +87,7 @@
 <details class="glossary">
 <summary>New here? What do these terms mean?</summary>
 <!-- NOTE: the Layer 1-4 descriptions below are mirrored by LAYER_GLOSSES in
-     dashboard.js (updateFitnessPanel). Keep both in sync if a layer's meaning
+     js/render/fitness.js (updateFitnessPanel). Keep both in sync if a layer's meaning
      changes. -->
 <dl>
 <dt>Health Score (0–100, higher is better)</dt><dd>The inverse of ArchDebt: <code>Health = (1 − ArchDebt) × 100</code>. 100 means zero detected architectural debt. Grades: A ≥ 90, B ≥ 80, C ≥ 70, D ≥ 60, F &lt; 60.</dd>
@@ -104,7 +104,7 @@
 <!-- Persistent provenance warning for runs whose module boundaries were guessed
      from directory names rather than measured from co-change history. Sits
      above the tablist so it stays visible on every tab, not just Overview.
-     Populated by updateProvenanceBanner() in dashboard.js. -->
+     Populated by updateProvenanceBanner() in js/render/metrics.js. -->
 <div aria-live="polite" class="glass-card card-section" id="fallback-banner" role="alert" hidden
      style="border-left:4px solid var(--warn-color);background:var(--tint-warn-bg)">
 <h2 class="text-section-title-flush" id="fallback-banner-title" style="color:var(--warn-color)">⚠ Module boundaries were guessed, not measured</h2>
@@ -113,7 +113,7 @@
 <!-- States which thresholds the score was graded against. Shown whenever the
      contract was auto-generated, so a score is never presented as a bare
      number with no indication of the policy behind it.
-     Populated by updateThresholdNote() in dashboard.js. -->
+     Populated by updateThresholdNote() in js/render/metrics.js. -->
 <div aria-live="polite" class="glass-card card-section" id="threshold-note" hidden
      style="border-left:4px solid var(--accent-text)">
 <p class="section-note margin-reset" id="threshold-note-body"></p>
@@ -121,7 +121,7 @@
 <!-- What this run actually checked. The score is an average over the layers
      that produced a signal, so the ones that did not have to be named -- a
      layer with nothing to check must not read as a layer that found nothing.
-     Populated by updateLayerStatus() in dashboard.js. -->
+     Populated by updateLayerStatus() in js/render/metrics.js. -->
 <div class="glass-card card-section" id="layer-status" hidden>
 <h2 class="text-section-title-flush">What this run checked</h2>
 <p class="section-note" id="layer-status-intro"></p>
@@ -266,7 +266,7 @@
 <!-- Every violation found stays in the table below. Only eligibility for an
      AI-written fix is capped, so the counts have to say so plainly rather
      than letting a shorter plan imply a shorter list of problems.
-     Populated by updateViolationCounts() in dashboard.js. -->
+     Populated by updateViolationCounts() in js/render/metrics.js. -->
 <p class="section-note" id="violations-counts"></p>
 <div id="violations-remediation" class="margin-bottom">
 <button class="btn-action" id="violations-remediation-btn">Suggest fixes for these violations</button>
@@ -354,6 +354,10 @@
 </div>
 </div>
 
-<script src="{{ asset('dashboard.js') }}"></script>
+<!-- ES modules, no bundler. A module script is deferred by definition, so it
+     runs after parsing and before DOMContentLoaded -- the listeners inside it
+     still fire. Allowed by `script-src 'self'` without a nonce, since every
+     import is same-origin. -->
+<script type="module" src="{{ asset('js/main.js') }}"></script>
 </body>
 </html>
