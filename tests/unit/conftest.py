@@ -18,4 +18,3 @@ def reset_rate_limit_state() -> None:
     except ImportError:  # dashboard extra not installed
         return
     _rate_limit.reset_rate_limits()
-    _rate_limit.reset_rate_limits()

@@ -16,7 +16,9 @@ import asyncio
 import os
 import subprocess
 import sys
+import time
 import uuid
+import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -42,6 +44,117 @@ def _alembic(*args: str, url: str) -> subprocess.CompletedProcess[str]:
         cwd=_REPO_ROOT,
         check=False,
     )
+
+
+#: The WSL distro hosting PostgreSQL and Redis on a Windows developer machine.
+WSL_DISTRO = os.environ.get("ARCHGUARD_WSL_DISTRO", "Ubuntu")
+
+
+def _configured_hosts() -> list[tuple[str, str, int]]:
+    """(service, host, port) for each service the environment points at."""
+    from urllib.parse import urlparse
+
+    out = []
+    for name, env in (("PostgreSQL", "DATABASE_URL"), ("Redis", "REDIS_URL")):
+        url = os.environ.get(env, "").strip()
+        if not url:
+            continue
+        parsed = urlparse(url)
+        if parsed.hostname and parsed.port:
+            out.append((name, parsed.hostname, parsed.port))
+    return out
+
+
+def _hold_wsl_open() -> subprocess.Popen[bytes] | None:
+    """Keep the WSL2 VM alive for the whole session, or return None.
+
+    WSL2 shuts an idle VM down, and on a Windows developer machine this
+    project's PostgreSQL and Redis live inside it -- so a stretch of tests that
+    touch neither service for long enough takes both down, and everything after
+    that fails with ConnectionRefusedError. Measured: the VM was gone after 100
+    seconds idle, and `wsl -l -v` reported "Stopped" while `systemctl` inside
+    it reported the services active, because the query itself cold-booted the
+    VM to answer.
+
+    `.wslconfig`'s vmIdleTimeout does not control it on WSL 2.5.10 -- the key
+    is accepted and the VM still stops, at -1 and at a week in milliseconds.
+    What does work is an attached session: with one open, the VM stayed Running
+    and both ports stayed reachable across the same idle period.
+
+    So the suite holds one for its own duration rather than asking the
+    developer to remember to. A no-op anywhere that is not Windows, has no
+    wsl.exe, or points its services somewhere other than loopback.
+    """
+    if sys.platform != "win32":
+        return None
+    hosts = _configured_hosts()
+    if not hosts or not all(h in ("127.0.0.1", "localhost", "::1") for _, h, _ in hosts):
+        return None
+
+    wsl = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "wsl.exe"
+    if not wsl.exists():
+        return None
+    try:
+        return subprocess.Popen(
+            [str(wsl), "-d", WSL_DISTRO, "--", "sleep", "86400"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+    except OSError:
+        # No such distro, or wsl refused. The health check below reports what
+        # that costs; it is not this function's job to fail the run.
+        return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _services_reachable() -> Iterator[None]:
+    """Hold the services up for the session, and say plainly if they are not.
+
+    Without the health check an unreachable Redis is reported 843 times -- once
+    per unit test, each paying the connection timeout first -- and an
+    unreachable PostgreSQL surfaces as "alembic upgrade failed" inside a
+    fixture, which reads like a broken migration rather than a service that is
+    not running.
+
+    A warning rather than a failure: running without services is legitimate,
+    and the tests that need them skip on their own. The point is that the
+    reason appears once, at the top, in words.
+    """
+
+    keeper = _hold_wsl_open()
+    if keeper is not None:
+        # Give the VM a moment to finish booting before probing it.
+        for _ in range(20):
+            if all(_reachable(h, p) for _, h, p in _configured_hosts()):
+                break
+            time.sleep(0.5)
+
+    for name, host, port in _configured_hosts():
+        if not _reachable(host, port):
+            warnings.warn(
+                f"{name} is configured at {host}:{port} but is not reachable. "
+                f"Tests needing it will skip or fail. On Windows the services "
+                f"run inside WSL2: check `wsl -l -v` shows {WSL_DISTRO} "
+                f"Running. See docs/DEVELOPMENT.md.",
+                stacklevel=1,
+            )
+
+    try:
+        yield
+    finally:
+        if keeper is not None:
+            keeper.terminate()
+
+
+def _reachable(host: str, port: int, timeout: float = 3.0) -> bool:
+    import socket
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 @pytest.fixture(scope="session")

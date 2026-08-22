@@ -55,6 +55,14 @@ _KEY_PREFIX = "ratelimit"
 # ---------------------------------------------------------------------------
 
 _LOCAL_LOCK = threading.Lock()
+
+#: Whether any Redis rate-limit key has been written since the last reset.
+#:
+#: Only read by reset_rate_limits, and only to skip work. A full keyspace SCAN
+#: per test is what turned a brief Redis outage into a 48-minute suite: the
+#: autouse fixture ran one for all 843 unit tests, and all but a handful had
+#: written nothing for it to find.
+_redis_touched = False
 _LOCAL: dict[str, deque[float]] = {}
 #: Bounded so the fallback cannot become the unbounded leak that the previous
 #: cachetools-ImportError fallback was.
@@ -95,6 +103,8 @@ def _redis_hit(
     pipe.incr(key)
     pipe.expire(key, RATE_LIMIT_WINDOW * 2)
     used = int(pipe.execute()[0])
+    global _redis_touched  # noqa: PLW0603 -- a single module-level flag
+    _redis_touched = True
     return used, used > limit
 
 
@@ -149,6 +159,15 @@ def reset_rate_limits() -> None:
     """
     with _LOCAL_LOCK:
         _LOCAL.clear()
+
+    # Nothing has been written to Redis since the last reset, so there is
+    # nothing to clear and no reason to open a connection. Isolation is
+    # unaffected: what was never written cannot leak into the next test.
+    global _redis_touched  # noqa: PLW0603 -- a single module-level flag
+    if not _redis_touched:
+        return
+    _redis_touched = False
+
     client = get_redis()
     if client is None:
         return

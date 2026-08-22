@@ -176,3 +176,37 @@ The setup these instructions were written and tested against:
 | Node | 24.16.0 |
 | asyncpg / SQLAlchemy / Alembic | 0.31.0 / 2.0.52 / 1.19.1 |
 | redis-py | 8.1.0 |
+
+## WSL2 and the local services
+
+On Windows, PostgreSQL and Redis run inside the WSL2 Ubuntu distro, and WSL2
+shuts an idle VM down -- taking both with it. Measured on WSL 2.5.10: the VM was
+gone after 100 seconds of inactivity. `.wslconfig`'s `vmIdleTimeout` does not
+prevent it (tried at `-1` and at a week in milliseconds; the key is accepted and
+the VM still stops). An *attached* session does.
+
+The failures this causes do not look like what they are:
+
+| What you see | What it is |
+|---|---|
+| pytest takes an hour instead of three minutes | every test paying a 3s Redis connection timeout |
+| `alembic upgrade failed` in a fixture | PostgreSQL is not running |
+| four endpoint 500s from `smoke_test.sh` | neither service is running |
+
+`pytest` holds a session open for its own duration automatically, so the test
+suite needs nothing from you. For anything else -- a dev server, the smoke
+script, a Playwright run -- hold one yourself in a second terminal:
+
+```bash
+make services          # holds until Ctrl-C
+```
+
+or check reachability without holding anything:
+
+```bash
+make check-services
+```
+
+`make dev` depends on the check, so it fails fast with a readable message
+rather than serving 500s. Both are no-ops on Linux and macOS, and on any setup
+whose `DATABASE_URL` points somewhere other than loopback.

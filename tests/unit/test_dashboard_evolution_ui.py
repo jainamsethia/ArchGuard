@@ -32,15 +32,23 @@ def test_evolution_dashboard_ui_elements():
 
 
 def test_evolution_dashboard_js_functions():
-    """Verify that dashboard.html contains the necessary JS to fetch and render Evolution data."""
-    index_path = (
+    """The JS that fetches and renders Evolution data still exists.
+
+    Read across the module tree rather than one file: dashboard.js was split
+    into archguard/dashboard/static/js/, and the fetch now lives in poll.js
+    while the rendering lives in render/evolution.js. Concatenating keeps this
+    test about behaviour being present rather than about which file holds it.
+    """
+    js_root = (
         Path(__file__).parent.parent.parent
         / "archguard"
         / "dashboard"
         / "static"
-        / "dashboard.js"
+        / "js"
     )
-    content = index_path.read_text(encoding="utf-8")
+    sources = sorted(js_root.rglob("*.js"))
+    assert sources, f"no dashboard modules found under {js_root}"
+    content = chr(10).join(p.read_text(encoding="utf-8") for p in sources)
 
     # Verify fetch call
     assert "safeFetch(`/api/v1/evolution/trends" in content

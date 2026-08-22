@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck smoke-test
+.PHONY: test lint typecheck smoke-test services check-services dev
 
 test:
 	poetry run pytest tests/unit -v --tb=short
@@ -14,7 +14,16 @@ smoke-test:
 
 # ── Phase 2: Dashboard & Docker ──────────────────────────────────────────
 
-dev:
+# Reachability first. On Windows the services live in WSL2, which shuts an idle
+# VM down and takes them with it -- see scripts/dev_services.py. A no-op
+# everywhere else, so this line is safe unconditionally.
+services:
+	poetry run python scripts/dev_services.py
+
+check-services:
+	poetry run python scripts/dev_services.py --check
+
+dev: check-services
 	poetry run uvicorn archguard.dashboard.app:app --reload --port 8000 --log-level info
 
 dev-debug:
