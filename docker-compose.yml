@@ -12,7 +12,13 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - archguard-pgdata:/var/lib/postgresql/data
+      # postgres:18+ stores data in a major-version subdirectory and refuses to
+      # start when a volume is mounted at the old /var/lib/postgresql/data path
+      # ("there appears to be PostgreSQL data in ... (unused mount/volume)").
+      # The single mount one level up is the configuration the image documents,
+      # and is what makes `pg_upgrade --link` possible later.
+      # See https://github.com/docker-library/postgres/pull/1259
+      - archguard-pgdata:/var/lib/postgresql
     healthcheck:
       # pg_isready returns success as soon as the socket accepts, which happens
       # before the init scripts finish; naming the user and database waits for
