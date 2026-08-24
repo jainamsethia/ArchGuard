@@ -1,38 +1,60 @@
 # ArchGuard
-> **Architectural drift detection for Python CI pipelines**
-> Catches import boundary violations, coupling degradation, and semantic drift before they reach main.
+> **Architectural drift detection for Python repositories, as a web application**
+> Point it at a public GitHub repository and get a measured report on import
+> boundary violations, coupling degradation, semantic drift and duplication.
 
-[![CI](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainamsethia/ArchGuard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
+[![CI](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/jainamsethia/ArchGuard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
 
-**[📸 Screenshots](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
+**[🚀 Run it locally](#run-it-locally) · [📖 Architecture](#architecture) · [⚙ Configuration](#configuration) · [🔑 Environment variables](#environment-variables)**
 
-## Deploy
+ArchGuard is a deployed service, not a command-line tool. A visitor signs in
+with GitHub, submits a repository URL, watches the analysis progress over an
+SSE stream, and lands on a dashboard of the result. Analyses run in a separate
+worker process behind a Redis queue; users, jobs, runs and suppressions live in
+PostgreSQL.
 
-### One-click deploy to Railway
-Create a new Railway project from this repo (Railway dashboard → **New Project** →
-**Deploy from GitHub repo**); `railway.toml` in the repo root supplies the build and
-healthcheck config.
+## Run it locally
 
-**Required environment variables to set in Railway dashboard:**
-- `GEMINI_API_KEY` — for L4 LLM explanations and all other AI features (optional but recommended)
-- `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
-- `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
-- `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
-- `ENVIRONMENT` — set to `production` for secure session cookies (already set in `railway.toml`'s `[env]` section)
-- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set via the Railway dashboard or CLI).
-
-### Deploy to Render
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jainamsethia/ArchGuard)
-
-Set the same environment variables in the Render dashboard under **Environment**. Note that `ARCHGUARD_TRUSTED_PROXY_IPS` is already configured directly in `render.yaml` with the appropriate CIDR range.
-
-### Run locally with Docker Compose
 ```bash
 cp .env.example .env
-# Edit .env to add your API keys
+# Set at minimum DATABASE_URL, REDIS_URL and SESSION_SECRET. GEMINI_API_KEY
+# is optional and enables the AI Advisor and remediation plans.
 docker compose up
 # Open http://localhost:8000
 ```
+
+To run the app directly against containerised datastores instead:
+
+```bash
+docker compose up -d postgres redis
+```
+
+```bash
+poetry install --with dev
+```
+
+```bash
+poetry run alembic upgrade head
+```
+
+```bash
+poetry run uvicorn archguard.dashboard.app:app --reload --port 8000
+```
+
+Layers 3 and 4 need the ML extra, which is large (~800 MB installed, torch
+included) and belongs to the worker rather than the web process:
+
+```bash
+poetry install --with dev --extras worker
+```
+
+```bash
+poetry run arq archguard.worker.main.WorkerSettings
+```
+
+Neither Alembic nor the worker reads `.env` — only the web app calls
+`load_dotenv()` — so export the variables into your shell before running them.
+
 ## Architecture
 
 ![Architecture](docs/architecture.png)
@@ -40,8 +62,11 @@ docker compose up
 ```mermaid
 flowchart TB
 subgraph Input["📥 Input"]
-GH[GitHub PR]
-CLI[Local CLI]
+WEB[Dashboard: submit a repo URL]
+end
+subgraph Queue["⚙ Execution"]
+REDIS[(Redis queue)]
+WORKER[Analysis worker]
 end
 subgraph Pipeline["🔍 Analysis Pipeline"]
 direction TB
@@ -49,36 +74,35 @@ L1["Layer 1: Import Boundaries\n(tree-sitter AST)"]
 L2["Layer 2: Coupling Delta\n(NetworkX fan-out)"]
 L3["Layer 3: Semantic Drift\n(MiniLM embeddings)"]
 L4["Layer 4: Duplication\n(FAISS vector search)"]
-EXPLAIN["LLM Explanation\n(Gemini)"]
 SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
 end
 subgraph Cache["💾 Cache Layer"]
 SQLITE[(SQLite WAL\nEmbedding Cache)]
-INCR[SHA-256\nContent Hash]
+end
+subgraph Store["🗄 Persistence"]
+PG[(PostgreSQL:\nusers, jobs, runs)]
 end
 subgraph Output["📤 Output"]
-COMMENT[PR Comment]
-HTML[HTML Report]
-AUDIT[Audit JSONL Log]
-EXIT[CI Exit Code]
+DASH[Dashboard report]
+ADVISOR["AI Advisor / remediation\n(Gemini)"]
+AUDIT[Audit JSONL log]
 end
 subgraph Contract["📋 Contract"]
-YAML[.archguard.yml\n(JSON Schema v3.0)]
+YAML[".archguard.yml\n(JSON Schema v3.0)"]
 REINFER[Re-inference\nEngine]
 end
-Input --> Pipeline
-Pipeline --> SCORE
-SCORE --> Output
-Cache -.->|Cache reads| Pipeline
-Pipeline -.->|Cache writes| Cache
+WEB --> REDIS --> WORKER --> Pipeline
+Pipeline --> SCORE --> Output
+SCORE --> PG
+Cache -.->|reads| Pipeline
+Pipeline -.->|writes| Cache
 Contract --> Pipeline
 L3 -->|persistent drift| REINFER
 REINFER --> Contract
-SCORE -->|violations| EXPLAIN
-EXPLAIN --> Output
+SCORE -->|violations| ADVISOR
 ```
 
-ArchGuard runs a 4-layer analysis pipeline on every PR:
+Every analysis runs the same four layers:
 
 | Layer | Signal | Technology |
 |-------|--------|------------|
@@ -87,303 +111,199 @@ ArchGuard runs a 4-layer analysis pipeline on every PR:
 | Semantic | Embedding centroid drift | MiniLM + cosine similarity |
 | Duplication | Cross-module function clones | FAISS vector search |
 
-Results posted as a PR comment with an ArchDebt score and LLM-generated explanation.
+Layers 3 and 4 are skipped, and say so in the report, when the ML extra is not
+installed or `ARCHGUARD_SKIP_ML=1` is set. A layer with nothing to check must
+not read as a layer that found nothing.
 
+## Technical highlights
 
-## Screenshots
-
-<!-- Demo GIF: run `vhs docs/demo.tape` to generate docs/demo.gif -->
-> 📹 **Demo:** Clone the repo and run `vhs docs/demo.tape` to generate the demo GIF.
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Rich terminal output of archguard analyze with score table and violations.*
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Automated PR comment detailing ArchDebt score and architectural regressions.*
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Interactive HTML dashboard charting structural health trends.*
-
-## Technical Highlights
-- **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
-- **Louvain community detection** on commit co-change graph for automatic contract generation
+- **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search.
+- **Louvain community detection** on the commit co-change graph, so module boundaries are measured from how the code actually changes rather than guessed from directory names. When history is unavailable the report says the boundaries were guessed.
 - **Incremental embeddings**: a SQLite WAL cache keyed by function content hash, so an unchanged function is never re-embedded. Measured on this repository: a repeat analysis in a warm worker costs ~4s against ~29s cold, with Layer 3 falling from 26.5s to 2.0s. See [ADR-009](docs/adr/009-incremental-reanalysis.md).
-- **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls.
-- **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
+- **Resilient LLM calls**: Gemini Flash primary with automatic fallback to Flash-Lite on a rate limit, server error, timeout, or a retired model id.
+- **Re-inference engine**: proposes contract updates when semantic drift persists across runs.
 
-## Phase 3: Architecture Intelligence
+## Dashboard workflow
 
-ArchGuard integrates multiple intelligent components to actively evaluate and guide architectural evolution:
+1. Sign in with GitHub. Analyses are private to your account.
+2. Submit a public repository URL on the landing page.
+3. An SSE stream reports progress per phase while the worker runs the analysis.
+4. On completion you land on `dashboard.html?job_id=…` with the new run selected.
 
-### Architecture Fitness Functions
-Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
+Opening the dashboard with no recorded runs shows an empty state pointing back
+to the submit page rather than a blank screen.
+
+## Features
+
+### Architecture fitness functions
+Rules declared in `.archguard.yml` are evaluated on every run, and their
+pass/fail state appears on the dashboard.
 
 ### AI Advisor
-An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Streams responses via the Gemini API (requires `GEMINI_API_KEY`).
+An LLM-backed panel answering architecture questions in the context of the
+current run's metrics, drift and violations. Streams over SSE. Requires
+`GEMINI_API_KEY`; without it the panel says so rather than failing silently.
 
-### Architecture Evolution Tracking
-Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
+### AI remediation plans
+Synthesises ranked, step-by-step refactoring suggestions from the run's
+violations. Every finding stays in the violations table — only eligibility for
+an AI-written fix is capped, and the counts say so.
 
-### AI Remediation Plans
-A dedicated remediation engine (`archguard.llm.remediation`) capable of analyzing layer-specific violation thresholds and automatically synthesizing step-by-step refactoring recommendations.
+### Module blast radius
+For each module, how many other modules transitively depend on it — the reach
+of a change — computed from the analysed repository's dependency graph.
 
-### PR Risk Analysis
-The `PRRiskAnalyzer` automatically computes contextual risk scores for inbound code changes by traversing dependencies directly affected by modified files and highlighting downstream risks.
+### Evolution tracking
+Health, debt, violation and fitness trends across recorded runs, plus an
+on-demand pass over real git history.
 
-### Dependency Health Score
-Native integration with `pip-audit` to evaluate real-time third-party vulnerability awareness, merging software supply chain health into overall project architectural scoring.
+### Dependency health
+`pip-audit` over the analysed repository's declared dependencies, folded into
+the overall score.
 
-## CLI Commands
+## Configuration
 
-The core commands include:
-```bash
-archguard init                  # Auto-detect architecture and create .archguard.yml
-archguard analyze               # 4-layer analysis of files changed since HEAD~1
-archguard analyze --full        # ...of every Python file in the repo
-archguard fitness check         # Evaluate configured fitness functions
-archguard fitness check --json  # Return fitness results as JSON
-archguard history --format json # Output history trend as JSON
-archguard report --slim         # Output minimalist CDN-ready HTML report
-```
+Analysis is driven by `.archguard.yml` in the analysed repository. If the file
+is absent, ArchGuard generates one headlessly and reports whether the module
+boundaries were measured from co-change history or inferred from directory
+names.
 
-## Installation
-### Full Install (recommended)
-```bash
-pip install -e ".[all]"
-```
-### Minimal Install (no ML layers)
-```bash
-pip install -e .
-# Note: Layer 3 (Semantic Drift) and Layer 4 (Duplication) require `pip install -e ".[ml]"`
-```
+Three threshold profiles ship in `archguard.profiles.defaults` and are applied
+when a contract names one:
 
-## Quick Start
-```bash
-cd your-python-project/
-archguard init           # Auto-detect architecture
-archguard analyze --full # Check the whole repository for violations
-```
-
-> **Note:** `archguard analyze` is a *delta* command by default: it analyses the
-> files changed between `HEAD~1` and your working tree, which is what you want
-> in CI on a pull request. On a clean checkout that set is empty and the run is
-> a no-op. Pass `--full` to analyse every Python file in the repository — that
-> is what you want for a first look, a baseline, or a scheduled scan.
->
-> `--incremental` is a further optimisation on top of the delta: it consults the
-> content-hash cache and re-uses the previous run's findings for files whose
-> contents are unchanged.
-
-## Sample Output
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ ArchGuard Analysis — health score: 87.5 (Grade: B)                  │
-├────────────────┬──────────┬──────────┬───────────────────────────────┤
-│ File           │ Type     │ Severity │ Violation                     │
-├────────────────┼──────────┼──────────┼───────────────────────────────┤
-│ api/service.py │ layer    │ CRITICAL │ api imports from db directly  │
-│ utils/parse.py │ coupling │ HIGH     │ instability: 0.92 (max: 0.80) │
-└────────────────┴──────────┴──────────┴───────────────────────────────┘
-```
-
-## Tracking Architecture Health Over Time
-
-You can visualize your project's historical architectural health using the `history` command, which parses the local audit log:
-
-```bash
-archguard history --format trend
-```
-
-```text
-┌─────────────────────┬───────┬───────┬────────────┐
-│ Timestamp           │ Score │ Grade │ Violations │
-├─────────────────────┼───────┼───────┼────────────┤
-│ 2024-01-15 10:30    │  87.5 │ B     │          3 │
-│ 2024-01-14 09:15    │  82.0 │ B-    │          5 │
-│ 2024-01-13 14:00    │  79.5 │ C+    │          7 │
-└─────────────────────┴───────┴───────┴────────────┘
-Trend: ↑ +8.0 points over 3 runs (improving)
-Score history: ▃▄▄▅▆▇█
-```
-
-*Tip: Use `archguard history --format json` to export this data to a headless dashboard!*
-
-## Dashboard Workflow
-
-ArchGuard provides a local web dashboard to analyze repositories dynamically. The user flow is as follows:
-1. Navigate to `index.html` and submit a GitHub URL for analysis.
-2. An SSE (Server-Sent Events) stream provides real-time progress updates.
-3. Upon completion, you are redirected to `dashboard.html?job_id=...` where the new run is highlighted.
-
-**First-time Users:** If you navigate directly to `dashboard.html` without any prior runs, you will be greeted with an empty state and a Call-To-Action (CTA) guiding you back to `index.html` to start your first analysis.
-
-## Interactive HTML Reports
-
-You can generate a self-contained, interactive HTML dashboard to visualize your project's architectural integrity:
-
-```bash
-archguard report --output dashboard.html --open
-```
-
-The report operates entirely offline and includes:
-- **Summary Cards**: At-a-glance grades and scores.
-- **Dependency Graph**: An interactive network mapping module relationships (powered by vis.js).
-- **Health Trends**: A historical line chart mapping point degradation/improvements (powered by Chart.js).
-- **Violations**: A sortable grid of specific module breaches.
-
-## Configuration Profiles
-
-ArchGuard includes preset configuration profiles (`strict`, `lenient`, `ci`) out-of-the-box to make it easier to adopt architectural enforcement in different environments:
-
-```bash
-# Apply a strict profile over your current codebase
-archguard analyze --profile strict
-```
-
-You can view all available presets via:
-```bash
-archguard profiles list
-```
-
-### Which profile do I want?
-- **strict**: Use this for mature codebases where you want production-grade enforcement as a hard CI gate. It demands high cohesion and low coupling.
-- **lenient**: Use this for local development, exploratory testing, greenfield projects, or legacy codebases where you want minimal enforcement.
-- **ci**: Use this for balanced enforcement in most standard CI pipelines, providing reasonable defaults without being overly restrictive.
-
-You can also specify a profile globally by answering the interactive prompt during `archguard init` or manually placing it at the root of your `.archguard.yml` file:
 ```yaml
 version: "3.0"
 profile: "ci"
 modules:
-...
+  - name: api
+    path: api/
 ```
 
-## CI/CD Integration
+- **strict** — mature codebases wanting production-grade enforcement.
+- **lenient** — greenfield or legacy code where enforcement should be minimal.
+- **ci** — balanced defaults for most pipelines.
 
-We recommend executing ArchGuard via GitHub Actions on every pull request.
+## Environment variables
 
-```mermaid
-sequenceDiagram
-participant GH as GitHub
-participant Action as Action Runner
-participant AG as ArchGuard CLI
-participant Cache as SQLite Cache
-participant LLM as Gemini API
-GH->>Action: PR opened/updated
-Action->>AG: archguard analyze --pr-number N
-AG->>Cache: Load cached embeddings
-AG->>AG: Layer 1: Parse imports (tree-sitter)
-AG->>AG: Layer 2: Compute coupling (NetworkX)
-AG->>AG: Layer 3: Embed changed files (MiniLM)
-AG->>LLM: Explain violations (async)
-
-LLM-->>AG: Explanations
-AG->>Cache: Store new embeddings
-AG->>GH: Post PR comment with ArchDebt score
-AG-->>Action: Exit 1 if score > fail_threshold
-```
-
-```yaml
-- name: Pull ArchGuard cache from S3
-  run: archguard sync pull --bucket my-archguard-cache
-  env:
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-- name: Run ArchGuard
-  uses: jainamsethia/ArchGuard/action@v1
-  with:
-    pr-number: ${{ github.event.pull_request.number }}
-    skip-explanation: 'false'   # Set 'true' to skip LLM calls (faster, free)
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional: omit to skip AI explanations
-- name: Push updated cache to S3
-  run: archguard sync push --bucket my-archguard-cache
-  env:
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-```
-
-**Exit codes:**
-- `0` - Success, no violations above threshold
-- `1` - Violations detected
-- `2` - Configuration error (missing or invalid `.archguard.yml`)
-- `3` - Analysis error
-- `4` - Authentication error
-
-**JSON Output for headless tools:**
-
-```bash
-archguard analyze --json | jq '.summary'
-```
-
-## Environment Variables
-
-See `.env.example` for a copy-pasteable template. Full reference:
+`.env.example` is the copy-pasteable template and the authoritative reference;
+it marks any variable that is documented but not yet wired. The essentials:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | _(none)_ | Gemini API key. Powers **every** AI feature: L4 violation explanations, the AI Advisor panel, AI fix suggestions, and `archguard init --llm-init`. Omit to disable them all. |
-| `GEMINI_MODEL` | `gemini-3.6-flash` | Default model for one-shot calls (remediation, advisor recommendations). |
-| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for a proxy or a different API version. |
-| `ARCHGUARD_PRIMARY_MODEL` | `gemini-3.6-flash` | Primary model for L4 explanations and contract inference. |
-| `ARCHGUARD_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Cheaper/faster model used when the primary is rate-limited or unreachable. |
-| `OPENAI_API_KEY` | _(none)_ | **Deprecated alias** for `GEMINI_API_KEY`, read only if the latter is unset so existing deployments keep working. It must hold a *Gemini* key — an OpenAI key will not work. Warns on use. |
-| `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. When `ARCHGUARD_DASHBOARD_TOKEN` is set, visiting the dashboard URL in a browser displays a one-time token-entry form. After entering the token, a 24-hour session cookie is issued and the dashboard is fully functional. The session TTL is configurable via `ARCHGUARD_SESSION_COOKIE_TTL` (seconds; default 86400). API and CLI clients continue to use `Authorization: Bearer <token>` as before. |
-| `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
-| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | IP ranges of trusted proxies. Required if running the dashboard behind a load balancer to ensure auth restrictions work. `*` trusts any peer's `X-Forwarded-For` and is only safe when the app is reachable solely through your platform's proxy. |
-| `ARCHGUARD_TRUSTED_PROXY_HOPS` | `1` | Number of trusted proxies in front of the app. The client IP is taken as the Nth `X-Forwarded-For` entry from the **right**, since entries further left are attacker-controlled. Raise it if you add a CDN in front of your platform proxy. |
-| `ARCHGUARD_AUDIT_SECRET` | _(auto-generated)_ | HMAC key for the tamper-evident audit log. See "Audit Log Security" below. |
-| `ARCHGUARD_AUDIT_STRICT` | `false` | Require a secure secret to be present; refuse to auto-generate one. |
-| `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | Required for `archguard sync push/pull` (S3 cache backend). |
-| `ARCHGUARD_SKIP_ML` | `false` | Skip Layer 3/4 even if ML extras are installed. |
-| `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `GEMINI_API_KEY` is set. |
-| `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response across all LLM features (Analysis, AI Advisor, Remediation) instead of calling the LLM — used in CI/tests. |
-| `ARCHGUARD_TEST_MODE` | `false` | Set by the test suite and CI; **currently read nowhere in `archguard/` source** — has no effect today. |
-| `ARCHGUARD_CLONE_TIMEOUT` | `120` | Maximum time in seconds to wait for a git clone to complete. |
-| `ARCHGUARD_ANALYSIS_TIMEOUT` | `600` | Maximum time in seconds to wait for the analysis pipeline to complete. |
+| `DATABASE_URL` | _(required)_ | PostgreSQL, `postgresql+asyncpg://…`. There is no file-based fallback. |
+| `REDIS_URL` | _(required)_ | Sessions, rate limits, job progress and the analysis queue. |
+| `SESSION_SECRET` | _(required)_ | HMAC key for session cookies. Generate with `python -c "import secrets; print(secrets.token_hex(32))"`. |
+| `ENVIRONMENT` | `development` | Set to `production` to enable the startup configuration gate and secure cookies. |
+| `ALLOWED_ORIGINS` | localhost set | Comma-separated CORS origins. `*` is refused in production. |
+| `GEMINI_API_KEY` | _(none)_ | Powers the AI Advisor and remediation plans. Omit to disable both. |
+| `GEMINI_MODEL` | `gemini-3.6-flash` | Model for one-shot calls. |
+| `ARCHGUARD_PRIMARY_MODEL` | `gemini-3.6-flash` | Primary model for explanations and contract inference. |
+| `ARCHGUARD_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Used when the primary is rate-limited, unreachable, or has been retired. |
+| `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | _(none)_ | Required in production; without them nobody can sign in. |
+| `GITHUB_TOKEN` | _(none)_ | Raises the GitHub API limit above 60 req/hr. |
+| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | Proxy CIDR. Without it every request is attributed to the proxy and all users share one rate-limit bucket. |
+| `ARCHGUARD_SKIP_ML` | _(unset)_ | Skip Layers 3 and 4 even when the extras are installed. |
+| `ARCHGUARD_MOCK_LLM` | _(unset)_ | Return fixed responses instead of calling Gemini. Used by CI and the browser tests. |
+| `ARCHGUARD_AUDIT_SECRET` | _(auto)_ | HMAC key for the audit log. See [Audit log security](#audit-log-security). |
+| `ARCHGUARD_CLONE_TIMEOUT` | `120` | Seconds to wait for a git clone. |
+| `ARCHGUARD_ANALYSIS_TIMEOUT` | `600` | Seconds to wait for the pipeline. |
+
+## Deploy
+
+### Railway
+Create a project from this repo; `railway.toml` supplies build and healthcheck
+config. Set `DATABASE_URL`, `REDIS_URL`, `SESSION_SECRET`,
+`GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, `ALLOWED_ORIGINS` and
+`ARCHGUARD_TRUSTED_PROXY_IPS`. `ENVIRONMENT=production` is already set in
+`railway.toml`.
+
+### Render
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jainamsethia/ArchGuard)
+
+The same variables apply. `ARCHGUARD_TRUSTED_PROXY_IPS` is already configured
+in `render.yaml`.
+
+With `ENVIRONMENT=production` the app refuses to start on a misconfiguration
+that would otherwise produce no error — a wildcard CORS origin, a missing or
+reused session secret, no OAuth app, an unwritable data directory — and reports
+every problem at once rather than one restart at a time.
+
+### Health endpoints
+
+| Endpoint | Answers |
+|---|---|
+| `/health` | Liveness. Answers even with no database. |
+| `/ready` | Readiness. 503 when a backing service is unreachable. |
+| `/metrics` | Prometheus text, including `archguard_database_up`. |
 
 ## Testing
-### Unit Tests
-poetry run pytest tests/unit/ -v
-### Integration Tests
-poetry run pytest tests/integration/ -v
-### Docker Smoke Test
-make smoke-test
+
+```bash
+poetry run pytest tests/unit tests/integration -q
+```
+
+```bash
+npm test
+```
+
+```bash
+npx playwright test tests/a11y/ tests/visual/
+```
+
+The browser suites need a server. Playwright starts one itself, except on
+Windows where a known runner hang means you should start `uvicorn` on port 8765
+yourself and set `PLAYWRIGHT_REUSE_SERVER=1` — see the notes in
+`playwright.config.ts`.
+
+Database-backed tests skip loudly rather than silently when `TEST_DATABASE_URL`
+is unset. Point it at a **separate** database: the integration tests migrate it
+up and tear it back down to base.
 
 ## FAQ
 
+**Is there a CLI?**
+No. ArchGuard shipped one and it was removed — the product is the web
+application. Anything you may have read about `archguard analyze`, `archguard
+init`, a GitHub Action, S3 cache sync or PR comments describes a version that no
+longer exists.
+
 **How do I use a local LLM instead of Gemini?**
-You can't. Gemini is the only LLM backend ArchGuard supports. An unwired Ollama backend used to ship in `archguard.llm.local`; it was never reachable from any command, so it has been removed rather than left as a feature the docs implied existed. `ARCHGUARD_LLM_PROVIDER` is not read anywhere. To run with no LLM at all, use `archguard analyze --no-llm` (or set `ARCHGUARD_SKIP_LLM=1`).
+You can't. Gemini is the only backend. An unwired Ollama provider used to ship
+in `archguard.llm.local`; it was never reachable and has been removed rather
+than left as a feature the docs implied existed.
+
+**How do I run without any LLM calls?**
+Leave `GEMINI_API_KEY` unset — the Advisor and remediation panels then say they
+are unavailable. `ARCHGUARD_MOCK_LLM=1` returns fixed responses instead.
 
 **How do I suppress a false positive?**
-Run `archguard suppress add <violation-message>` to explicitly whitelist specific violations.
-Alternatively, you can suppress violations via a PR comment using the syntax:
-`/archguard suppress <module> <layer> <message>`
-Example: `/archguard suppress api 1 "Imports from db directly"`
+From the Violations tab on the dashboard. Suppressions are stored per
+repository and excluded from the score and the active-violation count.
 
 **What does the health score mean?**
-The health score (0-100) measures your project's architectural integrity against the baseline contract. A grade below your configured fail threshold will exit non-zero and fail CI.
+0–100, higher is better, measured against the contract. It is the inverse of
+the ArchDebt composite: `Health = (1 − ArchDebt) × 100`.
 
-## Known Limitations
+## Known limitations
 
-- **Python Version Skew in Standard Library Classification**: The engine uses the standard library module list of the Python version it is currently running on. If ArchGuard is analyzing a repository that targets a different Python version (e.g. running under Python 3.10 but analyzing a codebase that uses `tomllib` from Python 3.11), a small number of version-boundary standard library modules may be misclassified as third-party imports.
+- **Python version skew in standard-library classification.** The engine uses the standard-library module list of the interpreter it runs under. Analysing a repository targeting a different version (running on 3.11 but analysing code using a 3.12 module) can misclassify a small number of version-boundary modules as third-party.
+- **SSE progress-stream tokens are process-local.** `EventSource` cannot set request headers, so the progress stream is authenticated by a token in the URL, held in memory. Behind a load balancer a token minted by one replica does not validate on another, and an in-flight stream loses its token across a restart. Single-instance deployments are unaffected.
+
+## Audit log security
+
+ArchGuard keeps an append-only JSONL audit log. To make tampering detectable:
+
+- A random 32-byte HMAC key is generated on first run and persisted to `.archguard-cache/audit.key` — mounted from the `archguard-cache` volume under Docker Compose, a Render Disk, or a Railway Volume. Railway volume attachment is a dashboard step, not part of the checked-in `railway.toml`.
+- Override it by setting `ARCHGUARD_AUDIT_SECRET`.
+- Set `ARCHGUARD_AUDIT_STRICT=1` in production to refuse auto-generation and require a provided key.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests to us.
-
-## Audit Log Security
-
-ArchGuard maintains an append-only JSONL audit log to track structural history. To prevent tampering:
-- By default, ArchGuard generates a random 32-byte HMAC key on first run, persisting it to `/app/.archguard-cache/audit.key` inside the container (mounted from the archguard-cache volume on Docker Compose, a Render Disk, or a Railway Volume, depending on platform. Note: Railway's volume attachment is a dashboard/IaC step, not part of the checked-in railway.toml) with strict permissions.
-- You can override this by setting `ARCHGUARD_AUDIT_SECRET` in your environment.
-- In CI/CD or production environments, you should set `ARCHGUARD_AUDIT_STRICT=1` to enforce that a secure secret is provided (or a key file is already present).
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for information on our security policy and how to report vulnerabilities.
+See [SECURITY.md](SECURITY.md).
 
 ## License
 
