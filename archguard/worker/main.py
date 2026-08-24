@@ -17,9 +17,12 @@ import logging
 import os
 from typing import Any, ClassVar
 
+from arq import cron
+
 from archguard.observability.logger import configure_logging
 from archguard.worker.settings import redis_settings
 from archguard.worker.tasks import analyse_repository
+from archguard.worker.watch import scan_watched_repositories
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +47,51 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     logger.info("Analysis worker shut down")
 
 
+def _watch_minutes() -> set[int]:
+    """Which minutes past the hour the scheduled pass runs on.
+
+    Expressed as an interval in minutes rather than a cron expression, because
+    the only thing an operator wants to change here is how often it runs, and
+    a cron string invites getting the other four fields wrong. Values that do
+    not divide 60 are rounded up to one that does, so the gap between passes
+    stays even -- an interval of 25 would otherwise fire at :00 and :25 and
+    then wait 35 minutes.
+    """
+    requested = int(os.environ.get("ARCHGUARD_WATCH_INTERVAL_MINUTES", "60"))
+    if requested >= 60:
+        return {0}
+    for step in (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30):
+        if step >= max(requested, 1):
+            return set(range(0, 60, step))
+    return {0}
+
+
 class WorkerSettings:
     """arq entry point."""
 
     functions: ClassVar[list[Any]] = [analyse_repository]
     on_startup = startup
     on_shutdown = shutdown
+
+    #: The scheduled pass over watched repositories.
+    #:
+    #: Safe to run several workers. arq's ``cron(unique=True)`` -- the default
+    #: -- gives each scheduled run the job id ``"<name>:<next_run_ms>"``, so
+    #: every worker enqueues the same id for a given tick and all but one are
+    #: dropped as duplicates. The pass therefore happens once per tick, not
+    #: once per worker.
+    #:
+    #: ``run_at_startup`` is off deliberately. A rolling deploy restarts every
+    #: worker, and a pass on each start would poll every watched repository
+    #: several times over in the space of a minute.
+    cron_jobs: ClassVar[list[Any]] = [
+        cron(
+            scan_watched_repositories,
+            minute=_watch_minutes(),
+            run_at_startup=False,
+            timeout=int(os.environ.get("ARCHGUARD_WATCH_PASS_TIMEOUT", "600")),
+        )
+    ]
 
     #: A value, not a method. arq reads this attribute directly, so a
     #: ``@staticmethod`` here was handed to it verbatim and every worker start

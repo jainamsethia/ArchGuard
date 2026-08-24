@@ -334,3 +334,85 @@ def _sweep_stale_workspaces(max_age_seconds: int, active: set[str]) -> int:
             removed += 1
 
     return removed
+
+
+#: A scheduled check must not hang the scheduler behind one unreachable remote.
+#: Far shorter than the clone timeout: this is one round trip that returns a few
+#: hundred bytes, not a repository.
+LS_REMOTE_TIMEOUT_SECONDS: int = int(os.environ.get("ARCHGUARD_LS_REMOTE_TIMEOUT", "20"))
+
+#: Only ever asked about repositories on this host. The URLs handed here are
+#: rebuilt from validated owner/name parts by ``build_safe_clone_url``, so this
+#: is a backstop rather than the primary control -- but ``git ls-remote`` will
+#: happily dial any host it is given, including one inside the network, and a
+#: scheduled job reaching arbitrary hosts unattended is worth refusing twice.
+_ALLOWED_REMOTE_PREFIX = "https://github.com/"
+
+
+async def remote_head(clone_url: str) -> str | None:
+    """The commit the remote reports for HEAD, or ``None`` if it cannot be read.
+
+    ``git ls-remote`` asks the question a clone would answer, for a few hundred
+    bytes instead of a repository. That is what makes a scheduled re-scan
+    affordable: ADR-009 measured re-analysing an unchanged repository at ~4s in
+    a warm worker, and this is how the scheduler avoids paying it at all when
+    nothing has moved.
+
+    Never raises. A watched repository that has been deleted, renamed or made
+    private must not take down the scan of every other one -- the caller
+    records the failed check and moves on, which is why ``last_checked_at`` is
+    written even when this returns ``None``.
+    """
+    if not clone_url.startswith(_ALLOWED_REMOTE_PREFIX):
+        logger.warning(
+            "Refusing to poll %r: only %s remotes are polled",
+            clone_url, _ALLOWED_REMOTE_PREFIX,
+        )
+        return None
+
+    git_exe = _find_git()
+    if not git_exe:
+        logger.warning("git executable not found; cannot poll remotes")
+        return None
+
+    # `--` terminates option parsing, so a URL that somehow began with a dash
+    # is treated as a URL rather than as a flag.
+    cmd = [os.path.abspath(git_exe), "ls-remote", "--quiet", "--", clone_url, "HEAD"]
+
+    def _run() -> str | None:
+        import subprocess
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=float(LS_REMOTE_TIMEOUT_SECONDS),
+                check=False,
+                env=None,
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("ls-remote timed out for %s", clone_url)
+            return None
+        except OSError as exc:
+            logger.warning("ls-remote could not run for %s: %s", clone_url, exc)
+            return None
+
+        if proc.returncode != 0:
+            logger.info(
+                "ls-remote failed for %s: %s",
+                clone_url,
+                proc.stderr.decode("utf-8", errors="replace").strip()[:200],
+            )
+            return None
+
+        first = proc.stdout.decode("utf-8", errors="replace").split("\n", 1)[0].strip()
+        sha = first.split("\t", 1)[0].strip() if first else ""
+        # A 40-character hex sha, or nothing. Anything else means the output
+        # was not what we think it was, and guessing would put junk in a column
+        # the scheduler compares against.
+        if len(sha) == 40 and all(c in "0123456789abcdef" for c in sha.lower()):
+            return sha.lower()
+        logger.info("ls-remote gave no usable HEAD for %s", clone_url)
+        return None
+
+    return await asyncio.to_thread(_run)
