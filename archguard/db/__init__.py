@@ -10,6 +10,7 @@ from archguard.db.models import (
     Suppression,
     User,
     Violation,
+    WatchedRepository,
 )
 from archguard.db.session import (
     DatabaseNotConfiguredError,
@@ -31,6 +32,7 @@ __all__ = [
     "Suppression",
     "User",
     "Violation",
+    "WatchedRepository",
     "dispose_engine",
     "get_engine",
     "get_session",

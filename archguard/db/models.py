@@ -308,3 +308,37 @@ class FileHash(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
         nullable=False,
     )
+
+
+class WatchedRepository(Base):
+    """A repository a user has asked to be re-scanned on a schedule.
+
+    Owned by the user, not the instance: two people watching the same
+    repository is ordinary, and per-user isolation already governs every other
+    row here. Hence the composite primary key rather than a surrogate id.
+
+    ``last_seen_sha`` is what makes a scheduled scan cheap. ADR-009 measured
+    that re-analysing an unchanged repository costs ~4s in a warm worker and
+    concluded that file-level hashing is not worth wiring; the gate that *is*
+    worth it is the commit. If the remote HEAD still matches this value there is
+    nothing to analyse, and the check costs one ``git ls-remote`` rather than a
+    clone. Null until the first check, so a freshly watched repository is always
+    scanned once.
+    """
+
+    __tablename__ = "watched_repositories"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: The commit the last scheduled check observed on the remote.
+    last_seen_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: When the remote was last polled -- set even when nothing had changed, so
+    #: a stuck watcher is visible as a stale timestamp rather than as silence.
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = _now()

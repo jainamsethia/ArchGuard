@@ -30,6 +30,7 @@ from archguard.db.models import (
     Suppression,
     User,
     Violation,
+    WatchedRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -578,3 +579,122 @@ async def active_violation_hashes(session: AsyncSession, repo_url: str) -> set[s
         for s in await list_suppressions(session, repo_url, include_inactive=False)
         if s.expires_at is None or s.expires_at > now
     }
+
+
+# ---------------------------------------------------------------------------
+# Watched repositories
+# ---------------------------------------------------------------------------
+
+
+async def watch_repository(
+    session: AsyncSession, user_id: int, repo_url: str
+) -> WatchedRepository:
+    """Mark *repo_url* as watched by *user_id*, idempotently.
+
+    Watching is owned by the user rather than the instance: two people watching
+    the same repository is ordinary, and every other row here is already scoped
+    that way. Re-watching an already-watched repository is a no-op that returns
+    the existing row rather than an error, because the caller is a toggle.
+    """
+    repo = await upsert_repository(session, repo_url)
+    existing = await session.get(WatchedRepository, (user_id, repo.id))
+    if existing is not None:
+        return existing
+
+    watch = WatchedRepository(user_id=user_id, repository_id=repo.id)
+    session.add(watch)
+    await session.flush()
+    return watch
+
+
+async def unwatch_repository(
+    session: AsyncSession, user_id: int, repo_url: str
+) -> bool:
+    """Stop watching. Returns whether a watch was actually removed."""
+    repo = (
+        await session.execute(select(Repository).where(Repository.url == repo_url))
+    ).scalar_one_or_none()
+    if repo is None:
+        return False
+    watch = await session.get(WatchedRepository, (user_id, repo.id))
+    if watch is None:
+        return False
+    await session.delete(watch)
+    return True
+
+
+async def is_watched(session: AsyncSession, user_id: int, repo_url: str) -> bool:
+    repo = (
+        await session.execute(select(Repository).where(Repository.url == repo_url))
+    ).scalar_one_or_none()
+    if repo is None:
+        return False
+    return await session.get(WatchedRepository, (user_id, repo.id)) is not None
+
+
+async def list_watched(session: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+    """Every repository *user_id* watches, newest first."""
+    stmt = (
+        select(WatchedRepository, Repository)
+        .join(Repository, Repository.id == WatchedRepository.repository_id)
+        .where(WatchedRepository.user_id == user_id)
+        .order_by(WatchedRepository.created_at.desc())
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        {
+            "repo_url": repo.url,
+            "owner": repo.owner,
+            "name": repo.name,
+            "last_seen_sha": watch.last_seen_sha,
+            "last_checked_at": (
+                watch.last_checked_at.isoformat() if watch.last_checked_at else None
+            ),
+            "created_at": watch.created_at.isoformat(),
+        }
+        for watch, repo in rows
+    ]
+
+
+async def all_watched(session: AsyncSession) -> list[dict[str, Any]]:
+    """Every watch across every user, for the scheduled scan.
+
+    Deliberately not scoped to a user: the scheduler runs on behalf of all of
+    them. The user id is carried through so the run it enqueues is attributed
+    to the person who asked for it, rather than becoming an ownerless row that
+    no dashboard can show.
+    """
+    stmt = (
+        select(WatchedRepository, Repository)
+        .join(Repository, Repository.id == WatchedRepository.repository_id)
+        .order_by(WatchedRepository.user_id, WatchedRepository.repository_id)
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        {
+            "user_id": watch.user_id,
+            "repository_id": watch.repository_id,
+            "repo_url": repo.url,
+            "last_seen_sha": watch.last_seen_sha,
+        }
+        for watch, repo in rows
+    ]
+
+
+async def record_watch_check(
+    session: AsyncSession, user_id: int, repository_id: int, sha: str | None
+) -> None:
+    """Record that the remote was polled, and what HEAD it reported.
+
+    ``last_checked_at`` is written even when *sha* is unchanged or unknown. A
+    watcher that has stopped working should show as a stale timestamp rather
+    than as an absence of alerts, which is indistinguishable from a repository
+    that simply has not changed.
+    """
+    watch = await session.get(WatchedRepository, (user_id, repository_id))
+    if watch is None:
+        return
+    watch.last_checked_at = datetime.now(UTC)
+    if sha:
+        watch.last_seen_sha = sha
+    await session.flush()

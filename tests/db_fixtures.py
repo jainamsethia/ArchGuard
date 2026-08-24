@@ -176,7 +176,8 @@ async def _truncate() -> None:
         await session.execute(
             text(
                 "TRUNCATE users, repositories, jobs, runs, violations, "
-                "suppressions, dependency_scans, file_hashes RESTART IDENTITY CASCADE"
+                "suppressions, dependency_scans, file_hashes, watched_repositories "
+                "RESTART IDENTITY CASCADE"
             )
         )
 
