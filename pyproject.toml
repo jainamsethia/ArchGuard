@@ -75,6 +75,11 @@ pip-audit = ">=2.6"
 fastapi = ">=0.100.0"
 build = ">=1.0"
 bandit = "^1.9.4"
+# Transitive via pip-audit, floored directly because 26.1.1 carries
+# PYSEC-2026-3721: doubly-encoded package URLs from an index could write files
+# to arbitrary locations on disk, even when installing wheels. pip-audit
+# hard-fails CI, so this was a red gate rather than a warning.
+pip = ">=26.2"
 
 
 [tool.ruff]
