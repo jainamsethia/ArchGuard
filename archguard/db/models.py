@@ -183,6 +183,24 @@ class Run(Base):
         Text, nullable=False, default=""
     )
 
+    #: Unguessable token that makes this one run readable without signing in.
+    #:
+    #: Null means not shared, which is the default and the only state a run
+    #: reaches on its own -- sharing is always an explicit act by the owner.
+    #: Revoking sets it back to null rather than deleting the run, and issuing a
+    #: new token invalidates the old link, because a share link that cannot be
+    #: withdrawn is not a share, it is a publication.
+    #:
+    #: The token is the entire credential for the shared view, so it is indexed
+    #: for lookup and unique. It is never logged: the routes that handle it log
+    #: the run, not the token.
+    share_token: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
+    shared_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     layer_results: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     module_scores: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict

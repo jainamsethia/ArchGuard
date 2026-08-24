@@ -717,3 +717,91 @@ async def record_watch_alert(
         return
     watch.last_alerted_sha = sha
     await session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Shareable run links
+# ---------------------------------------------------------------------------
+
+
+#: 32 bytes of urandom, url-safe. The token is the entire credential for a
+#: shared report, so it has to be unguessable rather than merely unique -- a
+#: sequential id or a uuid4 in a URL invites walking the space.
+_SHARE_TOKEN_BYTES = 32
+
+
+async def share_run(session: AsyncSession, job_id: str, user_id: int) -> str | None:
+    """Make the run for *job_id* readable without signing in. Returns the token.
+
+    Scoped to *user_id*: sharing someone else's run must be impossible, not
+    merely unusual, so the lookup filters by owner rather than checking after
+    the fact. Returns ``None`` when there is no such run for this user, which
+    the route turns into a 404 -- the same answer as for a run that does not
+    exist, so the endpoint cannot be used to discover which job ids are real.
+
+    Idempotent: a run that is already shared keeps its token, so clicking the
+    button twice does not silently invalidate a link that has been sent.
+    """
+    import secrets
+
+    if not _is_job_id(job_id):
+        return None
+    run = (
+        await session.execute(
+            select(Run).where(Run.job_id == job_id, Run.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        return None
+    if run.share_token:
+        return str(run.share_token)
+
+    run.share_token = secrets.token_urlsafe(_SHARE_TOKEN_BYTES)
+    run.shared_at = datetime.now(UTC)
+    await session.flush()
+    return str(run.share_token)
+
+
+async def unshare_run(session: AsyncSession, job_id: str, user_id: int) -> bool:
+    """Revoke the link. Returns whether one was actually revoked.
+
+    Clears the token rather than deleting the run. A share that cannot be
+    withdrawn is not a share, it is a publication.
+    """
+    if not _is_job_id(job_id):
+        return False
+    run = (
+        await session.execute(
+            select(Run).where(Run.job_id == job_id, Run.user_id == user_id)
+        )
+    ).scalar_one_or_none()
+    if run is None or not run.share_token:
+        return False
+    run.share_token = None
+    run.shared_at = None
+    await session.flush()
+    return True
+
+
+async def get_shared_run(session: AsyncSession, token: str) -> dict[str, Any] | None:
+    """The one run a share token unlocks, or ``None``.
+
+    Deliberately not scoped to a user -- that is the point -- so the token is
+    the only thing standing between an anonymous caller and this row. Two
+    consequences are load-bearing:
+
+    * the filter is an exact match on a unique indexed column, never a prefix
+      or a LIKE, so a partial token unlocks nothing;
+    * an empty or short token is rejected before it reaches the query, because
+      ``share_token`` is nullable and a query for ``NULL`` would otherwise
+      match every unshared run in the table.
+    """
+    if not token or len(token) < 20:
+        return None
+    run = (
+        await session.execute(select(Run).where(Run.share_token == token))
+    ).scalar_one_or_none()
+    if run is None:
+        return None
+    hydrated = await _hydrate(session, [run])
+    return hydrated[0] if hydrated else None
