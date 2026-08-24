@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { highlightJobId, jobQuery, jobQueryAmp, safeFetch } from './api.js';
 import { sanitize } from './dom.js';
+import { syncWatchButton } from './features/watch.js';
 import { updateModuleChart, updateTrendChart } from './render/charts.js';
 import { populateRecentPicker } from './render/compare.js';
 import { _applyGitEvolutionData, updateEvolutionTrends } from './render/evolution.js';
@@ -113,6 +114,9 @@ export async function fetchData() {
             updateViolationCounts(latestData);
             updateViolationsTable(latestData);
         }
+        // From the data path, not DOMContentLoaded: the repository is only
+        // known once the latest run has arrived.
+        syncWatchButton(latestData);
         updateTrendChart(runsData.runs);
         populateRecentPicker(runsData.runs);
         updateModuleChart(modulesData?.modules);

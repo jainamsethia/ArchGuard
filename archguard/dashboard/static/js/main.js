@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { sendAdvisorQuestion } from './features/advisor.js';
 import { generateRemediationPlan, generateViolationsRemediation } from './features/remediation.js';
+import { initWatchToggle } from './features/watch.js';
 import { fetchData, initVisibilityPolling, startPolling } from './poll.js';
 import { configureChartDefaults } from './render/charts.js';
 import { initCompareControls, loadRepoHistory } from './render/compare.js';
@@ -59,6 +60,7 @@ export function initActionButtons() {
     if (refreshSupBtn) refreshSupBtn.addEventListener('click', loadSuppressions);
 
     initCompareControls();
+    initWatchToggle();
 
     // Delegated removal for per-row suppression "Remove" buttons (rendered
     // dynamically, so bind once on the static tbody).

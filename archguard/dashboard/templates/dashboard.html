@@ -48,6 +48,9 @@
 <div>
 <h1>ArchGuard Dashboard</h1>
 <div id="repo-header" class="repo-header"></div>
+<!-- A toggle, not a pair of actions: aria-pressed announces which state
+     the repository is in. Hidden until a run identifies a repository. -->
+<button type="button" class="btn-action" id="watch-toggle-btn" aria-pressed="false" hidden>Watch this repository</button>
 <div id="recent-analyses-container" class="recent-analyses-bar">
   <select id="recent-analyses-picker" class="recent-picker" aria-label="Select a recent analysis to view">
     <option value="">Recent analyses...</option>
