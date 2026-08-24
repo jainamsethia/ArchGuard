@@ -28,6 +28,7 @@ from archguard.llm.gemini import (
     GeminiClient,
     GeminiRateLimitError,
     fallback_model,
+    llm_disabled,
     primary_model,
     resolve_api_key,
 )
@@ -85,10 +86,12 @@ class CloudLLMExplainer:
         """Fetch explanations for all violations concurrently."""
         import asyncio
 
-        if not self._api_key and os.getenv("ARCHGUARD_MOCK_LLM") != "1":
-            # A missing key is a configuration problem, not a per-violation
-            # failure: say so once per violation rather than crashing the run.
-            return ["Explanation unavailable (GEMINI_API_KEY not set)"] * len(violations)
+        # A configuration problem, not a per-violation failure: say so once per
+        # violation rather than crashing the run. Checked here so a disabled
+        # instance opens no connection at all.
+        off = llm_disabled(self._api_key)
+        if off:
+            return [f"Explanation unavailable. {off}"] * len(violations)
 
         summary = build_contract_summary(contract)
         safe_violations = self._redact_violations(violations)

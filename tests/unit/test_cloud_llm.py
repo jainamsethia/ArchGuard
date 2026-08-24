@@ -148,11 +148,21 @@ class TestCloudLLMExplainer:
     async def test_missing_api_key_returns_unavailable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """No API key -> clear 'unavailable' text per violation, no API calls."""
+        """No API key -> clear 'unavailable' text per violation, no API calls.
+
+        The wording is no longer pinned exactly. It now comes from
+        ``gemini.llm_disabled``, the single place that decides whether AI
+        features may run, so that a missing key and a deliberate
+        ARCHGUARD_SKIP_LLM read differently -- the two call for opposite
+        actions from whoever sees the message. What is asserted instead is the
+        property that matters: one entry per violation, the *correct* reason
+        named, and nothing sent.
+        """
         create = AsyncMock()
         _mock_gemini(monkeypatch, create)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ARCHGUARD_SKIP_LLM", raising=False)
 
         explainer = CloudLLMExplainer(api_key="")
         result = _make_result()
@@ -161,7 +171,13 @@ class TestCloudLLMExplainer:
             result.violations, _CONTRACT, result.changed_files
         )
 
-        assert out == ["Explanation unavailable (GEMINI_API_KEY not set)"]
+        assert len(out) == len(result.violations)
+        assert all(str(o).startswith("Explanation unavailable") for o in out)
+        assert all("GEMINI_API_KEY" in str(o) for o in out)
+        # The reason has to be the right one: reporting a missing key as a
+        # deliberate switch-off, or the reverse, sends the reader after the
+        # wrong problem.
+        assert not any("ARCHGUARD_SKIP_LLM" in str(o) for o in out)
         create.assert_not_called()
 
     @pytest.mark.asyncio

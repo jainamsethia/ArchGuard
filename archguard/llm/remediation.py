@@ -13,6 +13,7 @@ from archguard.llm.gemini import (
     GeminiAuthError,
     GeminiClient,
     GeminiError,
+    llm_disabled,
     resolve_api_key,
 )
 
@@ -297,6 +298,13 @@ class GeminiRemediationProvider(RemediationProvider):
         )
 
     def generate_tasks(self, context: str) -> list[RemediationTask]:
+        # Ahead of the mock branch and the client: a disabled instance must not
+        # open a connection, and must say why rather than returning an empty
+        # plan that reads as "nothing to fix".
+        off = llm_disabled()
+        if off:
+            raise RemediationUnavailableError(off)
+
         if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
             return []
 

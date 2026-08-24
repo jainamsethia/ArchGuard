@@ -114,12 +114,17 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
         NON_RETRYABLE_ERRORS,
         RETRYABLE_ERRORS,
         TRY_NEXT_MODEL_ERRORS,
+        llm_disabled,
         resolve_api_key,
     )
 
+    off = llm_disabled()
+    if off:
+        # Before the directory walk and the prompt build, both of which are
+        # pointless work if nothing may be sent.
+        raise ValueError(off)
+
     api_key = resolve_api_key()
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY is not set.")
 
     tree = _build_directory_tree(repo_path, max_depth=3)
     docstrings = _extract_module_docstrings(repo_path)

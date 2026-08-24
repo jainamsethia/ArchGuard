@@ -40,20 +40,26 @@ class ArchitectureAdvisor:
         the call fails, so the caller always has something to render. Never
         raises.
         """
-        from archguard.llm.gemini import GeminiClient, GeminiError, resolve_api_key
+        from archguard.llm.gemini import (
+            GeminiClient,
+            GeminiError,
+            llm_disabled,
+            resolve_api_key,
+        )
         from archguard.utils.content_filter import RedactionResult, redact_secrets
+
+        # Before the mock branch and before any client is built: the switch has
+        # to be checked ahead of the work, not after paying for it.
+        off = llm_disabled()
+        if off:
+            yield off
+            return
 
         if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
             yield _mock_advisor_response(question)
             return
 
         api_key = resolve_api_key()
-        if not api_key:
-            yield (
-                "Gemini API key not configured. "
-                "Set GEMINI_API_KEY to enable the AI Advisor."
-            )
-            return
 
         redacted_q = redact_secrets(question)
         redacted_c = (

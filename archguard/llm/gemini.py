@@ -118,6 +118,39 @@ NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 TRY_NEXT_MODEL_ERRORS: tuple[type[Exception], ...] = (GeminiModelNotFoundError,)
 
 
+def llm_disabled(explicit_key: str | None = None) -> str | None:
+    """Why AI features are switched off, or ``None`` when they may run.
+
+    One place to ask, so a new call site cannot forget the kill switch and
+    quietly start spending. Every caller checks this *before* opening a
+    connection -- a control that refuses the response after paying for it is
+    not a cost control.
+
+    The two reasons are kept distinct on purpose. "No key" and "deliberately
+    disabled" call for opposite actions from whoever reads the message, and
+    collapsing them into one string is how an operator spends an afternoon
+    looking for a key that was never the problem.
+
+    ``ARCHGUARD_SKIP_LLM`` outranks ``ARCHGUARD_MOCK_LLM``. A switch that a
+    second variable can override is not a kill switch, and the failure mode of
+    getting this backwards is serving invented advice to someone who thinks the
+    feature is off.
+    """
+    if os.environ.get("ARCHGUARD_SKIP_LLM", "").strip().lower() in ("1", "true", "yes"):
+        return (
+            "AI features are switched off on this instance "
+            "(ARCHGUARD_SKIP_LLM). Analysis itself is unaffected."
+        )
+    if os.environ.get("ARCHGUARD_MOCK_LLM") == "1":
+        return None
+    if not resolve_api_key(explicit_key):
+        return (
+            "Gemini API key not configured. "
+            "Set GEMINI_API_KEY to enable AI features."
+        )
+    return None
+
+
 def resolve_api_key(explicit: str | None = None) -> str:
     """Return the configured Gemini key, or "" when none is set."""
     if explicit:
