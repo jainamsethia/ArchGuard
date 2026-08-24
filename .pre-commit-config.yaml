@@ -12,12 +12,33 @@ repos:
       # it, so turning it on here makes the next contributor's first commit a
       # whole-repo reformat. Adopt it as its own standalone commit, then add
       # `- id: ruff-format` here and a `ruff format --check` step to CI.
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.1.0
+  # The project's own mypy, in the project's own environment, running exactly
+  # the CI command. This was mirrors-mypy, which type-checks inside an isolated
+  # virtualenv built from a hand-maintained `additional_dependencies` list --
+  # and that list had drifted badly. It still named typer and watchdog, both
+  # removed with the CLI, and it never gained sqlalchemy, which the persistence
+  # layer is built on. Without SQLAlchemy's types, `DeclarativeBase` resolves to
+  # Any and every `type: ignore` the real dependencies require reads as unused:
+  # 12 errors that `poetry run mypy` does not report. No CI job runs
+  # pre-commit, so nothing caught it, and the hook could not pass on any Python
+  # change.
+  #
+  # Mirroring the full dependency set by hand is the losing move -- it would
+  # need sqlalchemy, pydantic, redis, arq, torch, faiss and tree-sitter, and
+  # would drift again on the next one. One definition of the type gate instead.
+  #
+  # pass_filenames is off and the target is the package, because mypy is a
+  # whole-program analysis: handed only the changed files it reports errors
+  # from imports it cannot see.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies: [types-PyYAML, types-requests, typer, watchdog, fastapi]
-        exclude: ^tests/
+        name: mypy
+        entry: poetry run mypy archguard/ --ignore-missing-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
