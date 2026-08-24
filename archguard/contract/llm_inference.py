@@ -110,7 +110,12 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
     import asyncio
 
     from archguard.llm.cloud import FALLBACK_MODEL, PRIMARY_MODEL, CloudLLMExplainer
-    from archguard.llm.gemini import resolve_api_key
+    from archguard.llm.gemini import (
+        NON_RETRYABLE_ERRORS,
+        RETRYABLE_ERRORS,
+        TRY_NEXT_MODEL_ERRORS,
+        resolve_api_key,
+    )
 
     api_key = resolve_api_key()
     if not api_key:
@@ -136,9 +141,20 @@ async def generate_contract_from_llm(repo_path: Path) -> dict[str, typing.Any]:
                 explainer._call_api, prompt, model, system=""
             )
             break
-        except Exception as exc:
+        except (*TRY_NEXT_MODEL_ERRORS, *RETRYABLE_ERRORS) as exc:
+            # A retired model id, or a transient failure: the other tier is
+            # worth a try. This clause must come first -- TRY_NEXT_MODEL_ERRORS
+            # is a subset of NON_RETRYABLE_ERRORS below, and Python takes the
+            # first matching handler.
             last_error = exc
             continue
+        except NON_RETRYABLE_ERRORS:
+            # Bare `except Exception` here meant a bad API key burned an attempt
+            # on both tiers and then reported the second failure, hiding the
+            # real cause -- the same bug cloud.py fixed, in a copy of the loop
+            # that never got the fix. Credentials and malformed requests fail
+            # identically on the cheaper tier.
+            raise
     else:
         raise RuntimeError(
             f"Contract generation failed on both {PRIMARY_MODEL} and {FALLBACK_MODEL}. Last error: {last_error}"

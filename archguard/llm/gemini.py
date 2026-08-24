@@ -67,6 +67,22 @@ class GeminiRateLimitError(GeminiError):
     """Quota or rate limit hit. Worth retrying, or falling back to a cheaper tier."""
 
 
+class GeminiModelNotFoundError(GeminiError):
+    """The API has no such model.
+
+    Its own tier, because it is neither transient nor terminal. Retrying the
+    same model id is pointless -- it will not appear -- but the *other* tier may
+    be perfectly healthy, so a caller holding a primary/fallback pair should
+    move to the next one rather than give up.
+
+    This is not hypothetical. The 2.x ids this client shipped with are still
+    listed in Google's documentation yet return 404 for newly issued keys, and
+    Google retires model ids on a published schedule. Folding that into the
+    generic 4xx bucket meant a retired primary took the fallback tier down with
+    it -- the one failure the two-tier design exists to survive.
+    """
+
+
 class GeminiServerError(GeminiError):
     """5xx from the API. Transient by nature."""
 
@@ -87,10 +103,19 @@ RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
 )
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     GeminiAuthError,
+    GeminiModelNotFoundError,
     GeminiResponseError,
     ValueError,
     TypeError,
 )
+
+#: Not worth retrying on the *same* model, but worth trying the next tier.
+#:
+#: Listed in NON_RETRYABLE_ERRORS above so `with_retry` does not spend three
+#: attempts asking for a model that does not exist. Callers that hold a
+#: primary/fallback pair must catch this *before* the non-retryable tuple and
+#: advance to the next model -- see CloudLLMExplainer.explain_violations_concurrent.
+TRY_NEXT_MODEL_ERRORS: tuple[type[Exception], ...] = (GeminiModelNotFoundError,)
 
 
 def resolve_api_key(explicit: str | None = None) -> str:
@@ -145,6 +170,10 @@ def _raise_for_status(response: httpx.Response) -> None:
         retry_after = response.headers.get("Retry-After", "")
         suffix = f" Retry after {retry_after}s." if retry_after else ""
         raise GeminiRateLimitError(f"Gemini rate limit exceeded.{suffix} {detail}")
+    if status == 404:
+        raise GeminiModelNotFoundError(
+            f"Gemini has no such model ({status}): {detail}"
+        )
     if status >= 500:
         raise GeminiServerError(f"Gemini server error ({status}): {detail}")
     raise GeminiResponseError(f"Gemini request failed ({status}): {detail}")

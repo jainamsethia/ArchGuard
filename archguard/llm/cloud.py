@@ -23,6 +23,7 @@ from archguard.config import EVENT_TRUNCATED_EXPLANATION
 from archguard.llm.gemini import (
     NON_RETRYABLE_ERRORS,
     RETRYABLE_ERRORS,
+    TRY_NEXT_MODEL_ERRORS,
     GeminiAuthError,
     GeminiClient,
     GeminiRateLimitError,
@@ -122,6 +123,22 @@ class CloudLLMExplainer:
                             max_tokens=MAX_TOKENS,
                         )
                         return self._flag_truncation(text, finish)
+                    except TRY_NEXT_MODEL_ERRORS as exc:
+                        # A retired or mistyped model id. Unlike bad credentials
+                        # this is specific to *this* tier, so the cheaper one is
+                        # very likely fine -- and a retired primary taking the
+                        # fallback down with it is the exact failure the two
+                        # tiers exist to survive. Must be caught before the
+                        # non-retryable tuple below, which contains it.
+                        last_error = exc
+                        if model == FALLBACK_MODEL:
+                            raise
+                        logger.warning(
+                            "Gemini has no model %s (%s); falling back to %s. "
+                            "Set ARCHGUARD_PRIMARY_MODEL to a current id.",
+                            model, exc, FALLBACK_MODEL,
+                        )
+                        continue
                     except NON_RETRYABLE_ERRORS:
                         # Credentials or a malformed request will fail identically
                         # on the cheaper tier; retrying only hides the real cause.

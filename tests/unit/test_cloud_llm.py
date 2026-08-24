@@ -16,9 +16,14 @@ from archguard.llm.cloud import (
     CloudLLMExplainer,
 )
 from archguard.llm.gemini import (
+    NON_RETRYABLE_ERRORS,
+    RETRYABLE_ERRORS,
+    TRY_NEXT_MODEL_ERRORS,
     GeminiAuthError,
+    GeminiModelNotFoundError,
     GeminiRateLimitError,
     GeminiServerError,
+    _raise_for_status,
 )
 from archguard.llm.prompts import parse_llm_response
 
@@ -326,3 +331,97 @@ class TestParseLLMResponse:
         result = parse_llm_response(response, 3)
         assert len(result) == 3
         assert result[2] == "Explanation unavailable."
+
+
+class TestRetiredModelFallsBack:
+    """A retired model id must not take the fallback tier down with it (P2-8).
+
+    Google retires model ids on a schedule, and this project has already been
+    bitten: gemini.py records that the 2.x ids it once shipped are still listed
+    in Google's documentation yet return 404 for newly issued keys. A 404 used
+    to land in the generic 4xx bucket (GeminiResponseError, non-retryable), so
+    the explainer re-raised at once and never tried the cheaper model -- the
+    single failure the two tiers exist to survive.
+    """
+
+    def test_404_is_its_own_error_not_a_generic_bad_request(self) -> None:
+        import httpx
+
+        response = httpx.Response(
+            404,
+            text='{"error": {"message": "models/gemini-2.5-flash is not found"}}',
+            request=httpx.Request("POST", "https://example.invalid"),
+        )
+        with pytest.raises(GeminiModelNotFoundError):
+            _raise_for_status(response)
+
+    def test_a_plain_bad_request_is_not_a_model_error(self) -> None:
+        import httpx
+
+        response = httpx.Response(
+            400,
+            text='{"error": {"message": "malformed"}}',
+            request=httpx.Request("POST", "https://example.invalid"),
+        )
+        with pytest.raises(Exception) as caught:
+            _raise_for_status(response)
+        assert not isinstance(caught.value, GeminiModelNotFoundError)
+
+    def test_model_errors_are_never_retried_on_the_same_model(self) -> None:
+        # Asking twice for a model that does not exist just burns the budget.
+        for err in TRY_NEXT_MODEL_ERRORS:
+            assert err in NON_RETRYABLE_ERRORS
+            assert err not in RETRYABLE_ERRORS
+
+    @pytest.mark.asyncio
+    async def test_retired_primary_falls_back_to_the_cheaper_tier(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        create = AsyncMock(
+            side_effect=[
+                GeminiModelNotFoundError("models/gemini-x is not found"),
+                _response("1. Fix the import boundary."),
+            ]
+        )
+        _mock_gemini(monkeypatch, create)
+
+        result = _make_result()
+        out = await CloudLLMExplainer(api_key="k").explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert out == ["1. Fix the import boundary."]
+        assert create.call_count == 2, "the fallback tier was never tried"
+        assert create.call_args_list[0][1]["model"] == PRIMARY_MODEL
+        assert create.call_args_list[1][1]["model"] == FALLBACK_MODEL
+
+    @pytest.mark.asyncio
+    async def test_both_tiers_retired_reports_the_model_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        create = AsyncMock(side_effect=GeminiModelNotFoundError("no such model"))
+        _mock_gemini(monkeypatch, create)
+
+        result = _make_result()
+        out = await CloudLLMExplainer(api_key="k").explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert isinstance(out[0], GeminiModelNotFoundError)
+        assert create.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_widening_the_fallback_did_not_widen_it_for_bad_keys(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The counterpart guarantee to the two tests above.
+        create = AsyncMock(side_effect=GeminiAuthError("invalid key"))
+        _mock_gemini(monkeypatch, create)
+
+        result = _make_result()
+        out = await CloudLLMExplainer(api_key="bad").explain_violations_concurrent(
+            result.violations, _CONTRACT, result.changed_files
+        )
+
+        assert isinstance(out[0], GeminiAuthError)
+        create.assert_called_once()
