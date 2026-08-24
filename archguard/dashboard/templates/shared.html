@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Example report — ArchGuard</title>
-    <meta name="description" content="A real ArchGuard report: what the tool measured when it analysed its own repository, including the layers it could not run.">
+    <title>Shared report — ArchGuard</title>
+    {#
+      A shared link is meant for the people it was sent to, not for a search
+      index. noindex is not access control -- the token is -- but a report that
+      turns up in search results is not what someone sharing a link intended.
+    #}
+    <meta name="robots" content="noindex, nofollow">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="{{ asset('index.css') }}"/>
     <script src="{{ asset('theme.js') }}"></script>
@@ -12,18 +17,19 @@
 <body class="page-index">
     <div class="container" id="main-container">
         <header class="hero">
-            <h1 class="hero-title">Example report</h1>
+            <h1 class="hero-title">Shared report</h1>
             <p class="hero-lede">
-                This is not a mock-up. It is what ArchGuard measured when it
-                analysed <a href="{{ run.repo_url }}" rel="noopener">its own
-                repository</a> — the same output you get for yours.
+                An ArchGuard analysis of
+                <a href="{{ run.repo_url }}" rel="noopener nofollow">{{ display_repo }}</a>,
+                shared with you by link.
+                {% if run.timestamp %}Analysed {{ run.timestamp }}.{% endif %}
             </p>
         </header>
 
         {% include "_report.html" %}
 
         <p class="hero-example">
-            <a href="/">Analyse your own repository →</a>
+            <a href="/">Analyse a repository of your own →</a>
         </p>
 
         <footer class="site-footer">

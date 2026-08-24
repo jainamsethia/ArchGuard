@@ -428,6 +428,7 @@ from archguard.dashboard.routes import (
     remediation,
     risk,
     runs,
+    share,
     suppression,
     watch,
 )
@@ -448,6 +449,10 @@ app.include_router(advisor.router, prefix="/api/v1")
 app.include_router(remediation.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(watch.router, prefix="/api/v1")
+app.include_router(share.router, prefix="/api/v1")
+# Root-mounted and unauthenticated on purpose: a shared link that required
+# an account would not be a shared link. The token is the credential.
+app.include_router(share.public_router)
 
 # Unprefixed and unauthenticated: /health, /ready and /metrics are polled by
 # the platform and by a scraper, neither of which has a session; and the OAuth

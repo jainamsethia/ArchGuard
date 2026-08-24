@@ -31,6 +31,12 @@ UNPREFIXED = {
     "/example",
     "/privacy",
     "/terms",
+    # A shared report. Unauthenticated by design -- a link that required an
+    # account would not be a share -- and unversioned because the URL is handed
+    # to people, pasted into chat, and expected to keep working. The share token
+    # in the path is the entire credential; minting and revoking it are
+    # authenticated and live under /api/v1.
+    "/shared/{token}",
     # FastAPI's own.
     "/docs",
     "/docs/oauth2-redirect",

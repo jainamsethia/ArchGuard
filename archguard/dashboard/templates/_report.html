@@ -1,0 +1,93 @@
+{#
+  The read-only body of an analysis report.
+
+  Included by example.html and shared.html. Extracted rather than copied: two
+  templates rendering the same run drift, and the one that drifts is whichever
+  nobody is looking at -- which, for a link somebody sent to their team, is the
+  worst one to get wrong.
+
+  Expects `run` in the shape store.run_to_dict produces: score, band,
+  module_scores, layer_results, violations.
+#}
+<section class="glass-card card-section" aria-labelledby="report-score">
+    <h2 id="report-score" class="section-heading">Health</h2>
+    <div class="example-score-row">
+        <div>
+            <div class="metric-title">Score</div>
+            <div class="metric-value text-metric-lg">{{ "%.1f"|format(run.score or 0) }}</div>
+        </div>
+        <div>
+            <div class="metric-title">Band</div>
+            <div class="metric-value"><span class="chip chip-pass">{{ run.band }}</span></div>
+        </div>
+        <div>
+            <div class="metric-title">Findings</div>
+            <div class="metric-value text-metric-lg">{{ run.violations|length }}</div>
+        </div>
+    </div>
+</section>
+
+<section class="glass-card card-section" aria-labelledby="report-modules">
+    <h2 id="report-modules" class="section-heading">Modules</h2>
+    {% if run.module_scores %}
+    <table class="example-table">
+        <thead><tr><th scope="col">Module</th><th scope="col">Health</th></tr></thead>
+        <tbody>
+        {% for name, score in run.module_scores.items() %}
+            <tr><td><code>{{ name }}</code></td><td>{{ "%.1f"|format(score) }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="honesty-body">No per-module scores were recorded for this run.</p>
+    {% endif %}
+</section>
+
+<section class="glass-card card-section" aria-labelledby="report-layers">
+    <h2 id="report-layers" class="section-heading">What ran, and what did not</h2>
+    <p class="honesty-body">
+        A layer that could not run is reported as unmeasured and left out of the
+        score, rather than counted as a zero.
+    </p>
+    <table class="example-table">
+        <thead><tr><th scope="col">Layer</th><th scope="col">Status</th></tr></thead>
+        <tbody>
+        {% for layer in run.layer_results %}
+            <tr>
+                <td>{{ layer.name }}</td>
+                <td>
+                {% if layer.skipped %}
+                    <span class="chip">not measured</span>
+                    <span class="layer-skip-reason">{{ layer.skip_reason }}</span>
+                {% else %}
+                    <span class="chip chip-pass">measured</span>
+                    — {{ layer.violation_count }} finding(s)
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="glass-card card-section" aria-labelledby="report-findings">
+    <h2 id="report-findings" class="section-heading">Findings</h2>
+    {% if run.violations %}
+    <ul class="example-findings">
+        {% for v in run.violations %}
+        <li>
+            <span class="badge badge-{{ v.severity }}">{{ v.severity }}</span>
+            <code>{{ v.module }}</code>
+            <span class="finding-message">{{ v.message }}</span>
+            <span class="finding-layer">Layer {{ v.layer }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="honesty-body">
+        Each finding carries the numbers behind it, so you can decide whether
+        the threshold fits your project rather than taking the grade on trust.
+    </p>
+    {% else %}
+    <p class="honesty-body">Nothing over threshold in this run.</p>
+    {% endif %}
+</section>
