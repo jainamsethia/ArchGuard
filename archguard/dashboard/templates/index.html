@@ -18,7 +18,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="ArchGuard — see your Python codebase's architecture">
     <meta name="twitter:description" content="A measured architectural health report for any public Python repository.">
-    
+
     <link rel="stylesheet" href="{{ asset('index.css') }}"/>
     <!-- Must stay in <head> and stay non-deferred: it sets the theme on <html>
          before the first paint, which is what stops a stored light preference
@@ -37,7 +37,10 @@
   <button id="sign-in-button" type="button" class="btn-login" hidden>
     Sign in with GitHub
   </button>
-  <div id="login-error" class="login-error"></div>
+  <!-- role="alert" must be present before the message lands, or there is no
+       live region for it to be announced from. This page has no overlay, so
+       an unannounced error here is simply never conveyed. -->
+  <div id="login-error" class="login-error" role="alert"></div>
 </div>
 
 <script src="{{ asset('auth.js') }}"></script>

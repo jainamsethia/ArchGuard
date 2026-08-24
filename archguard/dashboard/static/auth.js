@@ -45,6 +45,24 @@
       errEl.textContent = message;
       errEl.style.display = 'block';
     }
+    if (overlay) {
+      // Focus follows the dialog. Showing it without moving focus leaves the
+      // caret on the page behind -- which is now inert, so Tab does nothing at
+      // all and a keyboard user is simply stuck with no way to reach the one
+      // control on screen.
+      //
+      // The button when it is available, the heading when it is not: the
+      // unreachable-service path above shows the overlay with the button still
+      // hidden, and focusing a hidden element does nothing. Announcing the
+      // heading also names the dialog the user has just landed in.
+      //
+      // Set after the message above, so the error is in the DOM before the
+      // move rather than announced into an empty region.
+      const target = signInBtn && !signInBtn.hidden
+        ? signInBtn
+        : overlay.querySelector('.login-title');
+      if (target) target.focus();
+    }
   }
 
   function hideOverlay() {

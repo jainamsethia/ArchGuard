@@ -23,15 +23,23 @@
 
 <!-- Sign-in overlay — shown when there is no session for this visitor.
      No password field: the credential belongs to GitHub, not to this page. -->
-<div id="login-overlay" class="login-overlay">
-  <h2 class="login-title">Sign in to ArchGuard</h2>
+<!-- role/aria-modal, because otherwise this is a <div> that merely covers the
+     screen: nothing tells assistive technology the page behind it is
+     unavailable. Containment comes from the `inert` auth.js sets on the
+     siblings, which the browser enforces -- no JS focus trap needed.
+     login-title takes tabindex="-1" so auth.js can move focus to it when
+     there is no sign-in button to focus instead. -->
+<div id="login-overlay" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <h2 class="login-title" id="login-title" tabindex="-1">Sign in to ArchGuard</h2>
   <p class="login-subtitle">
     Your analyses are private to your account.
   </p>
   <button id="sign-in-button" type="button" class="btn-login" hidden>
     Sign in with GitHub
   </button>
-  <div id="login-error" class="login-error"></div>
+  <!-- role="alert" must be on the element before the message lands, or there
+       is no live region for it to be announced from. -->
+  <div id="login-error" class="login-error" role="alert"></div>
 </div>
 
 <script src="{{ asset('auth.js') }}"></script>

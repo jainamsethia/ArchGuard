@@ -62,6 +62,71 @@ test('the progress bar reports its value to assistive technology', async ({ page
   await expect(track).toHaveAttribute('aria-valuenow', /\d+/);
 });
 
+/**
+ * Force the signed-out state.
+ *
+ * A local instance signs the visitor in automatically (the development
+ * fallback in _identity, gated on GitHub OAuth being unconfigured), so the
+ * overlay never appears and every assertion about it skips. Controlling the
+ * one endpoint auth.js reads exercises the real overlay code against a real
+ * browser -- the server is untouched, only its answer to this one call.
+ */
+async function signedOut(page) {
+  await page.route('**/api/v1/auth/status', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        authenticated: false,
+        sign_in_available: true,
+        sign_in_url: '/auth/github',
+      }),
+    }),
+  );
+}
+
+test.describe('the sign-in overlay, signed out', () => {
+  test('is a labelled modal dialog', async ({ page }) => {
+    await signedOut(page);
+    await page.goto('/dashboard.html');
+
+    const overlay = page.locator('#login-overlay');
+    await expect(overlay).toBeVisible();
+    // Without these it is a <div> that happens to cover the screen: nothing
+    // tells assistive technology the page behind it is unavailable.
+    await expect(overlay).toHaveAttribute('role', 'dialog');
+    await expect(overlay).toHaveAttribute('aria-modal', 'true');
+
+    const labelledBy = await overlay.getAttribute('aria-labelledby');
+    expect(labelledBy, 'the dialog has no accessible name').toBeTruthy();
+    await expect(page.locator(`#${labelledBy}`)).toHaveText(/sign in/i);
+  });
+
+  test('moves focus into the dialog', async ({ page }) => {
+    await signedOut(page);
+    await page.goto('/dashboard.html');
+    await expect(page.locator('#login-overlay')).toBeVisible();
+
+    const inside = await page.evaluate(() => {
+      const overlay = document.getElementById('login-overlay');
+      return !!overlay && overlay.contains(document.activeElement);
+    });
+    expect(inside, 'focus stayed on the inert page behind the overlay').toBe(true);
+  });
+
+  test('announces a sign-in failure rather than only showing it', async ({ page }) => {
+    // The status endpoint is unreachable: auth.js reports it in #login-error.
+    await page.route('**/api/v1/auth/status', (route) => route.abort());
+    await page.goto('/dashboard.html');
+
+    const error = page.locator('#login-error');
+    // role must be on the element before the text lands, or there is no live
+    // region for the message to be announced from.
+    await expect(error).toHaveAttribute('role', 'alert');
+    await expect(error).toContainText(/could not reach/i);
+  });
+});
+
 test('the sign-in overlay does not leave hidden content in the tab order', async ({ page }) => {
   // The overlay used to hide the page with `visibility: hidden`, which removes
   // it visually while leaving every control reachable by Tab and by screen
