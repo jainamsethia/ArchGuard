@@ -104,3 +104,38 @@ def test_alerts_carry_the_window_they_were_computed_over() -> None:
     assert all(a.window == 10 for a in alerts)
     # delta is a magnitude; the direction field carries the sign
     assert all(a.delta >= 0 for a in alerts)
+
+
+# ---------------------------------------------------------------------------
+# The default threshold
+# ---------------------------------------------------------------------------
+
+
+def test_the_default_threshold_ignores_ordinary_noise() -> None:
+    """Every other test in this file passes degradation_threshold=5.0.
+
+    That is not a style choice -- the default was ``0.05``, five percent of the
+    0.0-1.0 composite these scores used to be, left behind when they became
+    0-100 health scores. On the current scale it fires on a twentieth of a
+    point, so once a repository had enough runs to be eligible, every scheduled
+    scan would have alerted. The tests never noticed because they all overrode
+    it.
+
+    Called with no threshold argument on purpose: pinning the default is the
+    whole point.
+    """
+    # A two-point drift is noise on a 0-100 scale, not a regression.
+    assert detect_trends(_runs([70.0] * 9 + [68.0]), window=10) == []
+
+
+def test_the_default_threshold_still_reports_a_real_regression() -> None:
+    alerts = detect_trends(_runs([90.0] * 9 + [60.0]), window=10)
+    assert [a.direction for a in alerts] == ["degrading"]
+    assert alerts[0].delta == pytest.approx(30.0)
+
+
+def test_the_documented_default_is_on_the_health_scale() -> None:
+    from archguard.alerting.trend_detector import DEFAULT_DEGRADATION_THRESHOLD
+
+    # Guards against a silent revert to a 0.0-1.0-scale value.
+    assert DEFAULT_DEGRADATION_THRESHOLD >= 1.0

@@ -28,10 +28,26 @@ def _direction(delta: float) -> str:
     return "improving" if delta > 0 else "degrading"
 
 
+#: How many points a health score must move before it is worth telling anyone.
+#:
+#: Five points on the 0-100 scale, as the comment on the old default always
+#: claimed. The value itself said ``0.05``, which is five percent of a 0.0-1.0
+#: composite -- the scale these scores used before they became health scores.
+#: Left on the 0-100 scale it fires on a twentieth of a point, so every run of
+#: every repository would have alerted. Every test in test_trend_detector.py
+#: already passed ``degradation_threshold=5.0`` explicitly, working around the
+#: default rather than exercising it, which is why nothing caught it.
+DEFAULT_DEGRADATION_THRESHOLD = 5.0
+
+#: How many runs a trend is measured over. A repository has to be analysed this
+#: many times before any alert is possible.
+DEFAULT_WINDOW = 10
+
+
 def detect_trends(
     runs: list[dict[str, Any]],
-    window: int = 10,
-    degradation_threshold: float = 0.05,  # 5 point change
+    window: int = DEFAULT_WINDOW,
+    degradation_threshold: float = DEFAULT_DEGRADATION_THRESHOLD,
 ) -> list[TrendAlert]:
     if len(runs) < window:
         return []
