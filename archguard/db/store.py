@@ -676,6 +676,7 @@ async def all_watched(session: AsyncSession) -> list[dict[str, Any]]:
             "repository_id": watch.repository_id,
             "repo_url": repo.url,
             "last_seen_sha": watch.last_seen_sha,
+            "last_alerted_sha": watch.last_alerted_sha,
         }
         for watch, repo in rows
     ]
@@ -697,4 +698,22 @@ async def record_watch_check(
     watch.last_checked_at = datetime.now(UTC)
     if sha:
         watch.last_seen_sha = sha
+    await session.flush()
+
+
+async def record_watch_alert(
+    session: AsyncSession, user_id: int, repository_id: int, sha: str
+) -> None:
+    """Remember the run a regression was already reported for.
+
+    A trend is computed over a window, so the same regression is still there
+    next pass and the pass after. Without this marker the watcher re-sends an
+    identical alert every interval until the trend ages out of the window,
+    which is how people learn to filter an alert channel into a folder they
+    never open.
+    """
+    watch = await session.get(WatchedRepository, (user_id, repository_id))
+    if watch is None:
+        return
+    watch.last_alerted_sha = sha
     await session.flush()

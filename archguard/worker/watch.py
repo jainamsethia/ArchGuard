@@ -70,6 +70,7 @@ async def scan_watched_repositories(ctx: dict[str, Any] | None = None) -> int:
 
     from archguard.db.session import session_scope
     from archguard.db.store import all_watched
+    from archguard.worker.alerts import evaluate_and_alert
 
     try:
         async with session_scope() as session:
@@ -108,6 +109,19 @@ async def scan_watched_repositories(ctx: dict[str, Any] | None = None) -> int:
         except Exception:
             logger.exception(
                 "Failed to act on the watch for %s; continuing", entry["repo_url"]
+            )
+
+    # Alerting is evaluated for every watch, not only the ones that changed
+    # this pass. The analysis enqueued above has not finished yet -- its run
+    # lands minutes later -- so a pass reports on what previous passes
+    # produced. Coupling it to "did HEAD move" would mean a repository that
+    # regressed and then went quiet was never reported at all.
+    for entry in watches:
+        try:
+            await evaluate_and_alert(entry)
+        except Exception:
+            logger.exception(
+                "Alert evaluation failed for %s; continuing", entry["repo_url"]
             )
 
     if enqueued:

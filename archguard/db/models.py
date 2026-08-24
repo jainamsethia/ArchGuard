@@ -341,4 +341,12 @@ class WatchedRepository(Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: The commit of the newest run this watcher has already alerted on.
+    #:
+    #: A trend is computed over a window of runs, so the same regression is
+    #: still present on the next pass, and the pass after that. Without this the
+    #: watcher would re-send the identical alert every interval until the trend
+    #: aged out of the window -- which is how an alerting feature teaches people
+    #: to filter it into a folder they never open.
+    last_alerted_sha: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = _now()
