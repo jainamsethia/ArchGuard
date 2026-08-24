@@ -1,4 +1,4 @@
-"""The README must not instruct a reader to run something that does not exist.
+"""No document may instruct a reader to run something that does not exist.
 
 The CLI was removed, but the README went on documenting it as the product: a
 whole `## CLI Commands` section, a Quick Start built on `archguard init`, S3
@@ -8,9 +8,14 @@ directory had been deleted, PR-comment posting with no code behind it, and
 those instructions failed on the shipped product, on the front page of the
 repository.
 
-The rule enforced here is deliberately narrow: prose may *discuss* the removed
-CLI -- the FAQ does, to tell readers it is gone -- but a shell block is an
-instruction, and an instruction has to work.
+The same rot was later found in docs/DEPLOYMENT.md, whose release checklist
+told an operator to verify a deploy with `archguard analyze`, and in
+CONTRIBUTING.md, whose first command installed extras that were never defined.
+So the check covers every prose document, not only the front page.
+
+The rule is deliberately narrow: prose may *discuss* the removed CLI -- the
+README's FAQ does, to say it is gone -- but a shell block is an instruction, and
+an instruction has to work.
 """
 
 from __future__ import annotations
@@ -22,7 +27,22 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-README = (REPO / "README.md").read_text(encoding="utf-8", errors="replace")
+#: Every prose document a reader might follow, not just the front page. The
+#: README was corrected first and the same rot was then found in
+#: docs/DEPLOYMENT.md -- whose release checklist told an operator to verify a
+#: deploy with `archguard analyze` -- and in CONTRIBUTING.md, whose very first
+#: command installed extras that do not exist. A guard on one file is a guard
+#: on the file somebody happens to be looking at.
+DOC_PATHS = [
+    REPO / "README.md",
+    REPO / "CONTRIBUTING.md",
+    REPO / "docs" / "DEPLOYMENT.md",
+    REPO / "docs" / "DEVELOPMENT.md",
+]
+
+DOCS = "\n".join(
+    p.read_text(encoding="utf-8", errors="replace") for p in DOC_PATHS if p.is_file()
+)
 
 #: Fenced blocks a reader would copy and run.
 _SHELL_FENCE = re.compile(r"```(?:bash|sh|shell|console)\n(.*?)```", re.S)
@@ -39,8 +59,8 @@ _RUN_STEP = re.compile(r"^\s*(?:-\s*)?run:\s*(?:\||>)?\s*(.*)$", re.M)
 
 
 def _shell_blocks() -> list[str]:
-    blocks = _SHELL_FENCE.findall(README)
-    for yaml_block in _YAML_FENCE.findall(README):
+    blocks = _SHELL_FENCE.findall(DOCS)
+    for yaml_block in _YAML_FENCE.findall(DOCS):
         blocks.extend(_RUN_STEP.findall(yaml_block))
     return blocks
 
@@ -48,6 +68,11 @@ def _shell_blocks() -> list[str]:
 def _defined_extras() -> set[str]:
     data = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     return set(data.get("tool", {}).get("poetry", {}).get("extras", {}))
+
+
+def test_all_documents_were_found() -> None:
+    missing = [p.name for p in DOC_PATHS if not p.is_file()]
+    assert not missing, f"documents named but not present: {missing}"
 
 
 def test_the_fence_parser_still_finds_shell_blocks() -> None:
@@ -80,9 +105,30 @@ def test_no_instructions_for_subsystems_that_were_deleted(marker: str) -> None:
         assert marker not in block, f"{marker!r} names a subsystem that no longer exists"
 
 
+#: An inline command inside a checklist item, or after "Run", is a directive.
+#: Distinguished from prose that merely names the CLI: the README's FAQ says
+#: `archguard analyze` no longer exists, which is the opposite of telling
+#: somebody to run it. Without this, the worst instance in the repository was
+#: invisible -- DEPLOYMENT.md's release checklist asked an operator to verify a
+#: deploy with `archguard analyze --repo .`, in a markdown checkbox rather than
+#: a shell fence, so a fence-only check sailed past it.
+_DIRECTIVE = re.compile(
+    r"(?:^\s*[-*]\s*\[[ x]\].*?|Run\s+)`(archguard\s+[a-z][^`]*)`",
+    re.M | re.I,
+)
+
+
+def test_no_checklist_or_instruction_names_the_removed_cli() -> None:
+    offenders = _DIRECTIVE.findall(DOCS)
+    assert not offenders, (
+        "A checklist item or instruction tells a reader to run the CLI removed "
+        "in f7dfbda:\n  " + "\n  ".join(offenders)
+    )
+
+
 def test_yaml_blocks_do_not_reference_the_deleted_action() -> None:
     # The Action was documented in a ```yaml workflow block, not a shell one.
-    assert "ArchGuard/action@" not in README, (
+    assert "ArchGuard/action@" not in DOCS, (
         "the action/ directory was deleted; a workflow using it cannot resolve"
     )
 
@@ -99,7 +145,7 @@ def test_every_referenced_extra_actually_exists() -> None:
 
     unknown = referenced - defined
     assert not unknown, (
-        f"README install commands name extras that pyproject.toml does not "
+        f"An install command names extras that pyproject.toml does not "
         f"define: {sorted(unknown)}. Defined: {sorted(defined)}. "
         "`pip install -e \".[all]\"` failed for exactly this reason."
     )

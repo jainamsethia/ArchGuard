@@ -1,7 +1,7 @@
 # ArchGuard Production Deployment Guide
 
-**Version:** 1.0  
-**Applies to:** `archguard>=1.0.0`  
+**Version:** 1.0
+**Applies to:** `archguard>=1.0.0`
 **Last updated:** 2026-07-21
 
 ---
@@ -140,13 +140,17 @@ uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 --workers 2
 
 ### Pre-release
 
-- [ ] All tests pass: `pytest tests/unit/ tests/integration/`
-- [ ] Coverage ≥ 76%: `pytest --cov=archguard --cov-fail-under=76`
-- [ ] Ruff linter passes: `ruff check archguard/`
-- [ ] Mypy passes: `mypy archguard/ --ignore-missing-imports`
-- [ ] Self-analysis passes: `archguard analyze --repo . --no-llm`
-- [ ] Fitness functions pass: `archguard fitness check --repo .`
-- [ ] Security scan completes: `pip-audit --format=json && bandit -r archguard/ -ll`
+- [ ] All tests pass: `poetry run pytest tests/unit/ tests/integration/`
+- [ ] Coverage gate passes: it is **79%**, enforced by `--cov-fail-under=79` in
+      `pyproject.toml`, so `poetry run pytest` applies it without a flag
+- [ ] Frontend tests pass: `npm test`
+- [ ] Browser and accessibility tests pass: `npx playwright test tests/visual/ tests/a11y/`
+- [ ] Ruff linter passes: `poetry run ruff check archguard/ tests/ scripts/`
+- [ ] Mypy passes: `poetry run mypy archguard/ --ignore-missing-imports`
+- [ ] Alembic round-trips and shows no model drift: `alembic upgrade head`,
+      `alembic downgrade base`, `alembic upgrade head`, `alembic check`
+- [ ] Security scan completes: `poetry run pip-audit --ignore-vuln PYSEC-2026-196`
+      and `poetry run bandit -r archguard/ -ll` (both hard-fail in CI)
 - [ ] Smoke test passes: `BASE_URL=http://localhost:8000 ./scripts/smoke_test.sh`
 - [ ] CHANGELOG.md updated with release notes
 - [ ] Version bumped in `pyproject.toml`
@@ -324,11 +328,11 @@ Alert on any log line containing:
 
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|------------|
-| `{"detail":"Invalid or missing token"}` | Missing or wrong `ARCHGUARD_DASHBOARD_TOKEN` | Check env var; restart with correct value |
-| Analysis returns `EXIT_CONFIG_ERROR` | Missing or invalid `.archguard.yml` | Run `archguard init` in the target repo |
+| `401 Sign in with GitHub to continue.` | No session cookie, and the local-development fallback does not apply | Sign in through the UI. In production the fallback is off by design, so `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` must be set |
+| A run reports guessed module boundaries | The analysed repository has no `.archguard.yml` | Expected: one is generated headlessly. The report says whether boundaries were measured from co-change history or inferred from directory names |
 | Health check fails | Port mismatch or app not started | Check `PORT` env var; verify uvicorn starts |
-| `ModuleNotFoundError: No module named 'sentence_transformers'` | ML dependencies not installed | Install with `pip install archguard[ml]` or set `ARCHGUARD_SKIP_ML=1` |
+| `ModuleNotFoundError: No module named 'sentence_transformers'` | The worker extra is not installed | `poetry install --extras worker`, or set `ARCHGUARD_SKIP_ML=1` to run layers 1 and 2 only. Layers 3 and 4 then report as unmeasured rather than as zero |
 | `pip-audit not found in PATH` | pip-audit not installed | `pip install pip-audit` |
-| Dashboard shows empty data | No analyses have been run yet | Run `archguard analyze --repo .` or submit a job via the UI |
+| Dashboard shows empty data | No analyses have been run yet | Submit a repository URL on the landing page. The empty state links back to it |
 | Rate limit errors | Too many requests from one IP | Check `X-RateLimit-Remaining` header; wait before retrying |
 | Session expires frequently | `ARCHGUARD_SESSION_COOKIE_TTL` too low | Increase to `86400` (24h) or higher |
