@@ -1,6 +1,6 @@
 import { state } from '../state.js';
 import { jobQuery } from '../api.js';
-import { getErrorStateHtml, sanitize } from '../dom.js';
+import { getErrorStateHtml, sanitize, setBusy } from '../dom.js';
 import { updateViolationsTable } from '../render/violations.js';
 
 
@@ -11,6 +11,7 @@ export async function generateRemediationPlan() {
     btn.disabled = true;
     btn.textContent = 'Generating...';
     resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation plan...</div>';
+    setBusy(resultsEl, true);
 
     try {
         const res = await fetch(`/api/v1/remediation/plan${jobQuery}`);
@@ -37,6 +38,10 @@ export async function generateRemediationPlan() {
         console.error('Remediation error:', err);
         resultsEl.innerHTML = getErrorStateHtml('Error generating remediation plan.', () => generateRemediationPlan());
     } finally {
+        // In the finally, because the error and data.error paths above both
+        // return early from inside the try -- which is where a busy flag gets
+        // stranded, and a permanently busy region is never announced again.
+        setBusy(resultsEl, false);
         btn.disabled = false;
         btn.textContent = 'Generate Plan';
     }
@@ -55,6 +60,7 @@ export async function generateViolationsRemediation() {
     btn.disabled = true;
     btn.textContent = 'Generating...';
     resultsEl.innerHTML = '<div style="color: var(--text-secondary);">Generating remediation suggestions...</div>';
+    setBusy(resultsEl, true);
 
     try {
         // GET, not POST-with-a-body: the server reads the persisted run
@@ -96,6 +102,7 @@ export async function generateViolationsRemediation() {
         console.error('Violations remediation error:', err);
         resultsEl.innerHTML = getErrorStateHtml('Error generating remediation suggestions.', () => generateViolationsRemediation());
     } finally {
+        setBusy(resultsEl, false);
         btn.disabled = false;
         btn.textContent = 'Suggest fixes for these violations';
     }

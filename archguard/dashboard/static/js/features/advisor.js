@@ -1,5 +1,5 @@
 import { jobQuery } from '../api.js';
-import { decodeSseEvent, getErrorStateHtml, renderMarkdown } from '../dom.js';
+import { decodeSseEvent, getErrorStateHtml, renderMarkdown, setBusy } from '../dom.js';
 
 
 export async function sendAdvisorQuestion() {
@@ -12,6 +12,11 @@ export async function sendAdvisorQuestion() {
     if (!question) return;
 
     responseEl.textContent = '▌';  // blinking cursor placeholder
+    // The blinking cursor is the sighted user's "working on it". aria-busy is
+    // the same signal for everyone else, and on a live region it is also what
+    // holds the announcement back until the answer is complete rather than
+    // reading out every partial token as it streams in below.
+    setBusy(responseEl, true);
     input.value = '';
     input.disabled = true;
     askBtn.disabled = true;
@@ -75,6 +80,7 @@ export async function sendAdvisorQuestion() {
         console.error('Advisor streaming error:', err);
         responseEl.innerHTML = getErrorStateHtml('Error communicating with AI Advisor.', () => sendAdvisorQuestion());
     } finally {
+        setBusy(responseEl, false);
         input.disabled = false;
         askBtn.disabled = false;
         input.focus();

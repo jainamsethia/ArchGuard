@@ -247,7 +247,11 @@
 <input class="input-text" id="advisor-question-input" placeholder="Ask an architecture question..." type="text"/>
 <button class="btn-action-lg" id="btn-advisor-ask">Ask</button>
 </div>
-<div class="prose-response" id="advisor-response">
+<!-- polite, paired with the aria-busy advisor.js toggles while the answer
+     streams: without the busy flag a live region reads out every partial
+     token, and without the live region the finished answer is never
+     announced at all. -->
+<div class="prose-response" id="advisor-response" aria-live="polite">
                     Ask a question about your architecture to get AI-driven advice.
                 </div>
                 <p class="helper-note">AI-generated advice — verify before acting.</p>
@@ -267,7 +271,7 @@
 <h2 class="text-section-title-flush">Remediation Plan</h2>
 <button class="btn-action" id="remediation-btn">Generate Plan</button>
 </div>
-<div class="text-helper" id="remediation-results">
+<div class="text-helper" id="remediation-results" aria-live="polite">
                     Click "Generate Plan" to create an AI-driven remediation plan from your latest violations.
                 </div>
 </div>
@@ -282,7 +286,7 @@
 <p class="section-note" id="violations-counts"></p>
 <div id="violations-remediation" class="margin-bottom">
 <button class="btn-action" id="violations-remediation-btn">Suggest fixes for these violations</button>
-<div id="violations-remediation-results" class="text-helper margin-top-sm"></div>
+<div id="violations-remediation-results" class="text-helper margin-top-sm" aria-live="polite"></div>
 </div>
 <div class="violations-toolbar">
 <input class="input-text" id="violations-filter" type="search" placeholder="Filter by file, module, or message…" aria-label="Filter violations by text"/>

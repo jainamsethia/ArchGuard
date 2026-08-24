@@ -157,3 +157,21 @@ export function decodeSseEvent(rawEvent) {
     }
     return parts.join('\n');
 }
+
+
+/**
+ * Mark a region as updating, or done.
+ *
+ * Paired with aria-live, this is what stops a screen reader announcing a
+ * half-filled region: assistive technology holds announcements for a subtree
+ * while aria-busy is true and reads the finished result once it clears. The
+ * AI Advisor is the clearest case -- it streams an answer token by token, and
+ * a live region without this announces every partial fragment.
+ *
+ * Always clear it in a `finally`. A region left permanently busy is worse than
+ * one never marked, because announcements for it stay suppressed for good.
+ */
+export function setBusy(el, busy) {
+    if (!el) return;
+    el.setAttribute('aria-busy', busy ? 'true' : 'false');
+}

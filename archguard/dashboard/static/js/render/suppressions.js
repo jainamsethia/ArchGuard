@@ -1,4 +1,4 @@
-import { getEmptyStateHtml, sanitize } from '../dom.js';
+import { getEmptyStateHtml, sanitize, setBusy } from '../dom.js';
 import { showModal } from '../ui/modal.js';
 
 
@@ -6,6 +6,7 @@ export async function loadSuppressions() {
     const tbody = document.querySelector('#suppressionsTable tbody');
     if (!tbody) return;
     tbody.innerHTML = '<tr><td colspan="6" class="text-helper-center">Loading...</td></tr>';
+    setBusy(tbody, true);
 
     try {
         const urlParams = new URLSearchParams(window.location.search);
@@ -47,6 +48,11 @@ export async function loadSuppressions() {
         `}).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="6" style="color:var(--danger-color)">Failed to load suppressions: ${e.message}</td></tr>`;
+    } finally {
+        // A `finally`, not a line at the end of the try: the 404/410 and
+        // empty-list paths above both return early from inside it, and those
+        // are exactly the cases that would strand the table permanently busy.
+        setBusy(tbody, false);
     }
 }
 
