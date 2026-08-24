@@ -54,7 +54,7 @@ SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
 end
 subgraph Cache["💾 Cache Layer"]
 SQLITE[(SQLite WAL\nEmbedding Cache)]
-INCR[SHA-256\nIncremental Hash]
+INCR[SHA-256\nContent Hash]
 end
 subgraph Output["📤 Output"]
 COMMENT[PR Comment]
@@ -107,7 +107,7 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 ## Technical Highlights
 - **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
 - **Louvain community detection** on commit co-change graph for automatic contract generation
-- **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
+- **Incremental embeddings**: a SQLite WAL cache keyed by function content hash, so an unchanged function is never re-embedded. Measured on this repository: a repeat analysis in a warm worker costs ~4s against ~29s cold, with Layer 3 falling from 26.5s to 2.0s. See [ADR-009](docs/adr/009-incremental-reanalysis.md).
 - **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls.
 - **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
 
@@ -125,7 +125,7 @@ An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` an
 Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
 
 ### AI Remediation Plans
-A dedicated remediation engine (`archguard.llm.remediation`) capable of analyzing layer-specific violation thresholds and automatically synthesizing step-by-step refactoring recommendations. 
+A dedicated remediation engine (`archguard.llm.remediation`) capable of analyzing layer-specific violation thresholds and automatically synthesizing step-by-step refactoring recommendations.
 
 ### PR Risk Analysis
 The `PRRiskAnalyzer` automatically computes contextual risk scores for inbound code changes by traversing dependencies directly affected by modified files and highlighting downstream risks.

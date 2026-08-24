@@ -4,10 +4,15 @@ After the CLI was removed these modules have no production caller. That makes
 them look exactly like dead code to anyone reading an import graph, and the
 obvious next step is to delete them. They are retained on purpose:
 
-* ``archguard.cache.incremental`` -- content-hash change detection, the basis
-  for incremental re-analysis. Without it every re-scan of a watched repository
-  recomputes everything, which is what decides whether scheduled scans are
-  affordable at all.
+* ``archguard.cache.incremental`` -- content-hash change detection. Retained,
+  but deliberately not wired into the pipeline: see ADR-009. Measurement showed
+  the expensive part of a re-scan is already incremental (the embedding cache is
+  keyed by function content hash, and the model is cached for the worker's
+  lifetime), leaving file-level gating worth ~1.7s of a ~4s warm run -- and
+  unsafe in the obvious form, because Layers 2 and 4 are corpus-wide and a file
+  dropped from the input is a file whose findings vanish from the report. For
+  scheduled re-scans the cheap correct gate is the commit SHA, which needs no
+  file hashes at all.
 * ``archguard.alerting`` -- trend detection and alert delivery for watched
   repositories.
 * ``archguard.utils.url_validator`` -- the SSRF guard that stands between a
