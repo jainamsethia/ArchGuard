@@ -235,3 +235,37 @@ async def test_two_shared_runs_get_different_tokens(live_db: str) -> None:
         token_b = await share_run(s, job_b, user_b)
 
     assert token_a != token_b
+
+
+@requires_postgres
+@pytest.mark.asyncio
+async def test_the_run_payload_says_shared_but_never_carries_the_token(live_db: str) -> None:
+    """The dashboard needs the state; nothing needs the token but the owner.
+
+    run_to_dict is the payload the entire frontend reads, so a token here would
+    reach every cached response, every devtools panel and every log line that
+    has ever shown a run. The boolean is enough to render the control.
+    """
+    import json
+
+    from archguard.db.session import session_scope
+    from archguard.db.store import get_latest_run, share_run
+
+    user_id, job_id = await _a_run(95015, "share-payload")
+
+    async with session_scope() as s:
+        before = await get_latest_run(s, job_id, user_id)
+    assert before is not None
+    assert before["shared"] is False
+
+    async with session_scope() as s:
+        token = await share_run(s, job_id, user_id)
+
+    async with session_scope() as s:
+        after = await get_latest_run(s, job_id, user_id)
+    assert after is not None
+    assert after["shared"] is True
+
+    # Nothing anywhere in the payload, at any nesting depth.
+    assert token not in json.dumps(after), "the share token leaked into the run payload"
+    assert "share_token" not in json.dumps(after)

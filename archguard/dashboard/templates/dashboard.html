@@ -51,6 +51,17 @@
 <!-- A toggle, not a pair of actions: aria-pressed announces which state
      the repository is in. Hidden until a run identifies a repository. -->
 <button type="button" class="btn-action" id="watch-toggle-btn" aria-pressed="false" hidden>Watch this repository</button>
+<!-- Sharing makes one report readable by anyone holding the link, so the
+     control states which it is: aria-pressed, and the link revealed only when
+     the owner asks for it rather than sitting on screen for whoever walks past
+     the monitor. -->
+<button type="button" class="btn-action" id="share-btn" aria-pressed="false" hidden>Share this report</button>
+<button type="button" class="btn-action" id="share-revoke-btn" hidden>Stop sharing</button>
+<div id="share-link-row" class="row-gap" hidden>
+  <label class="sr-only" for="share-link-input">Shareable link to this report</label>
+  <input class="input-text" id="share-link-input" type="text" readonly/>
+  <button type="button" class="btn-action" id="share-copy-btn">Copy</button>
+</div>
 <div id="recent-analyses-container" class="recent-analyses-bar">
   <select id="recent-analyses-picker" class="recent-picker" aria-label="Select a recent analysis to view">
     <option value="">Recent analyses...</option>

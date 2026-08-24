@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { sendAdvisorQuestion } from './features/advisor.js';
 import { generateRemediationPlan, generateViolationsRemediation } from './features/remediation.js';
+import { initShareControls } from './features/share.js';
 import { initWatchToggle } from './features/watch.js';
 import { fetchData, initVisibilityPolling, startPolling } from './poll.js';
 import { configureChartDefaults } from './render/charts.js';
@@ -61,6 +62,7 @@ export function initActionButtons() {
 
     initCompareControls();
     initWatchToggle();
+    initShareControls();
 
     // Delegated removal for per-row suppression "Remove" buttons (rendered
     // dynamically, so bind once on the static tbody).

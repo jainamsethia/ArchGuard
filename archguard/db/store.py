@@ -369,6 +369,13 @@ def run_to_dict(run: Run, repo: Repository, violations: list[Violation]) -> dict
         "fallback_directory_heuristic": run.fallback_directory_heuristic,
         "fallback_reason": run.fallback_reason,
         "derived_artifacts_error": run.derived_artifacts_error,
+        # Whether a share link exists, never the token itself. The dashboard
+        # needs this to show the control in the right state on load; nothing
+        # needs the token except the person who asked for it, and this dict is
+        # the payload the whole frontend reads. A token here would end up in
+        # every cached response and browser devtools panel that has ever shown
+        # a run.
+        "shared": run.share_token is not None,
     }
 
 
