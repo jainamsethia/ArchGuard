@@ -127,13 +127,17 @@
 <p class="section-note" id="layer-status-intro"></p>
 <ul id="layer-status-list" class="text-helper"></ul>
 </div>
-<div class="tablist" role="tablist">
-<button aria-controls="overview" aria-selected="true" class="tab" id="tab-overview" role="tab">Overview</button>
-<button aria-controls="violations" aria-selected="false" class="tab" id="tab-violations" role="tab">Violations</button>
-<button aria-controls="dependencies" aria-selected="false" class="tab" id="tab-dependencies" role="tab">Dependencies</button>
-<button aria-controls="suppressions" aria-selected="false" class="tab" id="tab-suppressions" role="tab">Suppressions</button>
+<!-- Roving tabindex: the whole tablist is ONE tab stop, and the Arrow keys
+     move between tabs. Four bare <button>s give four independent stops, which
+     is the opposite of what role="tablist" promises assistive technology.
+     Kept in sync by switchTab() in js/ui/tabs.js. -->
+<div class="tablist" role="tablist" aria-label="Dashboard sections">
+<button aria-controls="overview" aria-selected="true" class="tab" id="tab-overview" role="tab" tabindex="0">Overview</button>
+<button aria-controls="violations" aria-selected="false" class="tab" id="tab-violations" role="tab" tabindex="-1">Violations</button>
+<button aria-controls="dependencies" aria-selected="false" class="tab" id="tab-dependencies" role="tab" tabindex="-1">Dependencies</button>
+<button aria-controls="suppressions" aria-selected="false" class="tab" id="tab-suppressions" role="tab" tabindex="-1">Suppressions</button>
 </div>
-<div class="tab-panel-main active" id="overview" role="tabpanel">
+<div class="tab-panel-main active" id="overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
 <div class="glass-card card-section" id="compare-panel" hidden>
 <h2 class="text-section-title-flush">Run Comparison</h2>
 <p class="section-note">Diff of violations between the two selected runs. Matches by module + layer + message.</p>
@@ -260,7 +264,7 @@
                 </div>
 </div>
 </div>
-<div class="tab-panel-main" id="violations" role="tabpanel">
+<div class="tab-panel-main" id="violations" role="tabpanel" aria-labelledby="tab-violations" tabindex="0">
 <div class="glass-card card-section">
 <h2 class="text-section-title">Recent Violations</h2>
 <!-- Every violation found stays in the table below. Only eligibility for an
@@ -314,7 +318,7 @@
 </div>
 </div>
 </div>
-<div class="tab-panel-main" id="dependencies" role="tabpanel">
+<div class="tab-panel-main" id="dependencies" role="tabpanel" aria-labelledby="tab-dependencies" tabindex="0">
 <div class="glass-card card-section">
   <h2 class="text-section-title">Dependency Graph</h2>
   <p class="text-caption-muted">
@@ -325,7 +329,7 @@
 </div>
 </div>
 </div>
-<div class="tab-panel-main" id="suppressions" role="tabpanel">
+<div class="tab-panel-main" id="suppressions" role="tabpanel" aria-labelledby="tab-suppressions" tabindex="0">
 <div class="glass-card card-section">
 <div class="row-between">
 <h2 class="text-section-title">Active Suppressions</h2>

@@ -68,12 +68,21 @@ export function initTabChrome() {
 
 
 export function switchTab(name) {
-    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
+    // aria-selected and tabindex move together. Leaving tabindex behind is
+    // what put all four tabs in the page's tab order: role="tablist" tells a
+    // screen-reader user the Arrow keys move between tabs and one Tab press
+    // leaves the set, so four independent tab stops contradict the role the
+    // markup is already claiming.
+    document.querySelectorAll('.tab').forEach(t => {
+        t.setAttribute('aria-selected', 'false');
+        t.setAttribute('tabindex', '-1');
+    });
     document.querySelectorAll('.tab-panel-main').forEach(p => p.classList.remove('active'));
 
     const targetTab = document.querySelector(`.tab[aria-controls="${name}"]`);
     if (targetTab) {
         targetTab.setAttribute('aria-selected', 'true');
+        targetTab.setAttribute('tabindex', '0');
         moveTabIndicator(targetTab);
     }
     const targetPanel = document.getElementById(name);
@@ -107,6 +116,55 @@ export function onTabActivated(name, handler) {
 }
 
 
+/**
+ * The keyboard half of the tablist contract.
+ *
+ * Announcing a widget as a tablist tells assistive technology that the Arrow
+ * keys move between tabs and that one Tab press leaves the whole set. The
+ * roles were already in the markup; this is what makes them true.
+ *
+ * Automatic activation (selection follows focus), which is the ARIA APG
+ * default and matches the existing click behaviour -- every panel's content is
+ * already in the page, so moving selection costs nothing a user would notice.
+ *
+ * Delegated to the list rather than bound per tab: the tabs are static, but a
+ * single listener keeps the roving tabindex and the key handling in one place.
+ *
+ * https://www.w3.org/WAI/ARIA/apg/patterns/tabs/
+ */
+export function initTabKeyboard() {
+    const list = document.querySelector('.page-dashboard .tablist');
+    if (!list) return;
+
+    list.addEventListener('keydown', (e) => {
+        const tabs = Array.from(list.querySelectorAll('.tab'));
+        const from = tabs.indexOf(e.target.closest('.tab'));
+        if (from === -1) return;
+
+        let to;
+        switch (e.key) {
+            case 'ArrowRight': to = (from + 1) % tabs.length; break;
+            case 'ArrowLeft':  to = (from - 1 + tabs.length) % tabs.length; break;
+            case 'Home':       to = 0; break;
+            case 'End':        to = tabs.length - 1; break;
+            default: return;
+        }
+
+        // Only after a key we actually handle: preventing the default for
+        // every keystroke would swallow typing anywhere the event bubbles
+        // through, and Home/End would stop scrolling the page.
+        e.preventDefault();
+        const target = tabs[to];
+        switchTab(target.getAttribute('aria-controls'));
+        // switchTab deliberately does not move focus -- it also runs on load
+        // from the URL fragment, where stealing focus would drop the user into
+        // the tablist instead of the top of the page. Arrow-key navigation is
+        // the one path where focus must follow.
+        target.focus();
+    });
+}
+
+
 export function initNavigation() {
     // Quick links
     const fitnessLink = document.getElementById('chip-fitness');
@@ -130,4 +188,6 @@ export function initNavigation() {
 
     const suppressTab = document.getElementById('tab-suppressions');
     if (suppressTab) suppressTab.addEventListener('click', () => switchTab('suppressions'));
+
+    initTabKeyboard();
 }
