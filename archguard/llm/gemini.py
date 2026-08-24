@@ -212,6 +212,59 @@ def _raise_for_status(response: httpx.Response) -> None:
     raise GeminiResponseError(f"Gemini request failed ({status}): {detail}")
 
 
+def _usage_of(payload: dict[str, Any]) -> tuple[int, int, int] | None:
+    """(prompt, completion, total) tokens from a response, if it reported any.
+
+    Returns ``None`` rather than zeros when absent: a call whose usage was not
+    reported is not a call that cost nothing, and recording it as zero would
+    quietly understate the bill.
+    """
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    try:
+        return (
+            int(usage.get("prompt_tokens") or 0),
+            int(usage.get("completion_tokens") or 0),
+            int(usage.get("total_tokens") or 0),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_usage(payload: dict[str, Any]) -> None:
+    """Add a response's reported usage to the running totals. Never raises."""
+    reported = _usage_of(payload)
+    if reported is None:
+        return
+    from archguard.llm import usage
+
+    usage.record(*reported)
+
+
+def _stream_usage(line: str) -> tuple[int, int, int] | None:
+    """Usage carried by one streamed chunk, if it carries any.
+
+    Returns rather than records, because a stream emits *more than one*
+    usage-bearing chunk -- measured against the live endpoint: two for a
+    one-word answer. Recording each of them counted a single call twice and
+    summed figures that overlap, which inflates a spend metric into something
+    nobody can act on. The caller keeps the last one and records it once.
+    """
+    if not line.startswith("data:"):
+        return None
+    body = line[5:].strip()
+    if not body or body == "[DONE]":
+        return None
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return _usage_of(payload)
+
+
 def _extract_message(payload: dict[str, Any]) -> tuple[str, str]:
     """Pull (text, finish_reason) out of a chat-completions response."""
     try:
@@ -292,6 +345,11 @@ class GeminiClient:
         }
         if stream:
             payload["stream"] = True
+            # Without this a streamed answer reports no usage at all, and the
+            # Advisor -- the chattiest feature -- would be missing from the
+            # spend figure entirely. Verified against the endpoint: the final
+            # chunks carry a usage object when it is asked for.
+            payload["stream_options"] = {"include_usage": True}
         if json_object:
             payload["response_format"] = {"type": "json_object"}
         return payload
@@ -342,6 +400,7 @@ class GeminiClient:
             body = response.json()
         except ValueError as exc:
             raise GeminiResponseError("Gemini returned a non-JSON body") from exc
+        _record_usage(body)
         return _extract_message(body)
 
     def stream(
@@ -368,10 +427,20 @@ class GeminiClient:
                 if response.status_code >= 400:
                     response.read()
                     _raise_for_status(response)
+                last_usage: tuple[int, int, int] | None = None
                 for line in response.iter_lines():
+                    reported = _stream_usage(line)
+                    if reported is not None:
+                        # Kept, not recorded: see _stream_usage. The final one
+                        # is the complete figure for the call.
+                        last_usage = reported
                     text = _delta_text(line)
                     if text:
                         yield text
+                if last_usage is not None:
+                    from archguard.llm import usage as _usage
+
+                    _usage.record(*last_usage)
         except httpx.TimeoutException as exc:
             raise GeminiConnectionError(f"Gemini stream timed out: {exc}") from exc
         except httpx.RequestError as exc:
@@ -407,6 +476,7 @@ class GeminiClient:
             body = response.json()
         except ValueError as exc:
             raise GeminiResponseError("Gemini returned a non-JSON body") from exc
+        _record_usage(body)
         return _extract_message(body)
 
     async def astream(

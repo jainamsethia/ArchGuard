@@ -268,5 +268,42 @@ async def metrics() -> Response:
         logger.warning("Metrics: redis query failed: %s", exc)
         emit("archguard_redis_up", 0, "1 when Redis answered.")
 
+    # What the AI features have cost. The endpoint reports usage on every call
+    # and the client used to discard it, so the only way to answer "how much is
+    # this spending" was the provider's billing page. Counters rather than
+    # gauges: a total that only goes up survives a missed scrape, and Prometheus
+    # derives the rate.
+    try:
+        from archguard.llm.usage import totals
+
+        usage = totals()
+        emit(
+            "archguard_llm_calls_total",
+            usage["calls"],
+            "LLM API calls made.",
+            kind="counter",
+        )
+        for field, help_text in (
+            ("prompt_tokens", "Prompt tokens sent to the LLM."),
+            ("completion_tokens", "Completion tokens returned by the LLM."),
+            (
+                "total_tokens",
+                # Deliberately not described as prompt plus completion, because
+                # it is not. Gemini 3.x are thinking models and reasoning tokens
+                # are billed in the total without appearing in either of the
+                # other two: measured on a one-word answer, 74 + 1 against a
+                # total of 285. An operator comparing the three and finding they
+                # do not add up would reasonably conclude the metric is broken.
+                "Total LLM tokens billed, including reasoning tokens that appear "
+                "in neither the prompt nor the completion count.",
+            ),
+        ):
+            emit(
+                f"archguard_llm_{field}_total", usage[field], help_text, kind="counter"
+            )
+    except Exception as exc:
+        # Counts, never content: no prompts, no questions, no repository names.
+        logger.debug("Metrics: llm usage unavailable: %s", exc)
+
     body = "\n".join(lines) + "\n"
     return Response(content=body, media_type="text/plain; version=0.0.4")

@@ -234,7 +234,15 @@ every problem at once rather than one restart at a time.
 |---|---|
 | `/health` | Liveness. Answers even with no database. |
 | `/ready` | Readiness. 503 when a backing service is unreachable. |
-| `/metrics` | Prometheus text, including `archguard_database_up`. |
+| `/metrics` | Prometheus text: `archguard_database_up`, queue depth, job counts, and LLM token spend. |
+
+`/metrics` reports what the AI features cost —
+`archguard_llm_calls_total` and the prompt, completion and total token
+counters, held in Redis so they survive a restart and aggregate across
+replicas. Note that `total_tokens` is not the sum of the other two: Gemini 3.x
+are thinking models and reasoning tokens are billed in the total without
+appearing in either. Measured on a one-word answer: 74 prompt + 1 completion,
+285 total.
 
 ## Testing
 
