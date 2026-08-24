@@ -49,6 +49,52 @@ def _installed_version() -> str:
 _startup_logger = logging.getLogger("archguard.startup")
 
 
+def process_local_state(redis_configured: bool) -> list[str]:
+    """What genuinely does not survive a restart, and is not shared by replicas.
+
+    A function with a test rather than a literal inside the lifespan, because
+    the literal drifted. It went on naming "analysis jobs, login sessions" long
+    after sessions had moved to Redis (:mod:`._sessions`) and job records to
+    PostgreSQL (:func:`archguard.db.store.create_job`) -- so a deployed
+    instance warned operators that every restart signed all users out, which
+    was not true, and directly contradicted the advice in :mod:`._config_check`.
+    A warning that misstates the architecture is worse than no warning: it
+    trains people to skip the line, including the day it is right.
+    """
+    # EventSource cannot set request headers, so the SSE progress stream is
+    # authenticated by a token in the URL, and _cookie_auth holds those in a
+    # plain dict with no Redis path at all. This is the one item that is local
+    # however the deployment is configured: behind a load balancer a token
+    # minted by one replica does not validate on another, and an in-flight
+    # stream loses its token across a restart.
+    local = ["SSE progress-stream tokens"]
+
+    if not redis_configured:
+        # Each of these has a Redis store and a bounded in-process fallback,
+        # used only when REDIS_URL is absent. Job *records* are not in the list
+        # either way: with no DATABASE_URL the app raises rather than falling
+        # back to memory, so they are never process-local.
+        local += [
+            "login sessions",
+            "analysis job progress",
+            "rate limits",
+            "the evolution cache",
+            "advisory locks",
+        ]
+    return local
+
+
+def _join_for_sentence(items: list[str]) -> str:
+    """Join names for the start of a sentence.
+
+    ``", ".join(...).capitalize()`` lowercased everything after the first
+    character, which turned "SSE progress-stream tokens" into "Sse
+    progress-stream tokens".
+    """
+    joined = ", ".join(items)
+    return joined[:1].upper() + joined[1:] if joined else joined
+
+
 async def _periodic_workspace_cleanup() -> None:
     """Remove stale workspaces every 15 minutes as defense-in-depth for crash scenarios."""
     import asyncio as _asyncio
@@ -147,25 +193,21 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     except Exception as exc:
         _startup_logger.warning("Startup workspace cleanup failed (non fatal): %s", exc)
 
-    # State that is still process-local, named precisely. A blanket warning
-    # that stayed constant while the facts changed under it is worse than none:
-    # rate limits and the evolution cache now live in Redis when it is
-    # configured, and saying otherwise trains operators to ignore this line.
     from archguard.redis_client import is_configured as _redis_configured
 
-    still_local = ["analysis jobs", "login sessions"]
-    if not _redis_configured():
-        still_local += ["rate limits", "evolution cache"]
+    redis_ready = _redis_configured()
+    still_local = process_local_state(redis_configured=redis_ready)
+    if not redis_ready:
         _startup_logger.warning(
             "REDIS_URL is not set. %s are kept in this process only: they are "
             "lost on restart and not shared between instances.",
-            ", ".join(still_local).capitalize(),
+            _join_for_sentence(still_local),
         )
     else:
         _startup_logger.warning(
             "%s are still held in this process and are lost on restart. "
             "Running more than one instance will not share them.",
-            ", ".join(still_local).capitalize(),
+            _join_for_sentence(still_local),
         )
 
     _startup_logger.info("Dashboard ready.")
