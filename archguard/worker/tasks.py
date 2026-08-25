@@ -107,8 +107,11 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
         await emit(f"Cloning {repo_url}...", "cloning")
         owner, name = parse_github_url(repo_url)
         clone_url = build_safe_clone_url(owner, name)
+        token = await _installation_token(owner, name)
 
-        async with temp_workspace(clone_url, job_id=job_id, keep_alive=True) as repo:
+        async with temp_workspace(
+            clone_url, job_id=job_id, keep_alive=True, token=token
+        ) as repo:
             await set_status("analysing")
             # No phase: this is the boundary between the clone and the
             # analysis, and the next real phase is whichever the adapter
@@ -182,6 +185,40 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
         await _fail(job_id, set_status, message)
         logger.exception("[job %s] Unexpected failure", job_id)
         return "failed"
+
+
+async def _installation_token(owner: str, name: str) -> str | None:
+    """A GitHub App token for ``owner/name``, when one is available (P3-3).
+
+    ``None`` is the ordinary answer and means "clone anonymously", which is what
+    every public repository wants and what every deployment without an App gets.
+    A configured App that is simply not installed on this repository lands here
+    too: that is a public repository the owner never connected, not a failure.
+
+    Deliberately non-fatal. A private repository will fail at the clone with
+    git's own "repository not found", which is the same message an anonymous
+    clone of a private repository has always produced -- rather than this
+    turning a GitHub API hiccup into a failed job for a public one.
+    """
+    from archguard.dashboard import _github_app
+
+    if not _github_app.is_configured():
+        return None
+    try:
+        return await _github_app.token_for_repository(owner, name)
+    except _github_app.GitHubAppError as exc:
+        logger.info("No installation token for %s/%s: %s", owner, name, exc)
+        return None
+    except Exception:
+        # A token is an optimisation for the public case. Never let the App
+        # path take down an analysis that would otherwise have succeeded.
+        logger.warning(
+            "Installation token lookup failed for %s/%s; cloning anonymously",
+            owner,
+            name,
+            exc_info=True,
+        )
+        return None
 
 
 async def _fail(job_id: str, set_status: Any, message: str) -> None:

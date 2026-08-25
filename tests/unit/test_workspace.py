@@ -20,7 +20,9 @@ from archguard.dashboard.workspace import (
 async def test_temp_workspace_yields_path_and_cleans_up() -> None:
     """temp_workspace should yield a Path and delete it afterward."""
 
-    async def fake_clone(url: str, dest: Path, branch: str) -> None:
+    async def fake_clone(
+        url: str, dest: Path, branch: str, *, token: str | None = None
+    ) -> None:
         dest.mkdir(parents=True)
 
     with patch("archguard.dashboard.workspace._clone_repo", side_effect=fake_clone):
@@ -39,7 +41,9 @@ async def test_temp_workspace_yields_path_and_cleans_up() -> None:
 async def test_temp_workspace_cleans_up_on_exception() -> None:
     """Cleanup must happen even when the body raises."""
 
-    async def fake_clone(url: str, dest: Path, branch: str) -> None:
+    async def fake_clone(
+        url: str, dest: Path, branch: str, *, token: str | None = None
+    ) -> None:
         dest.mkdir(parents=True)
 
     workspace_ref: list[Path] = []

@@ -15,6 +15,7 @@ names.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 import shutil
@@ -40,7 +41,11 @@ MAX_WORKSPACE_BYTES: int = int(
 
 @asynccontextmanager
 async def temp_workspace(
-    clone_url: str, branch: str = "HEAD", job_id: str | None = None, keep_alive: bool = False
+    clone_url: str,
+    branch: str = "HEAD",
+    job_id: str | None = None,
+    keep_alive: bool = False,
+    token: str | None = None,
 ) -> AsyncIterator[Path]:
     """Clone a repo shallowly; yield the repo root Path; clean up on exit.
 
@@ -50,6 +55,9 @@ async def temp_workspace(
         branch:     branch/tag to clone (default: 'HEAD' = default branch)
         job_id:     optional job identifier for predictable dir name
         keep_alive: if True, do not delete the workspace in finally block
+        token:      optional GitHub App installation token, for a private
+                    repository. See ``_clone_repo`` for how it is passed to git
+                    without reaching the command line.
 
     Raises:
         TimeoutError:   clone exceeded ARCHGUARD_CLONE_TIMEOUT seconds
@@ -69,7 +77,7 @@ async def temp_workspace(
     repo_path = workspace_dir / "repo"
     try:
         logger.info("Cloning %s (branch=%s) into %s", clone_url, branch, repo_path)
-        await _clone_repo(clone_url, repo_path, branch)
+        await _clone_repo(clone_url, repo_path, branch, token=token)
         yield repo_path
     finally:
         if not keep_alive:
@@ -103,7 +111,53 @@ def _find_git() -> str | None:
     return found
 
 
-async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
+def _credential_env(clone_url: str, token: str) -> dict[str, str]:
+    """The environment additions that let git authenticate, without argv.
+
+    The obvious way to clone a private repository is to put the credential in
+    the URL (``https://x-access-token:TOKEN@github.com/...``). That would place
+    a live credential in this process's command line, where any other process on
+    the host can read it, and -- worse here -- straight into the git failure
+    message below, which is captured and handed back to the caller.
+
+    ``GIT_CONFIG_COUNT`` and friends set the same config git would take from
+    ``-c``, through the environment instead (git 2.31+; the clone already
+    requires far newer for ``--filter``). The header is scoped to the specific
+    origin, so a redirect to another host does not carry the credential with it.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(clone_url)
+    origin = f"{parsed.scheme}://{parsed.hostname}/"
+    if parsed.port:
+        origin = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}/"
+
+    # GitHub accepts the installation token as a Basic password against the
+    # fixed username ``x-access-token``.
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"http.{origin}.extraheader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        # Nothing may prompt: a private repository the App cannot read should
+        # fail immediately rather than block until the clone timeout.
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
+def _redact(text: str, token: str | None) -> str:
+    """Remove the token from anything about to be raised or logged."""
+    if not token:
+        return text
+    redacted = text.replace(token, "***")
+    # The Basic form is what actually travels, so it is what can actually leak.
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
+    return redacted.replace(basic, "***")
+
+
+async def _clone_repo(
+    clone_url: str, dest: Path, branch: str, *, token: str | None = None
+) -> None:
     """Perform a blobless, full-history git clone.
 
     Uses ``--filter=blob:none --single-branch --no-tags`` for speed.  This keeps
@@ -152,8 +206,17 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
     # Modifying PATH manually causes git clone failures (exit 3221225794)
     # on non-standard installations (like MSYS2 or ARM64 Git) by breaking
     # DLL search order.
+    #
+    # An authenticated clone still gets env=None's inheritance: the credential
+    # is *added* to a copy of the real environment rather than replacing it, so
+    # PATH reaches git exactly as it would have. The public path below is
+    # untouched and still passes env=None.
+    clone_env: dict[str, str] | None = None
+    if token:
+        clone_env = os.environ.copy()
+        clone_env.update(_credential_env(clone_url, token))
 
-    logger.info("Cloning with git=%s", git_exe)
+    logger.info("Cloning with git=%s (authenticated=%s)", git_exe, bool(token))
 
     def _do_clone() -> None:
         try:
@@ -162,7 +225,7 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
                 capture_output=True,
                 timeout=float(CLONE_TIMEOUT_SECONDS),
                 check=False,
-                env=None,
+                env=clone_env,
             )
         except subprocess.TimeoutExpired:
             raise TimeoutError(
@@ -172,8 +235,12 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
             )
         if proc.returncode != 0:
             error_msg = proc.stderr.decode("utf-8", errors="replace").strip()
+            # Redacted before it becomes an exception message. git echoes the
+            # remote's response, and this string is handed to the caller and
+            # written to the job record.
             raise RuntimeError(
-                f"git clone failed (exit {proc.returncode}): {error_msg[:500]}"
+                f"git clone failed (exit {proc.returncode}): "
+                f"{_redact(error_msg, token)[:500]}"
             )
 
     await asyncio.to_thread(_do_clone)

@@ -29,6 +29,11 @@ pydriller = ">=2.5"
 # advisories (GHSA-2f96-g7mh-g2hx and others) that pip-audit hard-fails CI on.
 gitpython = ">=3.1.58"
 httpx = ">=0.25"
+# GitHub App installation auth (P3-3) signs its JWT with RS256, which PyJWT
+# can only do with `cryptography` present. PyJWT itself was already here
+# transitively via redis; depending on somebody else's transitive pin for an
+# authentication path is how it silently breaks.
+pyjwt = {version = ">=2.9", extras = ["crypto"]}
 pydantic = ">=2.0,<3.0"
 numpy = {version = ">=1.24,<2.0.0", optional = true}
 scipy = {version = ">=1.10", optional = true}
