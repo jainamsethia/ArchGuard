@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from archguard.analysis.layers import AnalysisOrchestrator
-from archguard.suppression.store import SuppressionStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_project"
 
@@ -48,17 +47,21 @@ def test_health_score_semantics_are_consistent(temp_project, monkeypatch):
 
 
 def test_layer4_violations_can_be_suppressed(tmp_path, temp_project):
-    """After Bug N-1 fix, Layer 4 violations must be suppressable."""
-    store = SuppressionStore(temp_project)
+    """After Bug N-1 fix, Layer 4 violations must be suppressable.
 
-    store.add(
-        module="api",
-        layer=4,
-        message="Duplicate function body",
-        reason="Test suppression for layer 4",
-    )
+    Layer 4 findings are produced by a different path from layers 1-3, which is
+    what the original bug was about; the filter must still match them.
+    """
+    from archguard.analysis._suppression_filter import _filter_suppressed
+    from archguard.suppression.models import make_violation_hash
 
-    assert store.is_suppressed("api", 4, "Duplicate function body") is True
+    class _V:
+        module, layer, message = "api", 4, "Duplicate function body"
+
+    suppressed = {make_violation_hash("api", 4, "Duplicate function body")}
+
+    assert _filter_suppressed(temp_project, [_V()], suppressed_hashes=suppressed) == []
+    assert len(_filter_suppressed(temp_project, [_V()], suppressed_hashes=set())) == 1
 
 
 def test_suppressed_violation_absent_from_analysis(temp_project, monkeypatch):

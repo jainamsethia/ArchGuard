@@ -3,7 +3,7 @@ from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
@@ -85,13 +85,31 @@ async def get_suppressions(
         return {"suppressions": [_as_payload(s) for s in rows]}
 
 class AddSuppressionRequest(BaseModel):
+    """The constraints the JSONL store enforced in Python, declared instead.
+
+    They are not decoration. ``reason`` is written by a user and read back in a
+    list, and the layer bound stops a suppression being filed against a layer
+    that cannot produce a finding, where it would sit forever matching nothing.
+    Declaring them here answers with a 422 naming the field, rather than the
+    old 400 that said only "Failed to add suppression."
+    """
+
     module: str
-    layer: int
+    layer: int = Field(ge=1, le=4)
     message: str
-    reason: str
+    reason: str = Field(max_length=500)
     expires_in_days: int | None = None
     pr_number: int | None = None
     commit_sha: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_one_line(cls, value: str) -> str:
+        # A newline here breaks the JSONL export and lets a reason impersonate
+        # further entries in any line-oriented view of these.
+        if "\n" in value or "\r" in value:
+            raise ValueError("reason must not contain newlines")
+        return value
 
 @router.post("/suppressions")
 async def add_suppression(
@@ -121,7 +139,7 @@ async def add_suppression(
 
     try:
         async with session_scope() as session:
-            await store_add(
+            created = await store_add(
                 session,
                 repo_url=repo_url,
                 module=req.module,
@@ -132,11 +150,37 @@ async def add_suppression(
                 pr_number=req.pr_number,
                 commit_sha=req.commit_sha or "",
                 user_id=user.id,
+                created_by=user.login,
             )
+            suppression_id = created.id
     except Exception as e:
         logging.getLogger(__name__).warning("Suppression add failed: %s", e)
         raise HTTPException(status_code=400, detail="Failed to add suppression.")
+
+    _audit_created(suppression_id, req.module, req.layer)
     return {"status": "success"}
+
+
+def _audit_created(suppression_id: str, module: str, layer: int) -> None:
+    """Record that a finding was deliberately hidden.
+
+    Best-effort, and after the commit rather than inside it: an audit sink that
+    is unavailable must not undo a suppression the user was told was saved.
+    Deciding to stop reporting a finding is exactly the kind of action the audit
+    trail exists for, and it was logged before suppressions moved to PostgreSQL.
+    """
+    try:
+        from archguard.audit.logger import AuditLogger
+        from archguard.config import EVENT_SUPPRESSION_CREATED
+
+        AuditLogger().log(
+            EVENT_SUPPRESSION_CREATED,
+            suppression_id=suppression_id,
+            module=module,
+            layer=layer,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Could not audit suppression: %s", exc)
 
 class RemoveSuppressionRequest(BaseModel):
     suppression_id: str

@@ -141,3 +141,92 @@ def test_a_job_that_resolves_no_repository_is_rejected(auth_client) -> None:
         json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
     )
     assert resp.status_code == 400
+
+
+@requires_postgres
+def test_a_reason_longer_than_the_limit_is_rejected(auth_client, job_id: str) -> None:
+    """The JSONL store enforced this in Python; it is a field constraint now."""
+    resp = auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={
+            "module": "api",
+            "layer": 1,
+            "message": "bad import",
+            "reason": "x" * 501,
+        },
+    )
+    assert resp.status_code == 422
+    assert "reason" in resp.text
+
+
+@requires_postgres
+def test_a_reason_containing_a_newline_is_rejected(auth_client, job_id: str) -> None:
+    """A newline lets one reason impersonate further entries when exported."""
+    resp = auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={
+            "module": "api",
+            "layer": 1,
+            "message": "bad import",
+            "reason": "looks fine\nSUPPRESSION_CREATED: something else",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@requires_postgres
+@pytest.mark.parametrize("layer", [0, 5, -1])
+def test_a_layer_that_cannot_produce_a_finding_is_rejected(
+    auth_client, job_id: str, layer: int
+) -> None:
+    """Otherwise the row sits there forever, matching nothing."""
+    resp = auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={
+            "module": "api",
+            "layer": layer,
+            "message": "bad import",
+            "reason": "FP",
+        },
+    )
+    assert resp.status_code == 422
+
+
+@requires_postgres
+def test_creating_a_suppression_is_audited(auth_client, job_id: str, monkeypatch) -> None:
+    """Deciding to stop reporting a finding belongs in the audit trail.
+
+    The JSONL store logged this and the first cut of the PostgreSQL route did
+    not, which is a capability lost in a refactor rather than a decision.
+    """
+    from archguard.audit import logger as audit_logger
+
+    logged: list[tuple] = []
+
+    class _Spy:
+        def log(self, event, **fields):
+            logged.append((event, fields))
+
+    monkeypatch.setattr(audit_logger, "AuditLogger", lambda *a, **k: _Spy())
+
+    resp = auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
+    )
+    assert resp.status_code == 200
+
+    assert [e for e, _ in logged] == ["SUPPRESSION_CREATED"]
+    assert logged[0][1]["module"] == "api"
+    assert logged[0][1]["layer"] == 1
+
+
+@requires_postgres
+def test_the_list_names_the_account_that_filed_it(auth_client, job_id: str) -> None:
+    """``created_by`` was "local" when there were no accounts. There are now."""
+    auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
+    )
+
+    sups = auth_client.get(f"/api/v1/suppressions?job_id={job_id}").json()["suppressions"]
+    assert sups[0]["created_by"] == "test-user"

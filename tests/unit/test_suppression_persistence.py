@@ -1,19 +1,17 @@
-"""Tests for suppression persistence across dashboard re-scans.
+"""Tests for the analysis-time suppression filter.
 
-The bug these pin: the dashboard stored suppressions under
-``.archguard-cache/suppressions-{job_id}.jsonl`` while the analysis-time filter
-looked inside the analysed tree. Both halves were wrong for the dashboard's
-model -- it clones a throwaway workspace per scan, and every scan gets a new job
-id -- so "Suppress" never affected what the next scan reported.
+The bug these pin: the dashboard wrote suppressions to one place while the
+analysis-time filter read another, so "Suppress" never affected what the next
+scan reported. Storage moved to PostgreSQL, and the filter now compares the
+hashes it is handed -- so what these guard is that it uses them, and only them,
+rather than going looking in the analysed clone again.
+
+Storage itself is covered in tests/integration/test_suppression_store_db.py.
 """
 
 from __future__ import annotations
 
-import pytest
-
 from archguard.analysis._suppression_filter import _filter_suppressed
-from archguard.suppression.scope import repo_slug, suppression_path_for_repo
-from archguard.suppression.store import SuppressionStore
 
 
 class _V:
@@ -23,65 +21,6 @@ class _V:
         self.module = module
         self.layer = layer
         self.message = message
-
-
-# ---------------------------------------------------------------------------
-# Keying: one repository -> one store, however its URL is spelled
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "https://github.com/sqlmapproject/sqlmap",
-        "https://github.com/sqlmapproject/sqlmap.git",
-        "https://github.com/sqlmapproject/sqlmap/",
-        "git@github.com:sqlmapproject/sqlmap.git",
-        "https://github.com/SqlmapProject/SqlMap",
-    ],
-)
-def test_url_spellings_of_one_repo_share_a_store(url):
-    """A re-scan must find last scan's suppressions even if the user pasted the
-    URL differently the second time."""
-    assert repo_slug(url) == "sqlmapproject__sqlmap"
-
-
-def test_different_repos_do_not_share_a_store():
-    a = repo_slug("https://github.com/owner/alpha")
-    b = repo_slug("https://github.com/owner/beta")
-    c = repo_slug("https://github.com/other/alpha")
-    assert len({a, b, c}) == 3
-
-
-def test_slug_is_a_single_safe_path_segment():
-    slug = repo_slug("https://github.com/owner/repo")
-    assert "/" not in slug and "\\" not in slug
-    assert ".." not in slug
-
-
-def test_unparseable_url_gets_a_stable_hashed_slug():
-    """Better a stable private bucket than collapsing unknown repos together."""
-    weird = "not-a-github-url"
-    first, second = repo_slug(weird), repo_slug(weird)
-
-    assert first == second
-    assert first.startswith("url-")
-    assert first != repo_slug("also-not-a-url")
-
-
-def test_path_is_scoped_under_the_base_directory(tmp_path):
-    path = suppression_path_for_repo(tmp_path, "https://github.com/owner/repo")
-
-    assert path.parent.parent == tmp_path
-    assert path.name == "owner__repo.jsonl"
-    # Never escapes the base, even for a hostile-looking URL.
-    hostile = suppression_path_for_repo(tmp_path, "https://github.com/../../etc/passwd")
-    assert tmp_path in hostile.parents
-
-
-# ---------------------------------------------------------------------------
-# The analysis-time filter honours an explicit store
-# ---------------------------------------------------------------------------
 
 
 def _hash(module: str, layer: int, message: str) -> str:
@@ -157,29 +96,3 @@ def test_a_changed_message_is_a_different_finding(tmp_path):
     worse = [_V("lib", 2, "fan_out=45 exceeds budget=10")]
 
     assert len(_filter_suppressed(tmp_path, worse, suppressed_hashes=suppressed)) == 1
-
-
-# ---------------------------------------------------------------------------
-# Store construction
-# ---------------------------------------------------------------------------
-
-
-def test_at_path_backs_the_store_with_the_given_file(tmp_path):
-    path = tmp_path / "nested" / "store.jsonl"
-    path.parent.mkdir(parents=True)
-    store = SuppressionStore.at_path(path)
-
-    store.add(module="m", layer=2, message="msg", reason="r")
-
-    assert path.exists()
-    assert store.is_suppressed("m", 2, "msg") is True
-
-
-def test_repo_root_constructor_still_uses_the_checkout(tmp_path):
-    """The CLI's keying is unchanged: suppressions live inside the checkout."""
-    from archguard.config import SUPPRESSION_FILE
-
-    store = SuppressionStore(tmp_path)
-    store.add(module="m", layer=2, message="msg", reason="r")
-
-    assert (tmp_path / SUPPRESSION_FILE).exists()

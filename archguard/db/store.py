@@ -577,6 +577,7 @@ async def add_suppression(
     pr_number: int | None = None,
     commit_sha: str = "",
     user_id: int | None = None,
+    created_by: str = "local",
 ) -> Suppression:
     repo = await upsert_repository(session, repo_url)
     suppression = Suppression(
@@ -589,6 +590,9 @@ async def add_suppression(
         expires_at=expires_at,
         pr_number=pr_number,
         commit_sha=commit_sha,
+        # The account that filed it, shown in the list. The default is what the
+        # file store wrote before there were accounts to name.
+        created_by=created_by,
     )
     session.add(suppression)
     await session.flush()
