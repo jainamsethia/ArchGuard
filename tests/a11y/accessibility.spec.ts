@@ -131,11 +131,18 @@ test('the sign-in overlay does not leave hidden content in the tab order', async
   // The overlay used to hide the page with `visibility: hidden`, which removes
   // it visually while leaving every control reachable by Tab and by screen
   // reader. `inert` removes it from both.
-  await page.goto('/');
-  const overlayVisible = await page.locator('#login-overlay').isVisible();
-  if (!overlayVisible) {
-    test.skip(true, 'no overlay shown: this instance signs in automatically');
-  }
+  //
+  // Signed out and on a gated page, both of which this test used to get wrong.
+  // It asked for `/`, which is deliberately public -- only the dashboard is
+  // gated -- so the overlay was never there to inspect, and the guard below
+  // turned that into a skip rather than a failure. It skipped on every run,
+  // locally and in CI, while `inert` went unverified.
+  await signedOut(page);
+  await page.goto('/dashboard.html');
+  await expect(page.locator('#login-overlay')).toBeVisible();
+
+  // A skip here would hide exactly the regression this test exists to catch,
+  // so the overlay's absence is a failure like any other.
   const inertCount = await page.locator('body > [inert]').count();
-  expect(inertCount).toBeGreaterThan(0);
+  expect(inertCount, 'content behind the overlay is still in the tab order').toBeGreaterThan(0);
 });
