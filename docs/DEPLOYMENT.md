@@ -329,6 +329,8 @@ Alert on any log line containing:
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|------------|
 | `401 Sign in with GitHub to continue.` | No session cookie, and the local-development fallback does not apply | Sign in through the UI. In production the fallback is off by design, so `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` must be set |
+| `401 Invalid or missing token` | `ARCHGUARD_DASHBOARD_TOKEN` is set, but the request carried no matching `Authorization: Bearer` header and no valid session | Send the operator token as a Bearer header, or sign in for a session cookie. This is the API and CLI path, not the browser one |
+| `401 Dashboard requires ARCHGUARD_DASHBOARD_TOKEN to be set for remote access` | No token configured and the caller is not on localhost | Set `ARCHGUARD_DASHBOARD_TOKEN`. `ARCHGUARD_DASHBOARD_ALLOW_REMOTE=1` also silences it, by disabling the check -- do not use it on an Internet-facing deployment |
 | A run reports guessed module boundaries | The analysed repository has no `.archguard.yml` | Expected: one is generated headlessly. The report says whether boundaries were measured from co-change history or inferred from directory names |
 | Health check fails | Port mismatch or app not started | Check `PORT` env var; verify uvicorn starts |
 | `ModuleNotFoundError: No module named 'sentence_transformers'` | The worker extra is not installed | `poetry install --extras worker`, or set `ARCHGUARD_SKIP_ML=1` to run layers 1 and 2 only. Layers 3 and 4 then report as unmeasured rather than as zero |
