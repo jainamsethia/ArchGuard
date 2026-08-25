@@ -84,81 +84,79 @@ def test_path_is_scoped_under_the_base_directory(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_filter_uses_the_explicit_store_not_the_analysed_tree(tmp_path):
-    """The regression: the dashboard's store lives outside the analysed clone."""
+def _hash(module: str, layer: int, message: str) -> str:
+    from archguard.suppression.models import make_violation_hash
+
+    return make_violation_hash(module, layer, message)
+
+
+def test_filter_uses_the_hashes_it_is_given_not_the_analysed_tree(tmp_path):
+    """The regression: a user's suppressions are not inside the analysed clone.
+
+    They are rows in PostgreSQL owned by whoever submitted the job, resolved
+    before the pipeline starts. The clone is a throwaway that has never held
+    anybody's suppressions, and this test fails if the filter goes looking in it
+    again.
+    """
     clone = tmp_path / "throwaway-clone"
     clone.mkdir()
-    durable = tmp_path / "durable" / "owner__repo.jsonl"
-    durable.parent.mkdir(parents=True)
-
-    SuppressionStore.at_path(durable).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="accepted debt",
-    )
 
     violations = [
         _V("lib", 2, "fan_out=22 exceeds budget=10"),
         _V("tests", 2, "fan_out=14 exceeds budget=10"),
     ]
 
-    # Without the explicit store the clone has nothing, so nothing is filtered.
+    # Given nothing, nothing is filtered -- including by reading the clone.
     assert len(_filter_suppressed(clone, violations)) == 2
 
-    kept = _filter_suppressed(clone, violations, store_path=durable)
+    kept = _filter_suppressed(
+        clone,
+        violations,
+        suppressed_hashes={_hash("lib", 2, "fan_out=22 exceeds budget=10")},
+    )
     assert [v.module for v in kept] == ["tests"]
 
 
-def test_filter_survives_a_missing_store_file(tmp_path):
-    """A repo with no suppressions yet must analyse normally."""
+def test_filter_survives_having_no_suppressions(tmp_path):
+    """A repository nobody has suppressed anything in must analyse normally."""
     violations = [_V("lib", 2, "fan_out=22 exceeds budget=10")]
-    missing = tmp_path / "never-written" / "owner__repo.jsonl"
 
-    assert len(_filter_suppressed(tmp_path, violations, store_path=missing)) == 1
+    assert len(_filter_suppressed(tmp_path, violations, suppressed_hashes=None)) == 1
+    assert len(_filter_suppressed(tmp_path, violations, suppressed_hashes=set())) == 1
 
 
-def test_suppression_written_once_applies_to_every_later_scan(tmp_path):
-    """End-to-end shape of the fix, without running the analyser.
+def test_a_suppression_hash_does_not_depend_on_the_clone_or_the_job(tmp_path):
+    """What makes a suppression survive a re-scan, now that storage is durable.
 
-    Scan 1 sees the violation, the user suppresses it, and scans 2 and 3 -- each
-    of which would have had its own job id -- no longer report it.
+    Every scan gets a fresh clone and a new job id. Matching keys on the
+    violation's own identity and on nothing else, so the same finding in scan 3
+    hashes to what the user suppressed during scan 1.
     """
-    base = tmp_path / "cache"
-    url = "https://github.com/owner/repo"
     violations = [
         _V("lib", 2, "fan_out=22 exceeds budget=10"),
         _V("tests", 2, "fan_out=14 exceeds budget=10"),
     ]
+    suppressed = {_hash("lib", 2, "fan_out=22 exceeds budget=10")}
 
     def scan(clone_dir: str) -> list[str]:
-        # A different throwaway clone each time, as a real re-scan would have.
         clone = tmp_path / clone_dir
         clone.mkdir()
-        path = suppression_path_for_repo(base, url)
-        return [v.module for v in _filter_suppressed(clone, violations, store_path=path)]
+        return [
+            v.module
+            for v in _filter_suppressed(clone, violations, suppressed_hashes=suppressed)
+        ]
 
-    assert scan("clone-1") == ["lib", "tests"]
-
-    path = suppression_path_for_repo(base, url)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    SuppressionStore.at_path(path).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="accepted debt",
-    )
-
+    assert scan("clone-1") == ["tests"]
     assert scan("clone-2") == ["tests"]
     assert scan("clone-3") == ["tests"]
 
 
-def test_expired_suppression_stops_hiding_the_violation(tmp_path):
-    """Suppression persistence must not mean permanence."""
-    path = tmp_path / "owner__repo.jsonl"
-    SuppressionStore.at_path(path).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="temporary", expires_at="2020-01-01T00:00:00+00:00",
-    )
+def test_a_changed_message_is_a_different_finding(tmp_path):
+    """Suppressing "fan_out=22" must not silently cover "fan_out=45" later."""
+    suppressed = {_hash("lib", 2, "fan_out=22 exceeds budget=10")}
+    worse = [_V("lib", 2, "fan_out=45 exceeds budget=10")]
 
-    violations = [_V("lib", 2, "fan_out=22 exceeds budget=10")]
-    assert len(_filter_suppressed(tmp_path, violations, store_path=path)) == 1
+    assert len(_filter_suppressed(tmp_path, worse, suppressed_hashes=suppressed)) == 1
 
 
 # ---------------------------------------------------------------------------

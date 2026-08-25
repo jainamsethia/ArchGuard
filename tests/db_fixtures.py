@@ -248,6 +248,28 @@ def test_user(live_db: str) -> Any:
 
 
 @pytest.fixture()
+def second_user(live_db: str) -> Any:
+    """A second real account, for asserting that one user's data stays theirs.
+
+    Isolation cannot be tested with one account: a query that ignores
+    ``user_id`` passes every single-user test ever written.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def _create() -> Any:
+        async with session_scope() as session:
+            user = await store.upsert_user(
+                session, github_id=9184, login="second-user", avatar_url=None
+            )
+            await session.refresh(user)
+            session.expunge(user)
+            return user
+
+    return _run(_create())
+
+
+@pytest.fixture()
 def auth_client(test_user: Any) -> Any:
     """A TestClient carrying a session cookie for ``test_user``."""
     from fastapi.testclient import TestClient

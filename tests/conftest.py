@@ -16,6 +16,7 @@ from tests.db_fixtures import (  # noqa: F401
     auth_client,
     live_db,
     requires_postgres,
+    second_user,
     seed_run,
     test_user,
 )

@@ -165,8 +165,6 @@ def test_analysis_orchestrator_context_manager(tmp_path):
 
 
 def test_filter_suppressed_layer_4(tmp_path):
-    from unittest.mock import patch
-
     from archguard.analysis._models import Severity
     from archguard.analysis.layers import AnalysisOrchestrator, ViolationDetail
 
@@ -191,13 +189,16 @@ def test_filter_suppressed_layer_4(tmp_path):
         commit_sha="abcd123",
     )
 
-    with patch("archguard.suppression.store.SuppressionStore") as mock_store_cls:
-        mock_store = mock_store_cls.return_value
-        mock_store.is_suppressed.return_value = True
+    from archguard.suppression.models import make_violation_hash
 
-        filtered = _filter_suppressed(orchestrator.repo_root, [violation])
+    suppressed = {make_violation_hash("api", 4, "Duplicate function body")}
+    assert _filter_suppressed(
+        orchestrator.repo_root, [violation], suppressed_hashes=suppressed
+    ) == []
 
-        assert len(filtered) == 0
-        mock_store.is_suppressed.assert_called_once_with(
-            "api", 4, "Duplicate function body"
-        )
+    # A Layer 4 finding the user has not suppressed still comes through, so the
+    # assertion above is about the match and not about filtering everything.
+    other = {make_violation_hash("api", 4, "Something else entirely")}
+    assert len(
+        _filter_suppressed(orchestrator.repo_root, [violation], suppressed_hashes=other)
+    ) == 1

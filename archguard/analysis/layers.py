@@ -34,23 +34,24 @@ class AnalysisOrchestrator:
         self,
         repo_root: Path,
         db_path: Path | None = None,
-        suppression_path: Path | None = None,
+        suppressed_hashes: set[str] | None = None,
     ) -> None:
         """
         Args:
             repo_root:        root of the tree being analysed.
             db_path:          embedding cache location.
-            suppression_path: explicit suppression JSONL. Callers analysing a
-                throwaway clone (the dashboard) must pass this, since the
-                default location inside *repo_root* is discarded with the clone
-                and would never contain the user's suppressions.
+            suppressed_hashes: violation hashes this run must not report,
+                resolved by the caller. Suppressions are rows in PostgreSQL
+                owned by the user who submitted the job, and reading them is
+                async while this pipeline is not -- so the worker fetches them
+                once and passes the set in.
         """
         self.repo_root = repo_root
         self.contract: dict[str, Any] = load_contract(repo_root)
         db_path = db_path or repo_root / ".archguard-cache" / "embeddings.db"
         self.db = EmbeddingDB(db_path)
         self.cache = EmbeddingCache(self.db)
-        self.suppression_path = suppression_path
+        self.suppressed_hashes = suppressed_hashes
         self._audit: Any | None = None
 
     def close(self) -> None:

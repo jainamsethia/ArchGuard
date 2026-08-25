@@ -102,9 +102,15 @@ async def remediation_plan_from_audit(
             raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
     else:
         return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
-    from archguard.dashboard._selection import select_findings, selection_summary
+    from archguard.dashboard._selection import (
+        select_findings,
+        selection_summary,
+        suppressed_hashes_for,
+    )
 
-    selection = select_findings(latest, job_id)
+    selection = select_findings(
+        latest, await suppressed_hashes_for(latest.get("repo_url"), user.id)
+    )
     violations = [r.finding for r in selection.selected if not r.is_fitness_gate]
     gates = [r.finding for r in selection.selected if r.is_fitness_gate]
 

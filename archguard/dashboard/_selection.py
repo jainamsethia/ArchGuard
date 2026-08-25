@@ -16,46 +16,55 @@ from archguard.analysis.ranking import Selection, finding_key, select_for_remedi
 logger = logging.getLogger(__name__)
 
 
-def _suppression_store_for(repo_url: str | None, job_id: str | None) -> Any:
-    """Resolve the dashboard's suppression store.
+async def suppressed_hashes_for(repo_url: str | None, user_id: int) -> set[str]:
+    """This user's active suppression hashes for *repo_url*.
 
-    A module-level seam rather than an inline import: it keeps the dependency on
-    the route layer explicit and lets tests substitute a store without needing a
-    real one on disk.
+    Suppressions live in PostgreSQL, so reading them is async, while ranking is
+    not. Resolving them to a plain set here lets the caller -- an async route --
+    do the query, and keeps ``select_findings`` synchronous.
+
+    Failure is empty rather than fatal: ranking without suppressions shows a
+    user findings they had dismissed, which is a worse report but a report.
     """
-    from archguard.dashboard.routes.suppression import _suppression_store
+    if not repo_url:
+        return set()
+    try:
+        from archguard.db.session import session_scope
+        from archguard.db.store import active_violation_hashes
 
-    return _suppression_store(repo_url, job_id)
+        async with session_scope() as session:
+            return await active_violation_hashes(session, repo_url, user_id)
+    except Exception as exc:
+        logger.warning("Suppressions unavailable (%s); ranking without them.", exc)
+        return set()
 
 
-def select_findings(run: dict[str, Any], job_id: str | None) -> Selection:
+def select_findings(
+    run: dict[str, Any], suppressed_hashes: set[str] | None = None
+) -> Selection:
     """Rank a run's findings and take the top N for an LLM remediation plan.
 
-    Suppressions are read from the dashboard's own store -- the one the
-    Suppressions tab writes to. The analysis-time filter in
-    ``archguard.analysis._suppression_filter`` reads the *cloned workspace* root
-    instead, which for a dashboard job is a fresh temp directory that never
-    holds the user's suppressions, so relying on it alone would spend LLM budget
+    *suppressed_hashes* comes from ``suppressed_hashes_for`` above -- the
+    suppressions the user recorded in the Suppressions tab. The analysis-time
+    filter cannot stand in for them on its own: for a dashboard job it runs
+    against a throwaway clone, so relying on it would spend LLM budget
     explaining findings the user had already dismissed.
     """
-    try:
-        # The run records the repository it analysed, so no lookup is needed
-        # here -- which is what keeps this function synchronous.
-        store = _suppression_store_for(run.get("repo_url"), job_id)
-    except Exception as exc:
-        logger.warning("Suppression store unavailable (%s); ranking without it.", exc)
-        store = None
+    from archguard.suppression.models import make_violation_hash
+
+    hashes = suppressed_hashes or set()
 
     def _is_suppressed(v: dict[str, Any]) -> bool:
-        if store is None:
+        if not hashes:
             return False
         try:
-            return bool(
-                store.is_suppressed(
+            return (
+                make_violation_hash(
                     str(v.get("module") or ""),
                     int(v.get("layer") or 0),
                     str(v.get("message") or ""),
                 )
+                in hashes
             )
         except (ValueError, TypeError):
             return False

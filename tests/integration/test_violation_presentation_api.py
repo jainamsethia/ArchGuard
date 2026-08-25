@@ -97,21 +97,35 @@ def test_selection_is_stable_across_repeated_reads(persisted_run, test_user):
 
 
 def test_suppressed_violations_are_excluded_from_counts_and_selection(
-    persisted_run, test_user, monkeypatch
+    persisted_run, test_user
 ):
-    """Suppression is read from the dashboard's own store, which is what the
-    Suppressions tab writes to."""
-    from archguard.dashboard import _selection
+    """Suppressions come from PostgreSQL, owned by the user asking.
+
+    Real rows rather than a patched seam: the point of moving off the JSONL
+    store was that the route, the store and the ranking agree on one source, and
+    a stubbed store would not have noticed if they stopped agreeing.
+    """
+    from archguard.db.session import session_scope
+    from archguard.db.store import add_suppression
+    from archguard.suppression.models import make_violation_hash
 
     suppressed = {"module_00", "module_01", "module_02"}
 
-    class _FakeStore:
-        def is_suppressed(self, module, layer, message):
-            return module in suppressed
+    async def _seed() -> None:
+        async with session_scope() as session:
+            for i, module in enumerate(sorted(suppressed)):
+                message = f"fan_out={11 + i} exceeds budget=10"
+                await add_suppression(
+                    session,
+                    repo_url="https://github.com/example/repo",
+                    module=module,
+                    layer=2,
+                    violation_hash=make_violation_hash(module, 2, message),
+                    reason="accepted debt",
+                    user_id=test_user.id,
+                )
 
-    monkeypatch.setattr(
-        _selection, "_suppression_store_for", lambda repo_url, jid: _FakeStore()
-    )
+    asyncio.run(_seed())
 
     run = _latest(persisted_run, test_user)
     sel = run["remediation_selection"]
@@ -123,3 +137,50 @@ def test_suppressed_violations_are_excluded_from_counts_and_selection(
     assert len(run["violations"]) == 20
     for key in sel["selected_keys"]:
         assert key.split("|")[0] not in suppressed
+
+
+def test_one_users_suppressions_do_not_affect_another(persisted_run, test_user, seed_run):
+    """The reason this moved to PostgreSQL at all.
+
+    The JSONL store was keyed by repository, so everybody analysing the same
+    repository shared one file -- and one another's reasons. Rows are owned.
+    """
+    from archguard.db.models import User
+    from archguard.db.session import session_scope
+    from archguard.db.store import active_violation_hashes, add_suppression
+    from archguard.suppression.models import make_violation_hash
+
+    message = "fan_out=11 exceeds budget=10"
+
+    async def _seed_other_user() -> int:
+        async with session_scope() as session:
+            other = User(github_id=987654, login="somebody-else")
+            session.add(other)
+            await session.flush()
+            await add_suppression(
+                session,
+                repo_url="https://github.com/example/repo",
+                module="module_00",
+                layer=2,
+                violation_hash=make_violation_hash("module_00", 2, message),
+                reason="not your business",
+                user_id=other.id,
+            )
+            return int(other.id)
+
+    other_id = asyncio.run(_seed_other_user())
+
+    async def _hashes(user_id: int) -> set:
+        async with session_scope() as session:
+            return await active_violation_hashes(
+                session, "https://github.com/example/repo", user_id
+            )
+
+    assert asyncio.run(_hashes(other_id)), "the other user has their own suppression"
+    assert asyncio.run(_hashes(test_user.id)) == set(), (
+        "somebody else's suppression must not apply to this user"
+    )
+
+    # And it does not silently hide their findings either.
+    run = _latest(persisted_run, test_user)
+    assert run["remediation_selection"]["suppressed"] == 0

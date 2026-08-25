@@ -12,38 +12,42 @@ logger: logging.Logger = logging.getLogger(__name__)
 def _filter_suppressed(
     repo_root: Path,
     violations: list[Any],
-    store_path: Path | None = None,
+    suppressed_hashes: set[str] | None = None,
 ) -> list[Any]:
-    """Remove violations that match an active suppression.
+    """Remove violations the user has suppressed.
 
-    *store_path*, when given, overrides the default
-    ``<repo_root>/.archguard-cache/suppressions.jsonl`` location. The default is
-    correct for the CLI, where the analysed checkout persists between runs and
-    the suppression file lives inside it. It is wrong for the dashboard, which
-    analyses a throwaway clone: the file it would look for there is one no user
-    ever wrote to, so every suppressed violation came back on the next scan.
+    *suppressed_hashes* is resolved by the caller, because suppressions live in
+    PostgreSQL and this runs inside a synchronous pipeline. The worker reads
+    them once per job -- scoped to the user who submitted it -- and passes the
+    set down; ``None`` or an empty set means filter nothing.
+
+    This used to open a JSONL file under *repo_root* instead, which for a
+    dashboard job is a throwaway clone that has never held anybody's
+    suppressions. *repo_root* is kept in the signature because the orchestrator
+    passes it positionally and it costs nothing to accept, but nothing here
+    reads from disk any more.
     """
-    try:
-        from archguard.suppression.store import SuppressionStore
+    if not suppressed_hashes:
+        return violations
 
-        store = (
-            SuppressionStore.at_path(store_path)
-            if store_path is not None
-            else SuppressionStore(repo_root)
-        )
+    try:
+        from archguard.suppression.models import make_violation_hash
+
         kept = [
             v
             for v in violations
-            if not store.is_suppressed(v.module, v.layer, v.message)
+            if make_violation_hash(v.module, v.layer, v.message)
+            not in suppressed_hashes
         ]
         if len(kept) != len(violations):
             logger.info(
-                "Suppressed %d of %d violations from %s",
-                len(violations) - len(kept), len(violations), store._path,
+                "Suppressed %d of %d violations",
+                len(violations) - len(kept),
+                len(violations),
             )
         return kept
     except Exception as exc:
         logger.warning(
-            "Suppression store unavailable (%s). Proceeding unfiltered.", exc
+            "Could not apply suppressions (%s). Proceeding unfiltered.", exc
         )
         return violations

@@ -74,7 +74,7 @@ async def get_runs(
 
 
 async def _with_plain_language(
-    run: dict[str, Any], job_id: str | None = None
+    run: dict[str, Any], user_id: int | None = None
 ) -> dict[str, Any]:
     """Attach plain-language explanations and the remediation-selection counts.
 
@@ -101,9 +101,18 @@ async def _with_plain_language(
 
     out = {**run, "violations": enriched}
     try:
-        from archguard.dashboard._selection import select_findings, selection_summary
+        from archguard.dashboard._selection import (
+            select_findings,
+            selection_summary,
+            suppressed_hashes_for,
+        )
 
-        out["remediation_selection"] = selection_summary(select_findings(run, job_id))
+        hashes = (
+            await suppressed_hashes_for(run.get("repo_url"), user_id)
+            if user_id is not None
+            else set()
+        )
+        out["remediation_selection"] = selection_summary(select_findings(run, hashes))
     except Exception as exc:
         _logger.warning("Could not compute remediation selection: %s", exc)
     return out
@@ -122,7 +131,7 @@ async def get_latest_run(
         run = await store.get_latest_run(session, job_id, user.id)
     if run is None:
         raise HTTPException(status_code=404, detail=f"No run found for job_id {job_id}")
-    return await _with_plain_language(run, job_id)
+    return await _with_plain_language(run, user.id)
 
 
 @router.get("/modules")

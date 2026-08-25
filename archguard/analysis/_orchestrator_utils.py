@@ -18,7 +18,7 @@ if typing.TYPE_CHECKING:
             self,
             repo_root: Path,
             violations: list[Any],
-            store_path: Path | None = None,
+            suppressed_hashes: set[str] | None = None,
         ) -> list[Any]: ...
 
 from archguard.analysis.scoring import (
@@ -44,14 +44,14 @@ def _build_partial_result(
     rel_files: list[str],
     commit_sha: str,
     metrics: dict[str, Any],
-    suppression_path: Path | None = None,
+    suppressed_hashes: set[str] | None = None,
 ) -> AnalysisResult:
     """Build a partial AnalysisResult for fail-fast scenarios."""
     from archguard.analysis.layers import AnalysisResult
 
-    # Same store the full path uses: a fail-fast run must not resurrect
+    # Same suppressions the full path uses: a fail-fast run must not resurrect
     # violations the user already suppressed.
-    violations = filter_fn(repo_root, violations, store_path=suppression_path)
+    violations = filter_fn(repo_root, violations, suppressed_hashes=suppressed_hashes)
     scores = LayerScores(l1, l2, l3, l4)
 
     weights_cfg = contract.get("weights")

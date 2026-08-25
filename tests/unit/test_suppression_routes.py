@@ -1,101 +1,143 @@
 """End-to-end tests for the /api/v1/suppressions dashboard routes.
 
-Covers the working-tree suppression management surface (GET/POST/DELETE) and
-the DELETE 404 semantics added when the route was refactored onto
-``SuppressionStore.delete``. Runs against a real in-process job workspace so
-the JSONL store, file locking, and audit logging are exercised unmocked.
+Covers GET/POST/DELETE against PostgreSQL, which is where suppressions live
+since the JSONL store was retired. Nothing is faked: the routes, the store and
+the ownership checks are all exercised, because the bugs worth catching here are
+the ones where those three stop agreeing.
 """
 from __future__ import annotations
 
-import json
-import shutil
-import tempfile
-import uuid
-from pathlib import Path
-
 import pytest
-from fastapi.testclient import TestClient
+
+from tests.db_fixtures import requires_postgres
+
+REPO_URL = "https://github.com/example/repo"
 
 
 @pytest.fixture
-def client(monkeypatch) -> TestClient:
-    """TestClient with token auth enabled and a tmp workspace for a known job_id."""
-    monkeypatch.setenv("ARCHGUARD_DASHBOARD_TOKEN", "test-token-suppression")
-    monkeypatch.setenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", "1")
-    token = "test-token-suppression"
-    auth_headers = {"Authorization": f"Bearer {token}"}
-
-    job_id = str(uuid.uuid4())
-    # Resolve the temp dir the same way get_target_path() does (app.py uses
-    # tempfile.gettempdir()), and create the workspace it will resolve to.
-    repo_dir = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / ".archguard.yml").write_text("version: '3.0'\nmodules: []\n", encoding="utf-8")
-
-    from archguard.dashboard.app import app
-    client = TestClient(app, raise_server_exceptions=False)
-    client.headers.update(auth_headers)
-    client._archguard_job_id = job_id  # type: ignore[attr-defined]
-    yield client
-    shutil.rmtree(repo_dir.parent, ignore_errors=True)
+def job_id(seed_run) -> str:
+    """A real job owned by ``test_user``, so a repository can be resolved."""
+    return seed_run(repo_url=REPO_URL, score=50.0, band="WARN", violations=[])
 
 
-def test_suppression_lifecycle(client: TestClient) -> None:
+@requires_postgres
+def test_suppression_lifecycle(auth_client, job_id: str) -> None:
     """POST then GET then DELETE a suppression end-to-end."""
-    job_id = client._archguard_job_id  # type: ignore[attr-defined]
     q = f"?job_id={job_id}"
 
-    # Add a suppression.
-    resp = client.post(
+    resp = auth_client.post(
         f"/api/v1/suppressions{q}",
         json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
     )
     assert resp.status_code == 200, resp.text
 
-    # List: should contain exactly one active suppression.
-    resp = client.get(f"/api/v1/suppressions{q}")
+    resp = auth_client.get(f"/api/v1/suppressions{q}")
     assert resp.status_code == 200
     sups = resp.json()["suppressions"]
     assert len(sups) == 1
     assert sups[0]["module"] == "api"
-    sup_id = sups[0]["id"]
+    assert sups[0]["reason"] == "FP"
 
-    # Delete it.
-    resp = client.request(
+    resp = auth_client.request(
         "DELETE",
         f"/api/v1/suppressions{q}",
-        data=json.dumps({"suppression_id": sup_id}),
-        headers={"Content-Type": "application/json"},
+        json={"suppression_id": sups[0]["id"]},
     )
     assert resp.status_code == 200, resp.text
 
-    # List again: empty.
-    resp = client.get(f"/api/v1/suppressions{q}")
-    assert resp.status_code == 200
-    assert resp.json()["suppressions"] == []
+    assert auth_client.get(f"/api/v1/suppressions{q}").json()["suppressions"] == []
 
 
-def test_delete_missing_suppression_returns_404(client: TestClient) -> None:
-    """DELETE of an id that was never present must 404, not silently 200."""
-    job_id = client._archguard_job_id  # type: ignore[attr-defined]
-    q = f"?job_id={job_id}"
-
-    resp = client.request(
+@requires_postgres
+def test_delete_missing_suppression_returns_404(auth_client, job_id: str) -> None:
+    """A no-op delete must not report success."""
+    resp = auth_client.request(
         "DELETE",
-        f"/api/v1/suppressions{q}",
-        data=json.dumps({"suppression_id": "does-not-exist-00000000"}),
-        headers={"Content-Type": "application/json"},
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"suppression_id": "00000000-0000-4000-8000-000000000000"},
     )
     assert resp.status_code == 404
 
 
-def test_add_rejects_invalid_layer(client: TestClient) -> None:
-    """Layer outside {1,2,3,4} is rejected with 400."""
-    job_id = client._archguard_job_id  # type: ignore[attr-defined]
-    q = f"?job_id={job_id}"
+@requires_postgres
+def test_the_response_never_carries_another_users_id(auth_client, job_id: str) -> None:
+    """The payload is built field by field for this reason.
 
-    resp = client.post(
-        f"/api/v1/suppressions{q}",
-        json={"module": "api", "layer": 9, "message": "msg", "reason": "r"},
+    While these were dataclasses in a file the route returned ``s.__dict__``.
+    On an ORM row that carries ``user_id`` and SQLAlchemy's instance state.
+    """
+    auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
+    )
+
+    sups = auth_client.get(f"/api/v1/suppressions?job_id={job_id}").json()["suppressions"]
+
+    assert sups and "user_id" not in sups[0]
+    assert not any(k.startswith("_") for k in sups[0])
+
+
+@requires_postgres
+def test_a_suppression_is_not_visible_to_another_user(auth_client, job_id: str) -> None:
+    """The isolation the file store could not provide.
+
+    It was keyed by repository, so everyone analysing the same repository shared
+    one file and one another's stated reasons.
+    """
+    from fastapi.testclient import TestClient
+
+    from archguard.dashboard import _sessions
+    from archguard.dashboard.app import app
+    from archguard.db.models import User
+    from archguard.db.session import session_scope
+
+    auth_client.post(
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"module": "api", "layer": 1, "message": "bad import", "reason": "mine"},
+    )
+    mine = auth_client.get(f"/api/v1/suppressions?job_id={job_id}").json()["suppressions"]
+    assert len(mine) == 1
+
+    async def _other_user() -> int:
+        async with session_scope() as session:
+            other = User(github_id=424242, login="intruder")
+            session.add(other)
+            await session.flush()
+            return int(other.id)
+
+    import asyncio
+
+    other_id = asyncio.run(_other_user())
+    intruder = TestClient(app)
+    intruder.cookies.set(_sessions.COOKIE_NAME, _sessions.issue(other_id))
+
+    # They cannot see it. The job is not theirs either, so the repository does
+    # not resolve and the list is empty rather than somebody else's.
+    assert intruder.get(f"/api/v1/suppressions?job_id={job_id}").json()["suppressions"] == []
+
+    # And they cannot delete it by naming its id, which is a bare UUID in a
+    # request body: the lookup is scoped, so this is a 404 rather than a delete.
+    resp = intruder.request(
+        "DELETE",
+        f"/api/v1/suppressions?job_id={job_id}",
+        json={"suppression_id": mine[0]["id"]},
+    )
+    assert resp.status_code == 404
+
+    still_there = auth_client.get(
+        f"/api/v1/suppressions?job_id={job_id}"
+    ).json()["suppressions"]
+    assert len(still_there) == 1
+
+
+@requires_postgres
+def test_a_job_that_resolves_no_repository_is_rejected(auth_client) -> None:
+    """Silently accepting this is what the old job-scoped fallback file did.
+
+    It wrote somewhere the next scan would never look, and answered "success".
+    """
+    resp = auth_client.post(
+        "/api/v1/suppressions?job_id=00000000-0000-4000-8000-000000000000",
+        json={"module": "api", "layer": 1, "message": "bad import", "reason": "FP"},
     )
     assert resp.status_code == 400

@@ -221,6 +221,24 @@ async def job_repo_url_unscoped(session: AsyncSession, job_id: str) -> str | Non
     return repo.url if repo else None
 
 
+async def job_owner_id_unscoped(session: AsyncSession, job_id: str) -> int | None:
+    """Who submitted a job, without a user filter.
+
+    The second deliberately unscoped read, named the same way and for the same
+    reason as the one above: the worker takes a job id off a queue and has no
+    request to scope by. It exists so the worker can apply *that user's*
+    suppressions to the run, which is the only way a suppression can take effect
+    during analysis rather than only in the report.
+
+    It returns an integer and nothing else, so like its neighbour it cannot
+    become an accidental read path for user data.
+    """
+    if not _is_job_id(job_id):
+        return None
+    job = await session.get(Job, job_id)
+    return job.user_id if job is not None else None
+
+
 async def list_jobs(
     session: AsyncSession, user_id: int, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -521,14 +539,28 @@ async def get_dependency_scan(
 
 
 async def list_suppressions(
-    session: AsyncSession, repo_url: str, include_inactive: bool = True
+    session: AsyncSession,
+    repo_url: str,
+    user_id: int,
+    include_inactive: bool = True,
 ) -> list[Suppression]:
+    """One user's suppressions for one repository.
+
+    ``user_id`` is required rather than optional. A suppression records a
+    judgement ("this finding is acceptable here") together with the reason its
+    author typed, and two people analysing the same public repository are not
+    the same person. Defaulting it would make the unscoped query the easy one to
+    write, which is how the repository-wide behaviour arose in the first place.
+    """
     repo = (
         await session.execute(select(Repository).where(Repository.url == repo_url))
     ).scalar_one_or_none()
     if repo is None:
         return []
-    stmt = select(Suppression).where(Suppression.repository_id == repo.id)
+    stmt = select(Suppression).where(
+        Suppression.repository_id == repo.id,
+        Suppression.user_id == user_id,
+    )
     if not include_inactive:
         stmt = stmt.where(Suppression.active.is_(True))
     return list((await session.execute(stmt.order_by(Suppression.created_at.desc()))).scalars())
@@ -563,18 +595,29 @@ async def add_suppression(
     return suppression
 
 
-async def delete_suppression(session: AsyncSession, suppression_id: str) -> bool:
-    """True if a row was removed. False means the id did not exist, which the
-    route turns into a 404 rather than reporting a successful no-op."""
+async def delete_suppression(
+    session: AsyncSession, suppression_id: str, user_id: int
+) -> bool:
+    """True if a row was removed.
+
+    False means no such suppression belongs to this user, which the route turns
+    into a 404 rather than reporting a successful no-op. Ownership is part of
+    the lookup, not a check after it: a suppression id is a bare UUID travelling
+    in a request body, so fetching by id alone would let anyone who guesses or
+    observes one delete another user's row -- and, because the 404 is the same
+    either way, tell them nothing about whether it existed.
+    """
     existing = await session.get(Suppression, suppression_id)
-    if existing is None:
+    if existing is None or existing.user_id != user_id:
         return False
     await session.delete(existing)
     return True
 
 
-async def active_violation_hashes(session: AsyncSession, repo_url: str) -> set[str]:
-    """Hashes to filter out of a run, for the repository being analysed.
+async def active_violation_hashes(
+    session: AsyncSession, repo_url: str, user_id: int
+) -> set[str]:
+    """Hashes to filter out of a run, for one user and one repository.
 
     Expiry is applied here rather than by a sweep, so an expired suppression
     stops taking effect at the moment it expires rather than whenever something
@@ -583,7 +626,9 @@ async def active_violation_hashes(session: AsyncSession, repo_url: str) -> set[s
     now = datetime.now(UTC)
     return {
         s.violation_hash
-        for s in await list_suppressions(session, repo_url, include_inactive=False)
+        for s in await list_suppressions(
+            session, repo_url, user_id, include_inactive=False
+        )
         if s.expires_at is None or s.expires_at > now
     }
 

@@ -1,6 +1,5 @@
 import logging
 from datetime import UTC
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,8 +9,7 @@ from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard._workspace_paths import JobIdQuery
-from archguard.db.models import User
-from archguard.suppression.store import SuppressionStore
+from archguard.db.models import Suppression, User
 
 #: Mounted at /api/v1 by app.py. The dependencies live on the router rather
 #: than on each decorator: repeating them per route is how one of them ends up
@@ -48,55 +46,43 @@ async def repo_url_for_job(job_id: str | None, user_id: int) -> str | None:
     return None
 
 
-def suppression_base_dir() -> Path:
-    """Durable root for dashboard suppressions (never the ephemeral clone)."""
-    base = Path.cwd() / ".archguard-cache"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+def _as_payload(s: Suppression) -> dict[str, Any]:
+    """One row as the dashboard's JavaScript expects it.
 
-
-def _suppression_store(
-    repo_url: str | None, job_id: str | None = None
-) -> SuppressionStore:
-    """Return the durable, repository-keyed SuppressionStore.
-
-    Keyed by ``owner/repo`` rather than ``job_id``: every scan creates a new job
-    id, so a job-scoped store could never be found again on the next scan of the
-    same repository -- which is the only time a suppression is any use.
-
-    The repository is passed in rather than looked up, because both callers
-    already know it: a route has resolved the job, and ``_selection`` has the
-    run, which records its own ``repo_url``.
+    Explicit rather than ``s.__dict__``, which is what this returned while
+    suppressions were dataclasses in a file. On an ORM row that attribute
+    carries SQLAlchemy's internal instance state, and ``user_id`` besides --
+    another user's id is not something a response body should be handing out.
     """
-    from archguard.suppression.scope import suppression_path_for_repo
-
-    base = suppression_base_dir()
-
-    if repo_url:
-        store_path = suppression_path_for_repo(base, repo_url)
-    elif job_id:
-        # Repository unknown (job evicted and no audit entry). Fall back to the
-        # old per-job file so the request still works; it just won't be found by
-        # the next scan. Logged because that is a real limitation, not a detail.
-        logging.getLogger(__name__).warning(
-            "Could not resolve a repository for job %s; using a job-scoped "
-            "suppression store that will not persist across scans.", job_id,
-        )
-        store_path = base / f"suppressions-{job_id}.jsonl"
-    else:
-        store_path = base / "suppressions.jsonl"
-
-    store_path.parent.mkdir(parents=True, exist_ok=True)
-    return SuppressionStore.at_path(store_path)
+    return {
+        "id": s.id,
+        "module": s.module,
+        "layer": s.layer,
+        "violation_hash": s.violation_hash,
+        "reason": s.reason,
+        "created_by": s.created_by,
+        "commit_sha": s.commit_sha,
+        "pr_number": s.pr_number,
+        "created_at": s.created_at.isoformat() if s.created_at else None,
+        "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+        "active": s.active,
+    }
 
 
 @router.get("/suppressions")
 async def get_suppressions(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
-    suppressions = store.list_all(include_inactive=True)
-    return {"suppressions": [s.__dict__ for s in suppressions]}
+    repo_url = await repo_url_for_job(job_id, user.id)
+    if not repo_url:
+        return {"suppressions": []}
+
+    from archguard.db.session import session_scope
+    from archguard.db.store import list_suppressions
+
+    async with session_scope() as session:
+        rows = await list_suppressions(session, repo_url, user.id, include_inactive=True)
+        return {"suppressions": [_as_payload(s) for s in rows]}
 
 class AddSuppressionRequest(BaseModel):
     module: str
@@ -113,23 +99,40 @@ async def add_suppression(
     job_id: JobIdQuery = None,
     user: User = Depends(current_user),
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
+    repo_url = await repo_url_for_job(job_id, user.id)
+    if not repo_url:
+        # Without a repository there is nowhere durable to put this. The file
+        # store used to accept it into a job-scoped file that the next scan
+        # would never find again, which read as success and was not.
+        raise HTTPException(
+            status_code=400,
+            detail="Could not resolve a repository for this job.",
+        )
 
     expires_at = None
     if req.expires_in_days:
         from datetime import datetime, timedelta
-        expires_at = (datetime.now(UTC) + timedelta(days=req.expires_in_days)).isoformat()
+
+        expires_at = datetime.now(UTC) + timedelta(days=req.expires_in_days)
+
+    from archguard.db.session import session_scope
+    from archguard.db.store import add_suppression as store_add
+    from archguard.suppression.models import make_violation_hash
 
     try:
-        store.add(
-            module=req.module,
-            layer=req.layer,
-            message=req.message,
-            reason=req.reason,
-            expires_at=expires_at,
-            pr_number=req.pr_number,
-            commit_sha=req.commit_sha or ""
-        )
+        async with session_scope() as session:
+            await store_add(
+                session,
+                repo_url=repo_url,
+                module=req.module,
+                layer=req.layer,
+                violation_hash=make_violation_hash(req.module, req.layer, req.message),
+                reason=req.reason,
+                expires_at=expires_at,
+                pr_number=req.pr_number,
+                commit_sha=req.commit_sha or "",
+                user_id=user.id,
+            )
     except Exception as e:
         logging.getLogger(__name__).warning("Suppression add failed: %s", e)
         raise HTTPException(status_code=400, detail="Failed to add suppression.")
@@ -144,7 +147,13 @@ async def remove_suppression(
     job_id: JobIdQuery = None,
     user: User = Depends(current_user),
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
-    if not store.delete(req.suppression_id):
-        raise HTTPException(status_code=404, detail="Suppression not found")
+    from archguard.db.session import session_scope
+    from archguard.db.store import delete_suppression
+
+    async with session_scope() as session:
+        # Scoped by user inside the query. Somebody else's suppression is
+        # reported as absent rather than as forbidden, which is also the honest
+        # answer: as far as this user is concerned, it does not exist.
+        if not await delete_suppression(session, req.suppression_id, user.id):
+            raise HTTPException(status_code=404, detail="Suppression not found")
     return {"status": "success"}

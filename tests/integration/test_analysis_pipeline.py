@@ -73,21 +73,26 @@ def test_suppressed_violation_absent_from_analysis(temp_project, monkeypatch):
     assert len(result1.violations) > 0
     violation_to_suppress = result1.violations[0]
 
-    # Add suppression
-    store = SuppressionStore(temp_project)
-    store.add(
-        module=violation_to_suppress.module,
-        layer=violation_to_suppress.layer,
-        message=violation_to_suppress.message,
-        reason="Suppressing first violation",
-    )
+    # Suppress it. The orchestrator is handed the hashes rather than a path:
+    # they are rows owned by the user who submitted the job, and the worker
+    # resolves them before the pipeline starts.
+    from archguard.suppression.models import make_violation_hash
+
+    suppressed = {
+        make_violation_hash(
+            violation_to_suppress.module,
+            violation_to_suppress.layer,
+            violation_to_suppress.message,
+        )
+    }
 
     # Re-run analysis
-    orchestrator2 = AnalysisOrchestrator(repo_root=temp_project)
+    orchestrator2 = AnalysisOrchestrator(
+        repo_root=temp_project, suppressed_hashes=suppressed
+    )
     result2 = orchestrator2.run(changed_files=changed_files, commit_sha="testsha3")
 
     # Confirm the suppressed violation is absent
-    from archguard.suppression.models import make_violation_hash
 
     hashes2 = [
         make_violation_hash(v.module, v.layer, v.message) for v in result2.violations

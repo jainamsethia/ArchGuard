@@ -125,6 +125,7 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
                 job_id=job_id,
                 repo_url=repo_url,
                 progress_callback=emit,
+                suppressed_hashes=await _suppressed_hashes(job_id, repo_url),
             )
 
         await set_status("complete")
@@ -185,6 +186,36 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
         await _fail(job_id, set_status, message)
         logger.exception("[job %s] Unexpected failure", job_id)
         return "failed"
+
+
+async def _suppressed_hashes(job_id: str, repo_url: str) -> set[str]:
+    """The suppressions to apply to this run, owned by whoever submitted it.
+
+    The worker has a job id and no request, so the owner is looked up from the
+    job row. Suppressing a finding has to take effect during analysis and not
+    only in the report: the remediation planner spends LLM budget on what the
+    run reports, so a suppression that only hid rows in the UI would still be
+    paid for.
+
+    An empty set on failure, never an exception. A run that reports a finding
+    the user had dismissed is a worse run; a run that does not happen is worse
+    still.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    try:
+        async with session_scope() as session:
+            user_id = await store.job_owner_id_unscoped(session, job_id)
+            if user_id is None:
+                return set()
+            return await store.active_violation_hashes(session, repo_url, user_id)
+    except Exception:
+        logger.warning(
+            "[job %s] Could not read suppressions; analysing unfiltered", job_id,
+            exc_info=True,
+        )
+        return set()
 
 
 async def _installation_token(owner: str, name: str) -> str | None:
