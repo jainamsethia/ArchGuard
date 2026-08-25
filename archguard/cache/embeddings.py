@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import sqlite3
@@ -22,11 +21,6 @@ except ImportError:
 from archguard.cache.db import EmbeddingDB
 
 logger: logging.Logger = logging.getLogger(__name__)
-
-
-def sha256_of(text: str) -> str:
-    """Compute SHA-256 hex digest of *text*."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class EmbeddingCache:

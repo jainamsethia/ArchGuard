@@ -118,10 +118,3 @@ def parse_fitness_functions(
             )
         )
     return configs
-
-
-@dataclass
-class ArchGuardConfig:
-    """Root configuration object."""
-
-    fail_on_critical_risk: bool = False

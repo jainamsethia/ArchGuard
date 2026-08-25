@@ -30,6 +30,12 @@ SECRET_PATTERNS: list[tuple[str, str]] = [
     (r"\bghp_[a-zA-Z0-9]{36}\b", "GITHUB_PAT"),
     # Fine-grained GitHub PATs (github_pat_...) - fix for MED-03
     (r"\bgithub_pat_[A-Za-z0-9_]{20,}\b", "GITHUB_PAT_FINE"),
+    # Installation tokens (ghs_...), which is the credential ArchGuard itself
+    # mints to clone a private repository. Personal tokens were covered and this
+    # one was not, though it reaches a prompt by the same routes as any other
+    # secret: committed to the analysed repository, or carried in a traceback
+    # that becomes context.
+    (r"\bghs_[A-Za-z0-9]{20,}\b", "GITHUB_APP_TOKEN"),
     (
         r'(password|passwd|secret|api_key|token)\s*=\s*["\'][^"\']{8,}',
         "CREDENTIAL",
@@ -93,11 +99,3 @@ def redact_secrets(text: str) -> RedactionResult:
             redacted = compiled.sub(f"[REDACTED:{label}]", redacted)
 
     return RedactionResult(text=redacted, redactions=labels_found)
-
-
-def is_safe_for_llm(text: str) -> tuple[bool, list[str]]:
-    """Check whether *text* contains any detectable secrets."""
-    result = redact_secrets(text)
-    if result.redactions:
-        return False, result.redactions
-    return True, []
