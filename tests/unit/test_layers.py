@@ -113,15 +113,11 @@ def test_drift_computed_once_per_run(tmp_path):
             "archguard.analysis.semantic.SemanticAnalyzer.compute_drift",
             return_value=fake_result,
         ) as mock_drift,
-        patch(
-            "archguard.contract.reinference.ReinferenceEngine.create_proposal"
-        ) as mock_propose,
         patch("builtins.print"),
     ):
         orchestrator.run([core_file], "fake_sha")
 
         assert mock_drift.call_count == 1, "compute_drift must be called exactly once"
-        assert mock_propose.call_count == 1, "create_proposal should have been called"
 
 
 def test_get_module_paths():

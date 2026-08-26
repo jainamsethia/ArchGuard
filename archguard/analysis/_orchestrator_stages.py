@@ -13,7 +13,6 @@ from typing import Any
 from archguard.analysis._orchestrator_utils import (
     _build_partial_result as _build_partial_result_fn,
 )
-from archguard.analysis._reinference import _run_reinference as _run_reinference_fn
 from archguard.analysis._suppression_filter import (
     _filter_suppressed as _filter_suppressed_fn,
 )
@@ -300,7 +299,6 @@ def _run_layer_3(
     if SKIP_ML and "duplication" not in skip_layers:
         skip_layers.append("duplication")
 
-    module_drifts: dict[str, float] = {}
     if "semantic" in skip_layers:
         layer3 = 0.0
         # Record the skip, not just the 0.0. Without this the layer reports
@@ -314,7 +312,10 @@ def _run_layer_3(
             phase="layer3",
         )
     else:
-        layer3, module_drifts, l3_viols = _execute_layer_3(
+        # The middle value is the per-module drift scores. They were consumed
+        # only by contract re-inference, which wrote proposals into a clone
+        # nothing ever read; Layer 3's own violations come back in l3_viols.
+        layer3, _drift_scores, l3_viols = _execute_layer_3(
             orchestrator, py_files, affected, emit, metrics, commit_sha
         )
         violations.extend(l3_viols)
@@ -338,14 +339,5 @@ def _run_layer_3(
         if res:
             return violations, layer3, res
 
-    _run_reinference_fn(
-        orchestrator.repo_root,
-        orchestrator.cache,
-        orchestrator._audit,
-        orchestrator.contract,
-        affected,
-        commit_sha,
-        drift_results=module_drifts,
-    )
     return violations, layer3, None
 

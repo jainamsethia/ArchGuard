@@ -19,7 +19,6 @@ include = [
 python = "^3.11"
 pyyaml = ">=6.0"
 jsonschema = ">=4.17"
-ruamel-yaml = ">=0.18"
 tree-sitter = ">=0.21,<0.22"
 tree-sitter-python = ">=0.21,<0.22"
 networkx = ">=3.0"

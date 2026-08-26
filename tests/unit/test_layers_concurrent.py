@@ -57,7 +57,6 @@ def test_layers_concurrent_violations():
             "archguard.analysis._orchestrator_utils._get_affected_modules",
             return_value={"test": [Path("src/test.py")]},
         ),
-        patch("archguard.analysis._reinference._run_reinference"),
         patch.dict(os.environ, {"ARCHGUARD_SKIP_ML": "0"}),
         patch("archguard.analysis._orchestrator_run.compute_archdebt") as mock_compute,
     ):
