@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { sendAdvisorQuestion } from './features/advisor.js';
 import { generateRemediationPlan, generateViolationsRemediation } from './features/remediation.js';
+import { applyCapabilities } from './capabilities.js';
 import { fetchData, initVisibilityPolling, startPolling } from './poll.js';
 import { configureChartDefaults } from './render/charts.js';
 import { initCompareControls, loadRepoHistory } from './render/compare.js';
@@ -146,6 +147,10 @@ export function init() {
             switchTab(hash);
         }
     });
+
+    // Before the first paint of the AI panels, so the controls are never
+    // offered in a state where pressing them can only fail.
+    applyCapabilities();
 
     initVisibilityPolling();
     fetchData();

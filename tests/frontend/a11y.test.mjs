@@ -401,3 +401,57 @@ describe('loading states', () => {
     assert.ok(sets.includes('false'), 'busy is set but never cleared');
   });
 });
+
+// ------------------------------------------------------- AI availability
+
+const AI_PAGE = `<!doctype html><body class="page-dashboard">
+  <input id="advisor-question-input">
+  <button id="btn-advisor-ask">Ask</button>
+  <button id="remediation-btn">Generate Plan</button>
+  <button id="violations-remediation-btn">Suggest fixes</button>
+  <p id="ai-unavailable-note" hidden role="status"></p>
+</body>`;
+
+describe('AI availability in the interface', () => {
+  it('disables the AI controls and says why', async () => {
+    // Without this a visitor types a question, waits for a round trip, and is
+    // told the feature was never going to work.
+    const { mod, document } = await load('capabilities.js', AI_PAGE);
+    mod.setAiEnabled(false, 'GEMINI_API_KEY is not set.');
+
+    for (const id of ['btn-advisor-ask', 'advisor-question-input', 'remediation-btn']) {
+      assert.equal(document.getElementById(id).disabled, true, `${id} still enabled`);
+    }
+    const note = document.getElementById('ai-unavailable-note');
+    assert.equal(note.hidden, false);
+    assert.match(note.textContent, /GEMINI_API_KEY/);
+  });
+
+  it('gives a disabled control a reason a screen reader can reach', async () => {
+    // `disabled` says no without saying why; the tooltip is pointer-only.
+    const { mod, document } = await load('capabilities.js', AI_PAGE);
+    mod.setAiEnabled(false, 'The configured model is not offered.');
+
+    const button = document.getElementById('btn-advisor-ask');
+    assert.equal(button.getAttribute('aria-describedby'), 'ai-unavailable-note');
+    assert.match(button.title, /configured model/);
+  });
+
+  it('leaves the controls alone when AI works', async () => {
+    const { mod, document } = await load('capabilities.js', AI_PAGE);
+    mod.setAiEnabled(false, 'nope');
+    mod.setAiEnabled(true, '');
+
+    assert.equal(document.getElementById('btn-advisor-ask').disabled, false);
+    assert.equal(document.getElementById('ai-unavailable-note').hidden, true);
+    assert.equal(document.getElementById('btn-advisor-ask').hasAttribute('title'), false);
+  });
+
+  it('escapes the reason rather than trusting it as markup', async () => {
+    const { mod, document } = await load('capabilities.js', AI_PAGE);
+    mod.setAiEnabled(false, '<img src=x onerror="alert(1)">');
+
+    const note = document.getElementById('ai-unavailable-note');
+    assert.equal(note.querySelector('img'), null, 'the reason was injected as markup');
+  });
+});

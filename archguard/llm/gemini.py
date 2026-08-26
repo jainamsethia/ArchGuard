@@ -25,6 +25,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -53,6 +54,128 @@ DEFAULT_TIMEOUT = 60.0
 # inherited from Anthropic, where no such reservation existed, and truncated
 # structured responses mid-object. Sized generously; callers may override.
 DEFAULT_MAX_TOKENS = 8192
+
+
+@dataclass(frozen=True)
+class ModelCheck:
+    """The outcome of asking the API which models it will serve.
+
+    ``checked`` and ``ok`` are separate on purpose. "We asked and the model is
+    not there" and "we could not ask" are different problems with different
+    fixes, and collapsing them sends an operator hunting a model id when their
+    network is at fault.
+    """
+
+    checked: bool
+    ok: bool
+    missing: list[str]
+    detail: str
+
+
+def should_verify_on_boot() -> bool:
+    """Whether to probe the API for its model list at startup.
+
+    Off by default: it costs a network round trip at boot, and a deployment
+    with no AI features configured should not pay for it.
+    """
+    return os.environ.get("ARCHGUARD_VERIFY_LLM_ON_BOOT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def list_available_models(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    timeout: float = 10.0,
+    transport: Any = None,
+) -> list[str] | None:
+    """The model ids this API will serve, or None if it could not be asked.
+
+    Never raises. A probe that threw would take an application down at boot
+    over a feature that is optional by design.
+    """
+    try:
+        key = api_key or resolve_api_key()
+    except GeminiError:
+        return None
+    if not key:
+        return None
+
+    url = f"{resolve_base_url(base_url)}/models"
+    try:
+        with httpx.Client(timeout=timeout, transport=transport) as client:
+            response = client.get(url, headers={"Authorization": f"Bearer {key}"})
+        if response.status_code != 200:
+            logger.warning(
+                "Could not list Gemini models: HTTP %s from %s",
+                response.status_code,
+                url,
+            )
+            return None
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Could not list Gemini models: %s", exc)
+        return None
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    return [m.get("id", "") for m in data if isinstance(m, dict) and m.get("id")]
+
+
+def verify_configured_models(
+    *,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    transport: Any = None,
+) -> ModelCheck:
+    """Check that the configured primary and fallback models exist.
+
+    A wrong model id fails every AI call with a message that reads like a
+    credential problem, so it is worth naming the id rather than leaving an
+    operator to infer it. The ids checked are whatever is configured, not the
+    defaults -- an override must be followed, not second-guessed.
+    """
+    try:
+        key = api_key or resolve_api_key()
+    except GeminiError:
+        key = ""
+    if not key:
+        return ModelCheck(
+            checked=False, ok=False, missing=[], detail="No GEMINI_API_KEY is set."
+        )
+
+    available = list_available_models(
+        api_key=key, base_url=base_url, transport=transport
+    )
+    if available is None:
+        return ModelCheck(
+            checked=False,
+            ok=False,
+            missing=[],
+            detail="Could not reach the model listing endpoint.",
+        )
+
+    wanted = [primary_model(), fallback_model()]
+    missing = [m for m in wanted if m not in available]
+    if not missing:
+        return ModelCheck(
+            checked=True, ok=True, missing=[], detail="Configured models are available."
+        )
+    return ModelCheck(
+        checked=True,
+        ok=False,
+        missing=missing,
+        detail=(
+            f"The API does not offer {', '.join(missing)}. "
+            f"Set ARCHGUARD_PRIMARY_MODEL / ARCHGUARD_FALLBACK_MODEL to ids it "
+            f"does serve; it offered {len(available)}."
+        ),
+    )
 
 
 class GeminiError(RuntimeError):

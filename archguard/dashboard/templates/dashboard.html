@@ -241,6 +241,10 @@
 <div class="row-gap">
 <input class="input-text" id="advisor-question-input" placeholder="Ask an architecture question..." type="text"/>
 <button class="btn-action-lg" id="btn-advisor-ask">Ask</button>
+<!-- Why the AI controls are disabled, when they are. Populated by
+     js/capabilities.js from /api/v1/capabilities; hidden while AI works.
+     role="status" so a screen reader hears it without the focus moving. -->
+<p class="ai-unavailable-note" hidden id="ai-unavailable-note" role="status"></p>
 </div>
 <div class="prose-response" id="advisor-response">
                     Ask a question about your architecture to get AI-driven advice.

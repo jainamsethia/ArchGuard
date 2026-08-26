@@ -80,6 +80,43 @@ async def _periodic_workspace_cleanup() -> None:
             )
 
 
+
+def _verify_llm_models() -> None:
+    """Ask the API whether the configured models exist, if asked to.
+
+    A wrong model id is a quiet failure: every AI call returns an error that
+    reads like a bad credential, so an operator checks their key and finds
+    nothing wrong with it. One request at boot turns that into a line naming
+    the id.
+
+    Off unless ARCHGUARD_VERIFY_LLM_ON_BOOT is set -- it costs a network round
+    trip, and a deployment with no AI configured should not pay for it. Never
+    raises: the AI features are optional, and a probe that could stop the
+    application from starting would be worse than the problem it reports.
+    """
+    from archguard.dashboard import _capabilities
+    from archguard.llm import gemini
+
+    if not gemini.should_verify_on_boot():
+        return
+
+    result = gemini.verify_configured_models()
+    _capabilities.record_model_check(result)
+
+    if not result.checked:
+        _startup_logger.info("LLM model check skipped: %s", result.detail)
+    elif result.ok:
+        _startup_logger.info(
+            "LLM models verified: %s, %s", gemini.primary_model(), gemini.fallback_model()
+        )
+    else:
+        _startup_logger.warning(
+            "LLM model check FAILED - %s The AI Advisor and remediation plans "
+            "will report themselves unavailable.",
+            result.detail,
+        )
+
+
 @asynccontextmanager
 async def _lifespan(app_instance: FastAPI) -> Any:
     # Must be the first statement here. Until this ran, uvicorn configured only
@@ -118,6 +155,8 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     for var, consequence in recommended.items():
         if not os.environ.get(var):
             _startup_logger.warning("Optional env var %s not set - %s", var, consequence)
+
+    _verify_llm_models()
 
     if not os.environ.get("ARCHGUARD_DASHBOARD_TOKEN"):
         _startup_logger.warning(

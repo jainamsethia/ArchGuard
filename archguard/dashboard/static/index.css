@@ -1594,3 +1594,11 @@ body.page-dashboard {
     font-size: 0.875rem;
     color: var(--text-secondary);
 }
+
+/* Why an AI control is disabled. Hidden entirely when the features work, so
+   an instance with a key shows no apology it does not owe. */
+.ai-unavailable-note {
+    margin: 8px 0 0;
+    font-size: 0.875rem;
+    color: var(--text-tertiary);
+}

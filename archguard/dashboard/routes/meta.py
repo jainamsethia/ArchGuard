@@ -160,6 +160,24 @@ async def readiness_check(response: Response) -> dict[str, Any]:
     return {"ready": ready, "checks": results}
 
 
+@router.get("/api/v1/capabilities", summary="What this instance can do", tags=["meta"])
+async def capabilities() -> dict[str, Any]:
+    """What the interface should offer, so it can stop offering what will fail.
+
+    The AI features degrade rather than error at startup: without a key the
+    Advisor and remediation plans return a failure per request. Honest, but
+    badly timed -- someone types a question, waits, and is told the feature was
+    never going to work. The page asks this once and greys the controls
+    instead.
+
+    Deliberately separate from /ready. AI being off is not a reason to take an
+    instance out of rotation; it is a reason to disable two buttons.
+    """
+    from archguard.dashboard import _capabilities
+
+    return {"ai": _capabilities.ai_status()}
+
+
 @router.get("/metrics", summary="Prometheus metrics", tags=["meta"])
 async def metrics() -> Response:
     """Prometheus text format.
