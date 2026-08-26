@@ -18,7 +18,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from archguard.db.models import (
@@ -31,6 +31,7 @@ from archguard.db.models import (
     Suppression,
     User,
     Violation,
+    WatchedRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -564,6 +565,198 @@ async def delete_suppression(session: AsyncSession, suppression_id: str) -> bool
         return False
     await session.delete(existing)
     return True
+
+
+# --------------------------------------------------------- watched repositories
+#
+# Every function here takes user_id and filters on it. Watching is personal:
+# two people watching the same public repository each have their own threshold,
+# their own webhook and their own alert history, and neither should be able to
+# see or touch the other's. The unique constraint is on (user_id,
+# repository_id) rather than repository_id alone for the same reason.
+
+
+async def watch_repository(
+    session: AsyncSession,
+    user_id: int,
+    repo_url: str,
+    *,
+    webhook_url: str | None = None,
+    health_drop_threshold: float = 5.0,
+) -> WatchedRepository:
+    """Start watching a repository, or update the existing watch.
+
+    Idempotent by (user, repository): a second submit re-activates and updates
+    rather than creating a duplicate that would scan and alert twice.
+    """
+    repo = await upsert_repository(session, repo_url)
+    existing = (
+        await session.execute(
+            select(WatchedRepository).where(
+                WatchedRepository.user_id == user_id,
+                WatchedRepository.repository_id == repo.id,
+            )
+        )
+    ).scalars().first()
+
+    if existing is not None:
+        existing.active = True
+        existing.webhook_url = webhook_url
+        existing.health_drop_threshold = health_drop_threshold
+        await session.flush()
+        return existing
+
+    watch = WatchedRepository(
+        user_id=user_id,
+        repository_id=repo.id,
+        webhook_url=webhook_url,
+        health_drop_threshold=health_drop_threshold,
+    )
+    session.add(watch)
+    await session.flush()
+    return watch
+
+
+async def list_watched(session: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+    """This user's watched repositories, newest first."""
+    rows = (
+        await session.execute(
+            select(WatchedRepository, Repository)
+            .join(Repository, Repository.id == WatchedRepository.repository_id)
+            .where(WatchedRepository.user_id == user_id)
+            .order_by(WatchedRepository.id.desc())
+        )
+    ).all()
+    return [_watch_to_dict(watch, repo) for watch, repo in rows]
+
+
+async def get_watched(
+    session: AsyncSession, watch_id: int, user_id: int
+) -> WatchedRepository | None:
+    """One watch, or None when it is not this user's.
+
+    None rather than a permission error: telling a stranger that an id exists
+    but is not theirs is a slower way of leaking the same fact.
+    """
+    return (
+        await session.execute(
+            select(WatchedRepository).where(
+                WatchedRepository.id == watch_id,
+                WatchedRepository.user_id == user_id,
+            )
+        )
+    ).scalars().first()
+
+
+async def get_watched_summary(
+    session: AsyncSession, watch_id: int, user_id: int
+) -> dict[str, Any] | None:
+    """One watch in the shape the API returns, or None when it is not theirs."""
+    row = (
+        await session.execute(
+            select(WatchedRepository, Repository)
+            .join(Repository, Repository.id == WatchedRepository.repository_id)
+            .where(
+                WatchedRepository.id == watch_id,
+                WatchedRepository.user_id == user_id,
+            )
+        )
+    ).first()
+    if row is None:
+        return None
+    return _watch_to_dict(row[0], row[1])
+
+
+async def update_watched(
+    session: AsyncSession,
+    watch_id: int,
+    user_id: int,
+    *,
+    active: bool | None = None,
+    webhook_url: str | None = None,
+    health_drop_threshold: float | None = None,
+) -> WatchedRepository | None:
+    watch = await get_watched(session, watch_id, user_id)
+    if watch is None:
+        return None
+    if active is not None:
+        watch.active = active
+    if webhook_url is not None:
+        watch.webhook_url = webhook_url or None
+    if health_drop_threshold is not None:
+        watch.health_drop_threshold = health_drop_threshold
+    await session.flush()
+    return watch
+
+
+async def delete_watched(session: AsyncSession, watch_id: int, user_id: int) -> bool:
+    watch = await get_watched(session, watch_id, user_id)
+    if watch is None:
+        return False
+    await session.delete(watch)
+    return True
+
+
+async def watches_due(session: AsyncSession, older_than: datetime) -> list[dict[str, Any]]:
+    """Active watches not checked since `older_than`, for the scheduler.
+
+    Not user-scoped, deliberately and uniquely: this runs as the system, on
+    behalf of every user at once. It returns the ids the scheduler needs to
+    enqueue a job -- the per-user scoping happens when that job runs.
+    """
+    rows = (
+        await session.execute(
+            select(WatchedRepository, Repository)
+            .join(Repository, Repository.id == WatchedRepository.repository_id)
+            .where(
+                WatchedRepository.active.is_(True),
+                or_(
+                    WatchedRepository.last_checked_at.is_(None),
+                    WatchedRepository.last_checked_at < older_than,
+                ),
+            )
+            .order_by(WatchedRepository.last_checked_at.asc().nulls_first())
+        )
+    ).all()
+    return [_watch_to_dict(watch, repo) for watch, repo in rows]
+
+
+async def find_watch_for_run(
+    session: AsyncSession, user_id: int, repository_id: int
+) -> WatchedRepository | None:
+    """The watch a finished run belongs to, if its owner is watching.
+
+    Scoped by user so a run by one account can never trigger another's alert.
+    """
+    return (
+        await session.execute(
+            select(WatchedRepository).where(
+                WatchedRepository.user_id == user_id,
+                WatchedRepository.repository_id == repository_id,
+                WatchedRepository.active.is_(True),
+            )
+        )
+    ).scalars().first()
+
+
+def _watch_to_dict(watch: WatchedRepository, repo: Repository) -> dict[str, Any]:
+    return {
+        "id": watch.id,
+        "repo_url": repo.url,
+        "project_name": _project_name(repo.url),
+        "repository_id": watch.repository_id,
+        "user_id": watch.user_id,
+        "active": watch.active,
+        "schedule": watch.schedule,
+        "health_drop_threshold": watch.health_drop_threshold,
+        # Whether one is set, never the value: a webhook URL can carry a secret
+        # in its path, and there is no reason to hand it back out.
+        "has_webhook": bool(watch.webhook_url),
+        "last_checked_at": watch.last_checked_at.isoformat() if watch.last_checked_at else None,
+        "last_alert_at": watch.last_alert_at.isoformat() if watch.last_alert_at else None,
+        "last_status": watch.last_status,
+        "created_at": watch.created_at.isoformat() if watch.created_at else None,
+    }
 
 
 async def get_previous_run_for_job(

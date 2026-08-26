@@ -36,6 +36,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
 )
@@ -307,4 +308,77 @@ class FileHash(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
         nullable=False,
+    )
+
+
+class WatchedRepository(Base):
+    """A repository a user has asked to be rescanned and told about.
+
+    One row per (user, repository): watching is a personal decision, and two
+    people watching the same public repository want their own thresholds, their
+    own webhook and their own alert history.
+
+    `last_alert_key` is what makes alerting safe under retries. A worker that
+    dies after sending an alert but before recording it would, on the next
+    attempt, send the same alert again -- so the key is derived from the run and
+    the regression itself rather than from a flag set in memory. Re-sending is
+    skipped when the key matches, which survives a restart because it lives here
+    rather than in the process.
+    """
+
+    __tablename__ = "watched_repositories"
+    __table_args__ = (
+        # One watch per user per repository. Without it a double-submit leaves
+        # two rows and the repository is scanned -- and alerted on -- twice.
+        UniqueConstraint("user_id", "repository_id", name="uq_watch_user_repo"),
+        # The cron's query: every active watch, oldest check first.
+        Index("ix_watch_due", "active", "last_checked_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    #: Paused rather than deleted, so a user keeps their threshold and history.
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    #: Only "daily" is honoured today. A column rather than a boolean so adding
+    #: another cadence later is a value, not a migration.
+    schedule: Mapped[str] = mapped_column(String(16), nullable=False, default="daily")
+
+    #: How far health must fall between scans before it is worth telling
+    #: someone. Per watch: a repository under active refactoring and one in
+    #: maintenance do not deserve the same sensitivity.
+    health_drop_threshold: Mapped[float] = mapped_column(
+        Float, nullable=False, default=5.0
+    )
+
+    #: Where to POST an alert. Validated against the SSRF guard before use, on
+    #: the way in and again before every send.
+    webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    last_run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_alert_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    #: Deterministic identity of the last regression alerted on. See the class
+    #: docstring: this is the duplicate-alert guard.
+    last_alert_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: What the last regression was, for the dashboard to show without
+    #: recomputing it.
+    last_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

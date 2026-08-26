@@ -9,6 +9,7 @@ import { analyzePRRisk, initDependencyGraph, scanDependencies } from './render/d
 import { startEvolutionAnalysis } from './render/evolution.js';
 import { createSuppression, loadSuppressions, removeSuppression } from './render/suppressions.js';
 import { updateViolationsTable } from './render/violations.js';
+import { loadWatchState, toggleWatch } from './render/watch.js';
 import { initNavigation, initTabChrome, onTabActivated, switchTab } from './ui/tabs.js';
 
 
@@ -55,6 +56,9 @@ export function initActionButtons() {
 
     const riskBtn = document.getElementById('analyze-risk-btn');
     if (riskBtn) riskBtn.addEventListener('click', analyzePRRisk);
+
+    const watchBtn = document.getElementById('watch-toggle-btn');
+    if (watchBtn) watchBtn.addEventListener('click', toggleWatch);
 
     const refreshSupBtn = document.getElementById('refresh-suppressions-btn');
     if (refreshSupBtn) refreshSupBtn.addEventListener('click', loadSuppressions);

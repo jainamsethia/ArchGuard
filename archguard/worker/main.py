@@ -17,7 +17,10 @@ import logging
 import os
 from typing import Any, ClassVar
 
+from arq import cron
+
 from archguard.observability.logger import configure_logging
+from archguard.worker.cron import sweep_watched
 from archguard.worker.settings import redis_settings
 from archguard.worker.tasks import analyse_repository
 
@@ -48,6 +51,16 @@ class WorkerSettings:
     """arq entry point."""
 
     functions: ClassVar[list[Any]] = [analyse_repository]
+
+    #: The watched-repository sweep. arq runs cron_jobs on exactly one worker
+    #: even when several are running, which is what stops three workers from
+    #: each enqueueing the same daily scan.
+    #:
+    #: 03:00 UTC: outside the working day in most of the world, so the queue is
+    #: free for the interactive scans people are waiting on.
+    cron_jobs: ClassVar[list[Any]] = [
+        cron(sweep_watched, hour={3}, minute={0}, run_at_startup=False)
+    ]
     on_startup = startup
     on_shutdown = shutdown
 

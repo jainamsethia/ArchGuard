@@ -158,6 +158,22 @@
 <div id="repo-history-table" class="text-helper">Loading…</div>
 </div>
 </div>
+<div class="glass-card card-section" id="watch-card" hidden>
+<h2 class="text-section-title-flush">Watch this repository</h2>
+<p class="section-note">Rescanned daily. You are told when health drops past your threshold, when a fitness gate starts failing, or when a new critical issue appears &mdash; not on every finding.</p>
+<p class="text-helper" id="watch-status">Loading&hellip;</p>
+<div class="row-between margin-bottom">
+<label class="text-label" for="watch-threshold">Alert when health drops by more than</label>
+<input aria-describedby="watch-threshold-help" class="input-field" id="watch-threshold" max="100" min="0.5" step="0.5" type="number" value="5">
+</div>
+<p class="section-note" id="watch-threshold-help">Health points, out of 100. Lower is more sensitive.</p>
+<div class="row-between margin-bottom">
+<label class="text-label" for="watch-webhook">Webhook URL (optional)</label>
+<input autocomplete="off" class="input-field" id="watch-webhook" placeholder="https://hooks.example.com/&hellip;" type="url">
+</div>
+<p class="section-note">HTTPS only, and public addresses only. Left blank, regressions are recorded here rather than sent anywhere.</p>
+<button class="btn-action" id="watch-toggle-btn">Watch this repository</button>
+</div>
 <div class="glass-card card-section">
 <h2 class="text-section-title">Architecture Fitness</h2>
 <div id="fitness-container">

@@ -20,6 +20,7 @@ from typing import Any
 
 from archguard.analysis.phases import clamp_monotonic, percent_for
 from archguard.contract.generation import NoAnalysableModuleError
+from archguard.watch.service import evaluate_after_run
 from archguard.worker import progress
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,12 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
                 await _save_hashes(job_id, incremental_ctx)
 
         await set_status("complete")
+
+        # If this repository is watched, compare the run against the previous
+        # one and alert on a regression. After the status, not before: the
+        # comparison reads the run back out of the database, and it must never
+        # be able to fail the analysis that produced it.
+        await evaluate_after_run(job_id)
         progress.publish(
             job_id, {"type": "result", "result": _result_payload(result)}
         )

@@ -299,3 +299,100 @@ def test_auth_status_names_the_signed_in_user(two_users):
     body = response.json()
     assert body["authenticated"] is True
     assert body["user"]["login"] == "user-a"
+
+
+# ------------------------------------------------------- watched repositories
+#
+# Watching is the only feature where our infrastructure acts on a user's
+# behalf unattended: it schedules scans and calls a URL they supplied. A watch
+# that the wrong account can read or steer is a way to make our workers scan
+# for someone else and post the result somewhere they chose. So the HTTP
+# surface gets its own isolation assertions rather than relying on the store
+# tests alone.
+
+
+@requires_postgres
+def test_a_watch_is_invisible_to_the_other_user(two_users):
+    owner = _client(two_users["a"]["cookie"])
+    created = owner.post(
+        "/api/v1/watch", json={"repo_url": two_users["a"]["repo_url"]}
+    )
+    assert created.status_code == 201, created.text
+
+    listed = _client(two_users["b"]["cookie"]).get("/api/v1/watch")
+    assert listed.status_code == 200
+    assert listed.json()["watched"] == []
+    assert two_users["a"]["repo_url"] not in listed.text
+
+
+@requires_postgres
+def test_another_user_cannot_steer_or_delete_a_watch(two_users):
+    """404 on both, and the watch is untouched afterwards."""
+    owner = _client(two_users["a"]["cookie"])
+    watch_id = owner.post(
+        "/api/v1/watch",
+        json={"repo_url": two_users["a"]["repo_url"], "health_drop_threshold": 3.0},
+    ).json()["watched"]["id"]
+
+    stranger = _client(two_users["b"]["cookie"])
+    assert stranger.patch(
+        f"/api/v1/watch/{watch_id}",
+        json={"webhook_url": "https://attacker.example.com/steal"},
+    ).status_code == 404
+    assert stranger.delete(f"/api/v1/watch/{watch_id}").status_code == 404
+
+    surviving = owner.get("/api/v1/watch").json()["watched"]
+    assert len(surviving) == 1
+    assert surviving[0]["health_drop_threshold"] == 3.0
+    assert surviving[0]["has_webhook"] is False
+
+
+@requires_postgres
+def test_watching_requires_a_session(two_users):
+    anonymous = TestClient(app, client=("203.0.113.9", 5555))
+    assert anonymous.get("/api/v1/watch").status_code == 401
+    assert anonymous.post(
+        "/api/v1/watch", json={"repo_url": "https://github.com/x/y"}
+    ).status_code == 401
+
+
+@requires_postgres
+def test_an_unsafe_webhook_url_is_refused(two_users):
+    """The SSRF guard, at the point a user can first reach it.
+
+    A watch pointed at an internal address turns our scheduled scans into a
+    request generator inside our own network -- so this is checked when the URL
+    is configured, and again in `send_generic_webhook` at every send, because
+    DNS can be repointed in between.
+    """
+    client = _client(two_users["a"]["cookie"])
+    for bad in (
+        "http://example.com/hook",          # plaintext
+        "https://127.0.0.1/hook",           # loopback
+        "https://10.0.0.5/hook",            # private range
+        "https://[::1]/hook",               # loopback, v6
+    ):
+        response = client.post(
+            "/api/v1/watch",
+            json={"repo_url": two_users["a"]["repo_url"], "webhook_url": bad},
+        )
+        assert response.status_code == 400, f"{bad} was accepted: {response.text[:200]}"
+        assert "rejected" in response.text.lower()
+
+
+@requires_postgres
+def test_a_watch_never_returns_the_webhook_url(two_users):
+    """It routinely carries a token in its path. The UI needs to know one is
+    set, not what it is."""
+    client = _client(two_users["a"]["cookie"])
+    created = client.post(
+        "/api/v1/watch",
+        json={
+            "repo_url": two_users["a"]["repo_url"],
+            "webhook_url": "https://example.com/t/SUPERSECRET",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert "SUPERSECRET" not in created.text
+    assert created.json()["watched"]["has_webhook"] is True
+    assert "SUPERSECRET" not in client.get("/api/v1/watch").text

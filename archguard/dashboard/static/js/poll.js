@@ -6,6 +6,7 @@ import { populateRecentPicker } from './render/compare.js';
 import { _applyGitEvolutionData, updateEvolutionTrends } from './render/evolution.js';
 import { updateFitnessPanel } from './render/fitness.js';
 import { clearEmptyState, hideRefreshLoader, renderEmptyState, updateLayerStatus, updateMetrics, updateProvenanceBanner, updateThresholdNote, updateViolationCounts } from './render/metrics.js';
+import { loadWatchState } from './render/watch.js';
 import { updateViolationsTable } from './render/violations.js';
 
 
@@ -119,6 +120,9 @@ export async function fetchData() {
             updateFitnessPanel(latestData);
             updateViolationCounts(latestData);
             updateViolationsTable(latestData);
+            // After latestRun is set: the card is keyed by repo_url, which
+            // only the run knows.
+            loadWatchState();
         }
         updateTrendChart(runsData.runs);
         populateRecentPicker(runsData.runs);

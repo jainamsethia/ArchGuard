@@ -426,6 +426,7 @@ from archguard.dashboard.routes import (
     risk,
     runs,
     suppression,
+    watch,
 )
 
 # Mounted explicitly, in order, rather than registered as a side effect of
@@ -443,6 +444,7 @@ app.include_router(suppression.router, prefix="/api/v1")
 app.include_router(advisor.router, prefix="/api/v1")
 app.include_router(remediation.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(watch.router, prefix="/api/v1")
 
 # Unprefixed and unauthenticated: /health, /ready and /metrics are polled by
 # the platform and by a scraper, neither of which has a session; and the OAuth
