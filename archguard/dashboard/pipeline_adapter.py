@@ -170,11 +170,62 @@ def _skip_payload(reason: str, message: str) -> dict[str, Any]:
         "derived_artifacts_error": "",
     }
 
+@dataclass
+class IncrementalContext:
+    """What the caller knows about this repository's previous scan.
+
+    Passed in rather than looked up here so the analysis adapter keeps no
+    database dependency: the worker reads the hashes and the previous run, and
+    writes back whatever this scan measured.
+    """
+
+    previous: Any  # incremental.PreviousRun | None
+    version: str
+    record_hashes: Callable[[dict[str, str]], None]
+    carried: list[dict[str, Any]] = field(default_factory=list)
+
+    # Filled by the caller so it can persist the result afterwards. Declared
+    # rather than attached at runtime, so the type checker sees them.
+    measured_hashes: dict[str, str] = field(default_factory=dict)
+    repository_id: int | None = None
+
+
+def _archguard_version() -> str:
+    """The installed version, or "unknown" from a source checkout.
+
+    "unknown" compares unequal to a real version, so a checkout that cannot
+    report one simply never reuses a cache -- the safe direction.
+    """
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version("archguard")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _safe_load_contract(repo_path: Path) -> dict[str, Any]:
+    """The contract as written, or an empty one.
+
+    An unreadable contract must not raise here: plan_analysis compares
+    fingerprints, and an empty dict simply never matches the previous run, so
+    the scan falls back to a full analysis -- which is the safe direction.
+    """
+    try:
+        from archguard.contract.loader import load_contract
+
+        loaded: dict[str, Any] = load_contract(repo_path)
+        return loaded
+    except Exception:
+        return {}
+
+
 async def run_analysis_on_repo(
     repo_path: Path,
     job_id: str,
     repo_url: str,
     progress_callback: ProgressCallback | None = None,
+    incremental: IncrementalContext | None = None,
 ) -> AnalysisJobResult:
     """Run the full ArchGuard 4-layer pipeline against a cloned repo directory.
 
@@ -265,6 +316,34 @@ async def run_analysis_on_repo(
             fallback_reason=fallback_reason,
         )
 
+    # Incremental: analyse what changed, and carry forward the findings of
+    # modules this scan will not touch. Nothing is reused unless the contract
+    # and the ArchGuard version both match the previous run -- see
+    # archguard.cache.incremental.plan_analysis.
+    plan = None
+    if incremental is not None:
+        from archguard.cache.incremental import hash_files, plan_analysis
+
+        contract_for_plan = _safe_load_contract(repo_path)
+        plan = plan_analysis(
+            files=py_files,
+            root=repo_path,
+            contract=contract_for_plan,
+            version=incremental.version,
+            previous=incremental.previous,
+        )
+        incremental.record_hashes(hash_files(py_files, repo_path))
+        if plan.full:
+            await _emit(f"Full analysis: {plan.reason}.")
+        else:
+            await _emit(
+                f"Incremental analysis: {plan.reason}. "
+                f"Reusing findings for {len(plan.carried_violations)} previous "
+                "issue(s) in unchanged modules."
+            )
+            py_files = plan.changed or py_files
+            incremental.carried = plan.carried_violations
+
     await _emit(
         f"Found {len(py_files)} Python files. Starting 4-layer analysis...",
         "scanning",
@@ -293,6 +372,7 @@ async def run_analysis_on_repo(
                 fallback_heuristic,
                 fallback_reason,
                 _relay,
+                plan.carried_violations if plan and not plan.full else [],
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -407,6 +487,7 @@ def _run_analysis_sync(
     fallback_directory_heuristic: bool = False,
     fallback_reason: str = "",
     on_progress: Any = None,
+    carried_violations: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -468,6 +549,26 @@ def _run_analysis_sync(
                 else ("WARN" if band_val == "WARN" else "FAIL"))
             )
 
+            # Findings for modules this scan did not re-analyse. Without them
+            # an untouched module is reported clean, which is the one way an
+            # incremental scan can be actively misleading.
+            # Rebuilt from the stored shape rather than appended raw: the
+            # payload is typed, and a dict slipped into a list of models is a
+            # validation error at persist time rather than here.
+            carried = [
+                ViolationPayload(
+                    file=v.get("file") or None,
+                    line=v.get("line") or 0,
+                    module=v.get("module"),
+                    severity=str(v.get("severity") or "low"),
+                    message=str(v.get("message") or ""),
+                    layer=str(v.get("layer") or "0"),
+                    scope=str(v.get("scope") or "file"),
+                    kind=str(v.get("kind") or ""),
+                    metrics=dict(v.get("metrics") or {}),
+                )
+                for v in (carried_violations or [])
+            ]
             v_list_out = []
             for v in result.violations:
                 raw_file = getattr(v, "file_path", "") or None
@@ -575,7 +676,7 @@ def _run_analysis_sync(
                 job_id=job_id,
                 score=result.archdebt.health_score,
                 band=audit_band,
-                violations=v_list_out,
+                violations=v_list_out + carried,
                 skipped=False,
                 layer_results=[
                     LayerResultPayload(
@@ -593,7 +694,13 @@ def _run_analysis_sync(
                 dependency_graph=dep_graph,
                 import_edges=import_edges_list,
                 contract=contract_dict,
-                metrics=result.metrics if isinstance(getattr(result, "metrics", None), dict) else {},
+                metrics={
+                    **(result.metrics if isinstance(getattr(result, "metrics", None), dict) else {}),
+                    # What produced this run. The next scan compares it and
+                    # discards the cache if the analyser changed, because a
+                    # newer one may detect what the old one could not.
+                    "archguard_version": _archguard_version(),
+                },
                 contract_auto_generated=contract_auto_generated,
                 fallback_directory_heuristic=fallback_directory_heuristic,
                 fallback_reason=fallback_reason,

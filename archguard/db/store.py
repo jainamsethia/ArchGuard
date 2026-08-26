@@ -18,11 +18,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from archguard.db.models import (
     DependencyScan,
+    FileHash,
     Job,
     JobStatus,
     Repository,
@@ -563,6 +564,79 @@ async def delete_suppression(session: AsyncSession, suppression_id: str) -> bool
         return False
     await session.delete(existing)
     return True
+
+
+async def get_previous_run_for_job(
+    session: AsyncSession, job_id: str
+) -> dict[str, Any] | None:
+    """The most recent earlier run of the same repository, by the same user.
+
+    Same user, deliberately. File hashes are content digests of a public
+    repository and are safe to share, but findings belong to whoever ran the
+    analysis: carrying one account's violations into another's report would be
+    a tenancy leak dressed up as a cache hit.
+    """
+    job = await session.get(Job, job_id)
+    if job is None or job.repository_id is None:
+        return None
+
+    query = (
+        select(Run)
+        .where(Run.repository_id == job.repository_id, Run.job_id != job_id)
+        .order_by(Run.id.desc())
+        .limit(1)
+    )
+    if job.user_id is None:
+        query = query.where(Run.user_id.is_(None))
+    else:
+        query = query.where(Run.user_id == job.user_id)
+
+    run = (await session.execute(query)).scalars().first()
+    if run is None:
+        return None
+    hydrated = await _hydrate(session, [run])
+    return hydrated[0] if hydrated else None
+
+
+async def load_file_hashes(session: AsyncSession, repository_id: int) -> dict[str, str]:
+    """Content hashes recorded for a repository, keyed by repo-relative path.
+
+    Keyed by repository rather than by job: the point is to survive the clone,
+    which is deleted after every job.
+    """
+    rows = (
+        await session.execute(
+            select(FileHash).where(FileHash.repository_id == repository_id)
+        )
+    ).scalars()
+    return {row.path: row.sha256 for row in rows}
+
+
+async def save_file_hashes(
+    session: AsyncSession, repository_id: int, records: dict[str, str]
+) -> None:
+    """Replace a repository's recorded hashes with what this scan measured.
+
+    Replace, not merge: a path absent from `records` was deleted or is no
+    longer analysed, and leaving its hash behind would let a file reappear
+    later and be called unchanged against a hash from before it vanished.
+
+    One statement per operation inside the caller's transaction, so a failure
+    part-way leaves the previous hashes intact -- a stale complete cache is
+    safe, whereas a half-written one would call edited files unchanged.
+    """
+    await session.execute(
+        delete(FileHash).where(FileHash.repository_id == repository_id)
+    )
+    if not records:
+        return
+    session.add_all(
+        [
+            FileHash(repository_id=repository_id, path=path, sha256=sha)
+            for path, sha in records.items()
+        ]
+    )
+    await session.flush()
 
 
 async def active_violation_hashes(session: AsyncSession, repo_url: str) -> set[str]:

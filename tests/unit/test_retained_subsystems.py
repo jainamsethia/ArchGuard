@@ -38,28 +38,23 @@ def test_retained_module_still_imports(module_name: str) -> None:
 
 
 def test_incremental_analysis_still_partitions_by_content_hash(tmp_path) -> None:
-    """The behaviour that makes it worth keeping, not merely its importability."""
-    from archguard.cache.incremental import (
-        FileRecord,
-        compute_hash,
-        get_changed_files,
-        save_cache,
-    )
+    """The behaviour that makes it worth keeping, not merely its importability.
+
+    Repointed at the adapted API. The hashing and the changed/unchanged split
+    are unchanged -- they were always the sound part -- but the recorded hashes
+    are passed in rather than read from a JSON file at the repository root,
+    because for the website that root is a clone deleted after every job.
+    """
+    from archguard.cache.incremental import hash_files, partition_changed
 
     stable = tmp_path / "stable.py"
     edited = tmp_path / "edited.py"
     stable.write_text("import os\n")
     edited.write_text("import os\n")
 
-    save_cache(
-        tmp_path,
-        {
-            "stable.py": FileRecord("stable.py", compute_hash(stable), "2020-01-01"),
-            "edited.py": FileRecord("edited.py", compute_hash(edited), "2020-01-01"),
-        },
-    )
+    recorded = hash_files([stable, edited], tmp_path)
     edited.write_text("import os\nimport sys\n")
 
-    changed, unchanged = get_changed_files([stable, edited], tmp_path)
+    changed, unchanged = partition_changed([stable, edited], tmp_path, recorded)
     assert [p.name for p in changed] == ["edited.py"]
     assert [p.name for p in unchanged] == ["stable.py"]

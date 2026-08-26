@@ -117,12 +117,24 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
             # put the bar past the contract phase before it had run.
             await emit("Repository cloned. Starting analysis...")
 
+            # Incremental re-analysis. The worker owns the database side --
+            # what this repository looked like last time, and what it looks
+            # like now -- so the analysis adapter keeps no session dependency.
+            incremental_ctx = await _incremental_context(job_id)
+
             result = await run_analysis_on_repo(
                 repo_path=repo,
                 job_id=job_id,
                 repo_url=repo_url,
                 progress_callback=emit,
+                incremental=incremental_ctx,
             )
+
+            # After a successful analysis, never before: hashes written ahead
+            # of a run that then failed would make the next scan skip files
+            # nothing had actually analysed.
+            if incremental_ctx is not None:
+                await _save_hashes(job_id, incremental_ctx)
 
         await set_status("complete")
         progress.publish(
@@ -182,6 +194,79 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
         await _fail(job_id, set_status, message)
         logger.exception("[job %s] Unexpected failure", job_id)
         return "failed"
+
+
+
+async def _incremental_context(job_id: str) -> Any:
+    """What the previous scan of this repository recorded, if anything.
+
+    Returns None on any failure. Incremental analysis is an optimisation, and
+    an optimisation that can fail an analysis is not worth having -- losing the
+    cache costs time, losing the run costs the user their result.
+    """
+    from archguard.cache.incremental import PreviousRun
+    from archguard.dashboard.pipeline_adapter import (
+        IncrementalContext,
+        _archguard_version,
+    )
+    from archguard.db import store
+    from archguard.db.models import Job
+    from archguard.db.session import session_scope
+
+    try:
+        async with session_scope() as session:
+            job = await session.get(Job, job_id)
+            if job is None or job.repository_id is None:
+                return None
+            repository_id = job.repository_id
+            last = await store.get_previous_run_for_job(session, job_id)
+            hashes = await store.load_file_hashes(session, repository_id)
+
+        previous = None
+        # Both halves are required. Findings without hashes cannot be matched
+        # to files, and hashes without findings have nothing to carry forward.
+        if last and hashes:
+            previous = PreviousRun(
+                contract=last.get("contract") or {},
+                archguard_version=str(
+                    (last.get("metrics") or {}).get("archguard_version", "")
+                ),
+                file_hashes=hashes,
+                violations=list(last.get("violations") or []),
+            )
+
+        ctx = IncrementalContext(
+            previous=previous,
+            version=_archguard_version(),
+            record_hashes=lambda _h: None,
+            repository_id=repository_id,
+        )
+        # The adapter hands back what it hashed; kept on the context so the
+        # caller can persist it once the analysis has actually succeeded.
+        def _remember(hashes: dict[str, str]) -> None:
+            ctx.measured_hashes = hashes
+
+        ctx.record_hashes = _remember
+        return ctx
+    except Exception:
+        logger.exception("[job %s] Could not prepare incremental analysis", job_id)
+        return None
+
+
+async def _save_hashes(job_id: str, ctx: Any) -> None:
+    """Record what this scan measured, for the next one to compare against."""
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    hashes = getattr(ctx, "measured_hashes", None)
+    repository_id = getattr(ctx, "repository_id", None)
+    if not hashes or repository_id is None:
+        return
+    try:
+        async with session_scope() as session:
+            await store.save_file_hashes(session, repository_id, hashes)
+    except Exception:
+        logger.exception("[job %s] Could not record file hashes", job_id)
 
 
 async def _fail(job_id: str, set_status: Any, message: str) -> None:
