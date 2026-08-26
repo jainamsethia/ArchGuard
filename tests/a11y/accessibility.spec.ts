@@ -74,3 +74,61 @@ test('the sign-in overlay does not leave hidden content in the tab order', async
   const inertCount = await page.locator('body > [inert]').count();
   expect(inertCount).toBeGreaterThan(0);
 });
+
+test('the tablist is one tab stop, and arrows move within it', async ({ page }) => {
+  // The ARIA tabs pattern. All four tabs used to sit in the page tab order,
+  // and there was no arrow handling at all -- so a keyboard user paid four
+  // stops to cross the bar and could not move between panels without a mouse.
+  await page.goto('/dashboard.html');
+
+  const tabbable = page.locator('[role="tab"][tabindex="0"]');
+  await expect(tabbable).toHaveCount(1);
+  await expect(page.locator('[role="tab"][tabindex="-1"]')).toHaveCount(3);
+
+  await tabbable.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('[role="tab"]:focus')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('[role="tab"][tabindex="0"]')).toHaveCount(1);
+});
+
+test('every tabpanel is labelled by the tab that controls it', async ({ page }) => {
+  // Otherwise a screen reader announces "tab panel" and nothing more.
+  await page.goto('/dashboard.html');
+  const tabs = page.locator('[role="tab"]');
+  const count = await tabs.count();
+  expect(count).toBeGreaterThan(0);
+
+  for (let i = 0; i < count; i += 1) {
+    const tab = tabs.nth(i);
+    const panelId = await tab.getAttribute('aria-controls');
+    const tabId = await tab.getAttribute('id');
+    await expect(page.locator(`#${panelId}`)).toHaveAttribute('aria-labelledby', tabId!);
+  }
+});
+
+test('each chart canvas has a name and a text description', async ({ page }) => {
+  // A bare <canvas> is an empty box to assistive technology.
+  await page.goto('/dashboard.html');
+  const canvases = page.locator('canvas');
+  const count = await canvases.count();
+  expect(count).toBeGreaterThanOrEqual(3);
+
+  for (let i = 0; i < count; i += 1) {
+    const canvas = canvases.nth(i);
+    await expect(canvas).toHaveAttribute('role', 'img');
+    const name = await canvas.getAttribute('aria-label');
+    expect(name, `canvas ${i} has no accessible name`).toBeTruthy();
+    const describedBy = await canvas.getAttribute('aria-describedby');
+    expect(describedBy, `canvas ${i} has no description target`).toBeTruthy();
+    await expect(page.locator(`#${describedBy}`)).toHaveCount(1);
+  }
+});
+
+test('the dashboard reports when it is busy refreshing', async ({ page }) => {
+  // aria-busy is the only signal a screen reader gets that five panels are
+  // mid-update; the spinner is purely visual.
+  await page.goto('/dashboard.html');
+  await page.waitForLoadState('networkidle');
+  // After the initial load has settled it must be false, not left stuck on.
+  await expect(page.locator('#dashboard-main')).toHaveAttribute('aria-busy', 'false');
+});

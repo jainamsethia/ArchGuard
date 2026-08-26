@@ -48,6 +48,13 @@ export function runIsTerminal(run) {
 export async function fetchData() {
     const refreshLoader = document.getElementById('refresh-loader');
     if (refreshLoader) refreshLoader.style.display = 'inline-block';
+
+    // A spinner is invisible to a screen reader. aria-busy on the region being
+    // rewritten is what tells assistive technology to hold off rather than
+    // announce a half-updated table as five separate panels land.
+    const region = document.getElementById('dashboard-main');
+    if (region) region.setAttribute('aria-busy', 'true');
+
     try {
         const [runsData, latestData, modulesData, evolutionData, gitEvoData] = await Promise.all([
             safeFetch(`/api/v1/runs?limit=30${jobQueryAmp}`, { runs: [] }),
@@ -127,6 +134,7 @@ export async function fetchData() {
         document.getElementById('last-updated').textContent = 'Error updating';
     } finally {
         hideRefreshLoader();
+        if (region) region.setAttribute('aria-busy', 'false');
     }
 }
 

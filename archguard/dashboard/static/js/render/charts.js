@@ -20,6 +20,21 @@ export function configureChartDefaults() {
 }
 
 
+
+/**
+ * Write a chart's data out as text, for anyone who cannot see the drawing.
+ *
+ * A `<canvas>` is an empty box to a screen reader: the three charts announced
+ * nothing at all. The description is generated from the same values that were
+ * just plotted, so it cannot drift from what is on screen the way a
+ * hand-written summary would.
+ */
+function describeChart(canvasId, sentence) {
+    const target = document.getElementById(`${canvasId}-desc`);
+    if (target) target.textContent = sentence;
+}
+
+
 export function updateTrendChart(runs) {
     if (!runs || runs.length < 2) {
         // Expected, not an error: every analysis job clones a fresh
@@ -38,6 +53,18 @@ export function updateTrendChart(runs) {
 
     // Sort runs chronologically
     const sortedRuns = [...runs].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    const scores = sortedRuns.map(r => Number(r.score)).filter(n => Number.isFinite(n));
+    if (scores.length) {
+        const first = scores[0];
+        const last = scores[scores.length - 1];
+        const direction = last > first ? 'up' : last < first ? 'down' : 'level';
+        describeChart(
+            'trendChart',
+            `Health score across ${scores.length} runs: ${direction} from ${first} `
+            + `to ${last}. Lowest ${Math.min(...scores)}, highest ${Math.max(...scores)}.`,
+        );
+    }
 
     const labels = sortedRuns.map(r => {
         const d = new Date(r.timestamp);
@@ -122,6 +149,15 @@ export function updateModuleChart(modulesData) {
     const combined = labels.map((l, i) => ({label: l, data: data[i]}));
     combined.sort((a, b) => b.data - a.data);
 
+    // Named worst-first, which is the order the bars are drawn and the order
+    // someone reading it would want: the modules needing attention first.
+    describeChart(
+        'moduleChart',
+        `Health score for ${combined.length} module(s), lowest first: `
+        + [...combined].reverse().slice(0, 10)
+            .map(m => `${m.label} ${m.data}`).join(', ') + '.',
+    );
+
     const noteEl = document.getElementById('module-chart-note');
     if (noteEl) {
         if (combined.length > 10) {
@@ -187,6 +223,16 @@ export function updateEvolutionChart(snapshots) {
         return `${d.getMonth()+1}/${d.getDate()} ${s.sha.substring(0, 7)}`;
     });
     const data = snapshots.map(s => s.health_score);
+
+    const known = data.filter(n => Number.isFinite(Number(n))).map(Number);
+    if (known.length) {
+        describeChart(
+            'evolutionChart',
+            `Health score across ${known.length} commit(s): from ${known[0]} to `
+            + `${known[known.length - 1]}. Lowest ${Math.min(...known)}, `
+            + `highest ${Math.max(...known)}.`,
+        );
+    }
 
     if (evolutionChartInstance) {
         evolutionChartInstance.data.labels = labels;

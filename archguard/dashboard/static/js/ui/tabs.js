@@ -26,6 +26,10 @@ export function initTabChrome() {
     const list = document.querySelector('.page-dashboard .tablist');
     if (!list) return;
 
+    initTabKeyboard(list);
+    initRovingTabindex(list);
+    labelPanels(list);
+
     const reposition = (animate) => {
         const current = list.querySelector('.tab[aria-selected="true"]');
         if (current) moveTabIndicator(current, animate);
@@ -68,12 +72,19 @@ export function initTabChrome() {
 
 
 export function switchTab(name) {
-    document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', 'false'));
+    document.querySelectorAll('.tab').forEach(t => {
+        t.setAttribute('aria-selected', 'false');
+        // Roving tabindex: only the selected tab is in the page tab order, so
+        // Tab reaches the tablist once and the arrows move within it. With all
+        // four tabbable, crossing the bar cost a keyboard user four stops.
+        t.setAttribute('tabindex', '-1');
+    });
     document.querySelectorAll('.tab-panel-main').forEach(p => p.classList.remove('active'));
 
     const targetTab = document.querySelector(`.tab[aria-controls="${name}"]`);
     if (targetTab) {
         targetTab.setAttribute('aria-selected', 'true');
+        targetTab.setAttribute('tabindex', '0');
         moveTabIndicator(targetTab);
     }
     const targetPanel = document.getElementById(name);
@@ -96,6 +107,79 @@ export function switchTab(name) {
     // registers what each tab should load; tabs only knows a tab was opened.
     const activate = activations.get(name);
     if (activate) activate();
+}
+
+
+/**
+ * Arrow-key movement across the tablist, per the ARIA tabs pattern.
+ *
+ * There was no key handling at all: the only way to change tab was a click,
+ * and all four tabs sat in the page tab order. Selection follows focus here,
+ * which is the right choice for panels that are already loaded or load
+ * cheaply -- the alternative (move focus, activate on Enter) exists for tabs
+ * whose panels are expensive, and these are not.
+ */
+function initTabKeyboard(list) {
+    const tabs = () => [...list.querySelectorAll('[role="tab"]')];
+
+    list.addEventListener('keydown', (e) => {
+        const all = tabs();
+        const index = all.indexOf(document.activeElement);
+        if (index === -1) return;
+
+        let next = null;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            next = all[(index + 1) % all.length];
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            next = all[(index - 1 + all.length) % all.length];
+        } else if (e.key === 'Home') {
+            next = all[0];
+        } else if (e.key === 'End') {
+            next = all[all.length - 1];
+        } else {
+            // Anything else belongs to the page. Swallowing every key here
+            // would break typing anywhere the tablist happens to have focus.
+            return;
+        }
+
+        e.preventDefault();
+        const name = next.getAttribute('aria-controls');
+        if (name) switchTab(name);
+        next.focus();
+    });
+}
+
+
+/**
+ * Put the initially-selected tab into the page tab order and the rest out of it.
+ *
+ * `switchTab` maintains this from then on, but the first selection comes from
+ * the template's `aria-selected`, so without this the page loads with no
+ * tabbable tab at all -- Tab skips the tablist entirely.
+ */
+function initRovingTabindex(list) {
+    const tabs = [...list.querySelectorAll('[role="tab"]')];
+    if (tabs.length === 0) return;
+    const selected = tabs.find((t) => t.getAttribute('aria-selected') === 'true') || tabs[0];
+    for (const tab of tabs) {
+        tab.setAttribute('tabindex', tab === selected ? '0' : '-1');
+    }
+}
+
+
+/**
+ * Point each panel back at the tab that controls it.
+ *
+ * Done here rather than in the template so the two cannot drift: the
+ * relationship is already declared once, by aria-controls.
+ */
+function labelPanels(list) {
+    for (const tab of list.querySelectorAll('[role="tab"]')) {
+        const panel = document.getElementById(tab.getAttribute('aria-controls'));
+        if (panel && !panel.getAttribute('aria-labelledby')) {
+            panel.setAttribute('aria-labelledby', tab.id);
+        }
+    }
 }
 
 

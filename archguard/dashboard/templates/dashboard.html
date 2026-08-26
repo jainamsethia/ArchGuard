@@ -35,7 +35,10 @@
 </div>
 
 <script src="{{ asset('auth.js') }}"></script>
-<div class="dashboard-container">
+<!-- id, not just the class: renderEmptyState creates its own panel carrying
+     the same `dashboard-container` class, so a querySelector on the class alone
+     resolves to whichever comes first in the document. -->
+<div class="dashboard-container" id="dashboard-main">
 <div class="header">
 <div>
 <h1>ArchGuard Dashboard</h1>
@@ -145,7 +148,9 @@
 <button class="btn-action" id="repo-history-btn">Load Repository History</button>
 </div>
 <div class="chart-wrapper">
-<canvas id="trendChart"></canvas>
+<canvas id="trendChart" role="img" aria-label="Health score over recent runs"
+        aria-describedby="trendChart-desc"></canvas>
+<div class="sr-only" id="trendChart-desc"></div>
 </div>
 <div id="repo-history-container" class="repo-history" hidden>
 <h3 class="text-section-title-flush margin-reset">Repository Run History</h3>
@@ -199,7 +204,9 @@
 </div>
 </div>
 <div class="chart-wrapper">
-<canvas id="evolutionChart"></canvas>
+<canvas id="evolutionChart" role="img" aria-label="Architectural metrics over time"
+        aria-describedby="evolutionChart-desc"></canvas>
+<div class="sr-only" id="evolutionChart-desc"></div>
 </div>
 </div>
 <h2 class="text-section-title">Dependency Health</h2>
@@ -309,7 +316,9 @@
 <h2 class="text-section-title">Modules</h2>
 <p class="section-note">Per-module health score (0–100, higher is better) from the latest analysis, ranked highest first.</p>
 <div class="chart-wrapper">
-<canvas id="moduleChart"></canvas>
+<canvas id="moduleChart" role="img" aria-label="Health score by module"
+        aria-describedby="moduleChart-desc"></canvas>
+<div class="sr-only" id="moduleChart-desc"></div>
 <p id="module-chart-note" class="chart-note"></p>
 </div>
 </div>
