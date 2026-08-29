@@ -11,6 +11,7 @@ import yaml
 # Re-exported so every test can ask for a real database without importing a
 # path-relative module. See tests/db_fixtures.py for why nothing here is faked.
 from tests.db_fixtures import (  # noqa: F401
+    _clean_redis,
     _schema_at_head,
     _services_reachable,
     auth_client,

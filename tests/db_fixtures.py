@@ -107,6 +107,76 @@ def _hold_wsl_open() -> subprocess.Popen[bytes] | None:
         return None
 
 
+#: Every Redis namespace the application writes under. Listed rather than
+#: flushed wholesale because the test URL is usually the developer's own Redis
+#: on database 0, and a FLUSHDB would sign them out of their dev session and
+#: throw away job progress they were watching.
+_REDIS_NAMESPACES = (
+    "session",     # dashboard/_sessions.py
+    "ratelimit",   # dashboard/_rate_limit.py
+    "lock",        # dashboard/_locks.py  -- single_flight
+    "evolution",   # routes/evolution.py  -- cached history summaries
+    "job",         # worker/progress.py   -- progress streams
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean_redis() -> Iterator[None]:
+    """Clear the application's Redis keys between tests.
+
+    PostgreSQL was already truncated per test by ``live_db``; Redis was not
+    cleared at all, and it holds exactly the state that decides what a request
+    does rather than merely what it returns -- per-user locks, rate-limit
+    counters, sessions, job progress. A key left behind changes the *behaviour*
+    of the next test rather than its data, which is why the failures it caused
+    read as impossible: a route returning 409 where the test never set up a
+    conflict, or a timeout that never fired.
+
+    Autouse and unconditional, because the tests that were affected are not the
+    ones that asked for a database. ``test_evolution_bounds`` takes no fixture
+    at all and still shares ``single_flight("evolution", 1)`` with its
+    neighbours, since every test in that file uses the same fixed user id and a
+    sixty-second lock TTL.
+
+    Costs nothing when Redis is not configured: ``get_redis()`` returns None
+    and this returns immediately, so a run without services does not pay a
+    connection attempt per test.
+    """
+    _flush_app_redis()
+    try:
+        yield
+    finally:
+        _flush_app_redis()
+
+
+def _flush_app_redis() -> None:
+    """Delete the app's keys, leaving anything else in the database alone."""
+    try:
+        from archguard.redis_client import get_redis
+
+        client = get_redis()
+        if client is None:
+            return
+        for prefix in _REDIS_NAMESPACES:
+            keys = list(client.scan_iter(match=f"{prefix}:*", count=500))
+            if keys:
+                client.delete(*keys)
+    except Exception:
+        # An unreachable Redis is a legitimate way to run the suite, and the
+        # session-scoped health check above has already said so once. Failing
+        # here would turn that into 900 identical errors.
+        return
+
+    # The rate limiter also keeps an in-process fallback for runs with no
+    # Redis, and that dict is not in any namespace above.
+    try:
+        from archguard.dashboard._rate_limit import reset_rate_limits
+
+        reset_rate_limits()
+    except Exception:
+        return
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _services_reachable() -> Iterator[None]:
     """Hold the services up for the session, and say plainly if they are not.
