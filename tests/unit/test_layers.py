@@ -55,12 +55,22 @@ def test_get_affected_modules_with_paths_and_module_names(tmp_path):
     assert "unknown" not in affected
 
 
-def test_drift_computed_once_per_run(tmp_path):
+def test_drift_computed_once_per_run(tmp_path, monkeypatch):
+    """Layer 3 measures a module once, not once per file in it.
+
+    `ARCHGUARD_SKIP_ML` is cleared because this is a test about orchestration
+    wiring, not about ML being installed: `compute_drift` is patched, so no
+    model is ever loaded and the variable only decides whether the call this
+    test counts happens at all. CI sets it at job level, which made the test
+    pass locally and fail there -- the least useful way round.
+    """
     from unittest.mock import MagicMock, patch
 
     import numpy as np
 
     from archguard.analysis.semantic import SemanticDriftResult
+
+    monkeypatch.delenv("ARCHGUARD_SKIP_ML", raising=False)
 
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
