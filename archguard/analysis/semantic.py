@@ -211,6 +211,97 @@ class SemanticAnalyzer:
 
         return result
 
+    def embed_files(
+        self,
+        files: list[Path],
+        repo_root: Path,
+        context: str = "",
+    ) -> dict[str, npt.NDArray[np.float32]]:
+        """Embed every function in *files*, writing them to the shared cache.
+
+        Extracted from ``compute_drift`` so Layer 4 can populate the same cache
+        without computing drift. Layer 4 searches the embeddings table, and
+        until this existed only Layer 3 ever wrote to it -- over the modules a
+        scan re-analysed. On an incremental scan every unchanged file was
+        therefore missing a vector, so a clone of one was invisible no matter
+        how wide a file list Layer 4 was handed.
+
+        Returns ``{"{rel_path}::{function_name}": embedding}``. Embedding is
+        cache-aware (``embed_chunks`` skips anything already stored), so
+        re-passing files another layer has embedded costs a batched lookup
+        rather than a re-encode.
+
+        Returns empty without ML rather than raising: ``embed_chunks`` raises,
+        and the Layer 4 caller would turn that into "Layer 4 analysis failed"
+        on a machine that simply has no ML extras installed.
+
+        *context* is the subject of the warning below, supplied whole by the
+        caller rather than assembled here -- the two callers are measuring
+        different things, and a message that named drift would be wrong coming
+        from the duplication corpus.
+        """
+        if not _ML_AVAILABLE:
+            return {}
+
+        MAX_FILES = 500
+        processed_files = 0
+        all_embeddings: dict[str, npt.NDArray[np.float32]] = {}
+        unreadable_files: list[str] = []
+        failed_files: list[str] = []
+        for fpath in files:
+            if processed_files >= MAX_FILES:
+                break
+            processed_files += 1
+            try:
+                rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
+
+                try:
+                    file_content = fpath.read_text(encoding="utf-8")
+                    tree = ast.parse(file_content)
+                except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
+                    # A file we cannot parse contributes no functions, which
+                    # silently pulls the centroid toward "no drift". Record it.
+                    unreadable_files.append(f"{fpath.name}: {type(exc).__name__}")
+                    continue
+
+                chunks = []
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        source = ast.get_source_segment(file_content, node)
+                        if source:
+                            content_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
+                            chunks.append(FunctionChunk(
+                                file_path=rel,
+                                function_name=node.name,
+                                source=source,
+                                content_hash=content_hash,
+                            ))
+
+                if chunks:
+                    embedded = self.embed_chunks(chunks)
+                    all_embeddings.update(embedded)
+            except Exception as exc:
+                failed_files.append(f"{getattr(fpath, 'name', fpath)}: {type(exc).__name__}: {exc}")
+                logger.debug("Embedding failed for %s", fpath, exc_info=True)
+                continue
+
+        if unreadable_files or failed_files:
+            # Without this, a module whose files all failed to embed is
+            # indistinguishable from a module that genuinely did not drift.
+            logger.warning(
+                "%s: %d/%d file(s) contributed no embeddings (%d unparseable, "
+                "%d errored). The result is computed from the remainder and "
+                "understates what is really there. First failures: %s",
+                context,
+                len(unreadable_files) + len(failed_files),
+                processed_files,
+                len(unreadable_files),
+                len(failed_files),
+                (unreadable_files + failed_files)[:5],
+            )
+
+        return all_embeddings
+
     def compute_centroid(
         self,
         embeddings: dict[str, npt.NDArray[np.float32]],
@@ -274,62 +365,9 @@ class SemanticAnalyzer:
             pre_centroid = np.zeros(384, dtype=np.float32)
 
         # 2. Extract + embed functions from changed files
-        MAX_FILES = 500
-        processed_files = 0
-        all_embeddings: dict[str, npt.NDArray[np.float32]] = {}
-        unreadable_files: list[str] = []
-        failed_files: list[str] = []
-        for fpath in changed_files:
-            if processed_files >= MAX_FILES:
-                break
-            processed_files += 1
-            try:
-                rel = str(fpath.relative_to(repo_root)).replace("\\", "/")
-
-                try:
-                    file_content = fpath.read_text(encoding="utf-8")
-                    tree = ast.parse(file_content)
-                except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
-                    # A file we cannot parse contributes no functions, which
-                    # silently pulls the centroid toward "no drift". Record it.
-                    unreadable_files.append(f"{fpath.name}: {type(exc).__name__}")
-                    continue
-
-                chunks = []
-                for node in ast.walk(tree):
-                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                        source = ast.get_source_segment(file_content, node)
-                        if source:
-                            content_hash = hashlib.sha256(source.encode("utf-8")).hexdigest()
-                            chunks.append(FunctionChunk(
-                                file_path=rel,
-                                function_name=node.name,
-                                source=source,
-                                content_hash=content_hash,
-                            ))
-
-                if chunks:
-                    embedded = self.embed_chunks(chunks)
-                    all_embeddings.update(embedded)
-            except Exception as exc:
-                failed_files.append(f"{getattr(fpath, 'name', fpath)}: {type(exc).__name__}: {exc}")
-                logger.debug("Embedding failed for %s", fpath, exc_info=True)
-                continue
-
-        if unreadable_files or failed_files:
-            # Without this, a module whose files all failed to embed is
-            # indistinguishable from a module that genuinely did not drift.
-            logger.warning(
-                "Semantic drift for module %s: %d/%d changed file(s) contributed no "
-                "embeddings (%d unparseable, %d errored). Drift is computed from the "
-                "remainder and understates real drift. First failures: %s",
-                module_name,
-                len(unreadable_files) + len(failed_files),
-                processed_files,
-                len(unreadable_files),
-                len(failed_files),
-                (unreadable_files + failed_files)[:5],
-            )
+        all_embeddings = self.embed_files(
+            changed_files, repo_root, context=f"Semantic drift for module {module_name}"
+        )
 
         # 3. Compute post-PR centroid
         if not all_embeddings:

@@ -132,6 +132,7 @@ def _run_orchestrator(
     progress_callback: Any = None,
     fail_fast: bool = False,
     quiet: bool = False,
+    duplication_files: list[Path] | None = None,
 ) -> AnalysisResult:
     py_files = [f for f in changed_files if str(f).endswith(".py")]
     rel_files = [
@@ -155,6 +156,17 @@ def _run_orchestrator(
 
     affected = _get_affected_modules_fn(
         orchestrator.repo_root, orchestrator.contract, py_files
+    )
+
+    # Layers 1-3 stay scoped to what this scan was given. Layer 4 does not: a
+    # duplication finding names two modules, so scoping it to the changed slice
+    # both hides real clones and leaves stale ones standing with nothing to
+    # disprove them. See cache.incremental.RELATIONAL_LAYERS.
+    dup_py_files = [
+        f for f in (duplication_files or changed_files) if str(f).endswith(".py")
+    ]
+    dup_affected = _get_affected_modules_fn(
+        orchestrator.repo_root, orchestrator.contract, dup_py_files
     )
 
     def emit(message: str, phase: str | None = None) -> None:
@@ -213,7 +225,7 @@ def _run_orchestrator(
         return res3
 
     v4, l4 = _run_layer_4(
-        orchestrator, v3, affected, emit, metrics, commit_sha
+        orchestrator, v3, dup_affected, emit, metrics, commit_sha
     )
 
     return _finalize_result(

@@ -71,8 +71,15 @@ class AnalysisOrchestrator:
         progress_callback: Any = None,
         fail_fast: bool = False,
         quiet: bool = False,
+        duplication_files: list[Path] | None = None,
     ) -> AnalysisResult:
-        """Run the full Layer 1–4 pipeline."""
+        """Run the full Layer 1–4 pipeline.
+
+        *duplication_files* is the file set Layer 4 compares against, which is
+        not always *changed_files*: duplication is a relationship between two
+        modules, so an incremental scan must still let it see the files it did
+        not re-analyse. ``None`` means "the same as changed_files".
+        """
         from archguard.analysis._orchestrator_run import _run_orchestrator
         from archguard.analysis.coupling import collect_unassigned
 
@@ -89,6 +96,7 @@ class AnalysisOrchestrator:
                 progress_callback,
                 fail_fast,
                 quiet,
+                duplication_files,
             )
 
     # (Removed wrappers to save lines)

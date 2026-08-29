@@ -159,6 +159,135 @@ jobs:
         with:
           file: ./coverage.xml
 
+  # Layers 3 and 4 need torch, sentence-transformers and faiss, which the job
+  # above deliberately does not install: they are the worker image's
+  # dependencies, they weigh more than everything else combined, and putting
+  # them on a two-version matrix would pay that cost four times.
+  #
+  # The consequence had been that nothing ever exercised them. `test` sets
+  # ARCHGUARD_SKIP_ML=1, so every ML-gated test skipped and the job went green
+  # having covered neither layer -- which is how a Layer 4 defect survived into
+  # a release. A skip that nobody is told about is indistinguishable from a
+  # pass. So: one dedicated job, one Python version, real extras, and an
+  # explicit assertion that the tests actually ran.
+  ml:
+    name: Layer 3 & 4 (worker extras)
+    runs-on: ubuntu-latest
+
+    # Layer 4's incremental tests read runs back out of PostgreSQL, because the
+    # defect they cover lives in what one scan carries forward from the last.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: archguard
+          POSTGRES_PASSWORD: ci_local_only
+          POSTGRES_DB: archguard_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U archguard -d archguard_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_test
+      TEST_DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      SESSION_SECRET: ci-session-secret-not-used-anywhere-real-0123456789
+      ARCHGUARD_MOCK_LLM: "1"
+      # Deliberately NOT setting ARCHGUARD_SKIP_ML. That variable is the whole
+      # reason this job exists; setting it here would make the job a no-op that
+      # looks like coverage.
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install with the worker extras
+        run: pip install "poetry==2.4.1" && poetry install --with dev --extras worker
+
+      # The model is downloaded on first use, inside whichever test happens to
+      # touch Layer 3 first. Cached and fetched up front instead, so a Hugging
+      # Face outage fails here with an obvious message rather than surfacing as
+      # an unrelated-looking test error several minutes in.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-v1
+
+      - name: Fetch the embedding model
+        run: |
+          poetry run python -c "
+          from sentence_transformers import SentenceTransformer
+          SentenceTransformer('all-MiniLM-L6-v2')
+          print('all-MiniLM-L6-v2 ready')
+          "
+
+      # Without this, an extras install that quietly failed would leave every
+      # ML test skipping and the job green -- exactly the failure being fixed.
+      - name: Assert the ML extras are actually importable
+        run: |
+          poetry run python - <<'PY'
+          import os, sys
+          if os.environ.get("ARCHGUARD_SKIP_ML") == "1":
+              sys.exit("ARCHGUARD_SKIP_ML is set; this job would test nothing")
+          missing = []
+          for mod in ("faiss", "sentence_transformers", "torch", "numpy", "scipy"):
+              try:
+                  __import__(mod)
+              except Exception as exc:
+                  missing.append(f"{mod} ({type(exc).__name__})")
+          if missing:
+              sys.exit("worker extras missing: " + ", ".join(missing))
+          print("layers 3 and 4 can run")
+          PY
+
+      # The whole suite, with the slow layers switched on. Narrowing this to
+      # the Layer 4 files by name would leave the next ML-gated test to be
+      # written skipping unnoticed, which is the class of problem being closed.
+      - name: Run the suite with layers 3 and 4 enabled
+        run: |
+          poetry run pytest tests/unit/ tests/integration/             --timeout=900             --no-cov             -m "integration or not integration"             -rs             --junitxml=ml-results.xml
+
+      # Belt and braces: the step above fails on a failing test, this one fails
+      # on a test that quietly stopped running.
+      - name: Assert no test skipped for want of ML
+        run: |
+          poetry run python - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("ml-results.xml").getroot()
+          bad = []
+          for case in root.iter("testcase"):
+              for skip in case.iter("skipped"):
+                  reason = (skip.get("message") or "") + (skip.text or "")
+                  low = reason.lower()
+                  # "ML extras installed; this asserts the no-ML path" is the
+                  # inverse test in test_fixture_correctness.py -- it is
+                  # SUPPOSED to skip here, and skipping is how it passes.
+                  if "ml extras installed" in low:
+                      continue
+                  if "ml extras" in low or "sentence-transformers" in low or "faiss" in low:
+                      bad.append(f"{case.get('classname')}::{case.get('name')} -- {reason.strip()}")
+          if bad:
+              print("These tests skipped for want of ML in the job that exists to run them:")
+              for line in bad:
+                  print("  " + line)
+              sys.exit(1)
+          print("no ML-gated test skipped")
+          PY
+
   migrations:
     name: Alembic round-trip
     runs-on: ubuntu-latest

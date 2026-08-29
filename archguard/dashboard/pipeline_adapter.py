@@ -321,6 +321,7 @@ async def run_analysis_on_repo(
     # and the ArchGuard version both match the previous run -- see
     # archguard.cache.incremental.plan_analysis.
     plan = None
+    duplication_files: list[Path] | None = None
     if incremental is not None:
         from archguard.cache.incremental import hash_files, plan_analysis
 
@@ -342,6 +343,7 @@ async def run_analysis_on_repo(
                 "issue(s) in unchanged modules."
             )
             py_files = plan.changed or py_files
+            duplication_files = plan.duplication_files
             incremental.carried = plan.carried_violations
 
     await _emit(
@@ -373,6 +375,7 @@ async def run_analysis_on_repo(
                 fallback_reason,
                 _relay,
                 plan.carried_violations if plan and not plan.full else [],
+                duplication_files,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -488,6 +491,7 @@ def _run_analysis_sync(
     fallback_reason: str = "",
     on_progress: Any = None,
     carried_violations: list[dict[str, Any]] | None = None,
+    duplication_files: list[Path] | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -519,6 +523,10 @@ def _run_analysis_sync(
             # orchestrator emits was thrown away and the stream showed only the
             # four the adapter itself produced.
             quiet=on_progress is None,
+            # Layer 4 measures a relationship, so it is not scoped to the
+            # incremental slice. None on a full analysis, where py_files is
+            # already everything.
+            duplication_files=duplication_files,
         )
 
     # -- Build the persistable payload --

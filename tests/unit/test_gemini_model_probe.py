@@ -35,6 +35,11 @@ def _clean_llm_env(monkeypatch):
         "ARCHGUARD_FALLBACK_MODEL",
         "ARCHGUARD_VERIFY_LLM_ON_BOOT",
         "GEMINI_BASE_URL",
+        # Mock mode means the AI features genuinely work without a key, so
+        # `ai_status()` reports them available and the two "unavailable" tests
+        # below fail. CI sets this at job level, which made these tests pass
+        # locally and fail there -- the least useful way round.
+        "ARCHGUARD_MOCK_LLM",
     ):
         monkeypatch.delenv(var, raising=False)
 

@@ -141,6 +141,22 @@ def contract_fingerprint(contract: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+#: Layers whose findings describe more than the module they are filed under.
+#:
+#: Layers 1-3 are attributable: an import-boundary violation belongs to a file,
+#: a fan-out or drift figure to a module. Skipping an unchanged module and
+#: carrying its previous findings forward is therefore sound -- nothing outside
+#: it can make them false.
+#:
+#: A Layer 4 duplication finding is a *relationship*. Its message names a clone
+#: spanning two files ("a.py <-> b.py") but the row is recorded against one
+#: module, so it stops being true when the OTHER module changes -- and this
+#: plan cannot tell which one that was. Such a finding is never carried
+#: forward; its layer is re-measured over `AnalysisPlan.duplication_files`
+#: instead. Add a layer number here rather than special-casing it elsewhere.
+RELATIONAL_LAYERS = frozenset({"4"})
+
+
 @dataclass(frozen=True)
 class PreviousRun:
     """What the last analysis of this repository was measured with."""
@@ -167,9 +183,13 @@ class AnalysisPlan:
     dirty_modules: set[str] = field(default_factory=set)
     carried_violations: list[dict[str, Any]] = field(default_factory=list)
 
-    @property
-    def files_to_analyse(self) -> list[Path]:
-        return self.changed
+    #: Every file this scan looked at, changed or not.
+    #:
+    #: Layers in RELATIONAL_LAYERS must see all of it. A clone's counterpart
+    #: commonly lives in a file that did not change, and a Layer 4 run scoped
+    #: to `changed` alone can neither find it nor clear a stale finding about
+    #: it -- it simply has nothing to compare against.
+    duplication_files: list[Path] = field(default_factory=list)
 
 
 def plan_analysis(
@@ -198,7 +218,13 @@ def plan_analysis(
     }
 
     def everything(reason: str) -> AnalysisPlan:
-        return AnalysisPlan(full=True, reason=reason, changed=list(files), unchanged=[])
+        return AnalysisPlan(
+            full=True,
+            reason=reason,
+            changed=list(files),
+            unchanged=[],
+            duplication_files=list(files),
+        )
 
     if previous is None:
         return everything("no previous run for this repository")
@@ -217,12 +243,19 @@ def plan_analysis(
     # A finding with no module cannot be attributed to one, and a module the
     # contract no longer declares was measured against a boundary that is gone;
     # both are left for this run to produce again if they still hold.
+    #
+    # And never a relational one, however clean its own module looks. See
+    # RELATIONAL_LAYERS: a duplication finding depends on a module this plan
+    # may have decided was untouched, so "my module is clean" is not evidence
+    # that it still holds. `str` because the value is an int coming out of the
+    # analyser and a string coming back out of the database.
     carried = [
         v
         for v in previous.violations
         if v.get("module")
         and v["module"] in module_paths
         and v["module"] not in dirty
+        and str(v.get("layer")) not in RELATIONAL_LAYERS
     ]
 
     return AnalysisPlan(
@@ -235,6 +268,8 @@ def plan_analysis(
         unchanged=unchanged,
         dirty_modules=dirty,
         carried_violations=carried,
+        # changed + unchanged is the whole input set by construction.
+        duplication_files=list(files),
     )
 
 

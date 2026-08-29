@@ -283,3 +283,137 @@ def test_a_module_that_vanished_from_the_contract_is_not_carried(repo):
         ),
     )
     assert plan.carried_violations == []
+
+
+# ------------------------------------------------- layer 4 is not attributable
+
+
+TWO_MODULE_CONTRACT = {
+    "version": "3.0",
+    "modules": [{"name": "pkg", "path": "pkg/"}, {"name": "other", "path": "other/"}],
+}
+
+
+def test_a_duplication_finding_is_never_carried_forward(repo):
+    """Layers 1-3 are attributable; layer 4 is not.
+
+    A fan-out or drift finding belongs to the module that produced it, so a
+    module nobody re-analysed still has it. A duplication finding is a
+    *relationship*: the message names two files ("a.py <-> b.py") but the row
+    is filed under one module. Its truth therefore depends on a module this
+    plan may have decided was clean -- and the plan cannot tell which one.
+
+    So it is dropped and re-measured, never carried. Both spellings of the
+    layer are pinned because the value changes type on the round trip: the
+    analyser emits an int (_layer_runners.py) and the database hands back a
+    string (store.run_to_dict).
+    """
+    known = incremental.hash_files(files_of(repo), repo)
+    (repo / "pkg" / "a.py").write_text("import os\nimport json\n", encoding="utf-8")
+
+    plan = incremental.plan_analysis(
+        files=files_of(repo), root=repo, contract=TWO_MODULE_CONTRACT,
+        version="0.3.0",
+        previous=_previous(
+            contract=TWO_MODULE_CONTRACT,
+            hashes=known,
+            violations=[
+                {"module": "other", "layer": 4, "message": "pkg/a.py <-> other/c.py"},
+                {"module": "other", "layer": "4", "message": "same rule, str layer"},
+                {"module": "other", "layer": 2, "message": "fan_out=9 exceeds budget=3"},
+            ],
+        ),
+    )
+
+    assert plan.dirty_modules == {"pkg"}
+    carried = [v["message"] for v in plan.carried_violations]
+    assert carried == ["fan_out=9 exceeds budget=3"], (
+        "a duplication finding filed against the clean module was carried "
+        "forward, so a clone deleted from the dirty module survives the rescan"
+    )
+
+
+def test_a_duplication_finding_is_not_carried_even_when_nothing_changed(repo):
+    """The case a "re-run layer 4 when something changed" rule cannot see.
+
+    Deleting a file produces no entry in `changed` -- it is simply absent from
+    the file list -- so nothing is dirty and the plan believes the repository
+    is untouched. That is precisely when a clone's counterpart has vanished,
+    which is why the rule is "never carry" rather than "carry when clean".
+    """
+    known = incremental.hash_files(files_of(repo), repo)
+    (repo / "other" / "c.py").unlink()
+
+    plan = incremental.plan_analysis(
+        files=files_of(repo), root=repo, contract=TWO_MODULE_CONTRACT,
+        version="0.3.0",
+        previous=_previous(
+            contract=TWO_MODULE_CONTRACT,
+            hashes=known,
+            violations=[
+                {"module": "pkg", "layer": 4, "message": "pkg/a.py <-> other/c.py"},
+                {"module": "pkg", "layer": 2, "message": "fan_out=9 exceeds budget=3"},
+            ],
+        ),
+    )
+
+    assert plan.dirty_modules == set(), "a pure deletion should dirty nothing"
+    carried = [v["message"] for v in plan.carried_violations]
+    assert "pkg/a.py <-> other/c.py" not in carried, (
+        "the clone's counterpart was deleted, but the finding was carried anyway"
+    )
+    assert carried == ["fan_out=9 exceeds budget=3"]
+
+
+def test_layer_four_sees_every_file_even_on_an_incremental_scan(repo):
+    """A clone's counterpart may sit in a file nothing touched.
+
+    Layers 1-3 are handed only what changed. Layer 4 measures a relationship,
+    so restricting it to the changed slice would report a duplication the rest
+    of the repository already explains -- or miss one entirely.
+    """
+    known = incremental.hash_files(files_of(repo), repo)
+    (repo / "pkg" / "a.py").write_text("import os\nimport json\n", encoding="utf-8")
+
+    plan = incremental.plan_analysis(
+        files=files_of(repo), root=repo, contract=TWO_MODULE_CONTRACT,
+        version="0.3.0", previous=_previous(contract=TWO_MODULE_CONTRACT, hashes=known),
+    )
+
+    assert plan.full is False
+    assert [p.name for p in plan.changed] == ["a.py"]
+    assert sorted(plan.duplication_files) == sorted(files_of(repo)), (
+        "layer 4 was given only the changed slice"
+    )
+
+
+def test_layers_two_and_three_stay_incrementally_scoped(repo):
+    """The other half of the rule: this fix must not quietly turn every
+    incremental scan into a full one."""
+    known = incremental.hash_files(files_of(repo), repo)
+    (repo / "pkg" / "a.py").write_text("import os\nimport json\n", encoding="utf-8")
+
+    plan = incremental.plan_analysis(
+        files=files_of(repo), root=repo, contract=TWO_MODULE_CONTRACT,
+        version="0.3.0",
+        previous=_previous(
+            contract=TWO_MODULE_CONTRACT, hashes=known,
+            violations=[{"module": "other", "layer": 3, "message": "drift=0.4"}],
+        ),
+    )
+
+    assert plan.full is False
+    assert plan.dirty_modules == {"pkg"}, "the clean module was re-analysed"
+    assert [p.name for p in plan.changed] == ["a.py"], "more than the edit was re-analysed"
+    assert [v["message"] for v in plan.carried_violations] == ["drift=0.4"], (
+        "a layer 3 finding for an untouched module stopped being carried"
+    )
+
+
+def test_a_full_analysis_gives_layer_four_everything(repo):
+    plan = incremental.plan_analysis(
+        files=files_of(repo), root=repo, contract=CONTRACT, version="0.3.0",
+        previous=None,
+    )
+    assert plan.full is True
+    assert sorted(plan.duplication_files) == sorted(files_of(repo))

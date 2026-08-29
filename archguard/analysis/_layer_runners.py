@@ -294,6 +294,27 @@ def _run_layer4(
     max_agg = 0.0
     skip_reason = ""
 
+    # Fill the corpus before searching it. Layer 4 matches against the
+    # embeddings table, and Layer 3 only ever writes the modules that scan
+    # re-analysed -- so on an incremental scan every unchanged file is missing
+    # a vector, and a clone of one cannot be found however wide `affected` is.
+    #
+    # Per module, not one flat list, so embed_files' MAX_FILES cap keeps the
+    # per-module meaning it has in Layer 3. Already-embedded files cost a
+    # batched cache lookup, not a re-encode; no-ops without the ML extras.
+    #
+    # This loop must finish before the one below starts, and must not be merged
+    # into it. Duplication is cross-module: the first module's search needs the
+    # last module's vectors already in the corpus, so embedding a module just
+    # before analysing it would leave every module blind to the ones after it.
+    from archguard.analysis.semantic import SemanticAnalyzer
+
+    embedder = SemanticAnalyzer(cache)
+    for mod_name, files in affected.items():
+        embedder.embed_files(
+            files, repo_root, context=f"Duplication corpus for module {mod_name}"
+        )
+
     for mod_name, files in affected.items():
         # Compute repo-root-relative paths. Layer 3 keys its cached embeddings
         # by repo-root-relative file path, so the file set passed here MUST use
