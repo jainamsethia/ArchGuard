@@ -322,6 +322,11 @@ async def run_analysis_on_repo(
     # archguard.cache.incremental.plan_analysis.
     plan = None
     duplication_files: list[Path] | None = None
+    # Findings from the previous run that this scan will not recompute. Its own
+    # variable rather than read off the plan twice, so the list handed to the
+    # analysis is the same one the progress message describes and there is a
+    # single place where the rule lives.
+    carried: list[dict[str, Any]] = []
     if incremental is not None:
         from archguard.cache.incremental import hash_files, plan_analysis
 
@@ -337,14 +342,28 @@ async def run_analysis_on_repo(
         if plan.full:
             await _emit(f"Full analysis: {plan.reason}.")
         else:
-            await _emit(
-                f"Incremental analysis: {plan.reason}. "
-                f"Reusing findings for {len(plan.carried_violations)} previous "
-                "issue(s) in unchanged modules."
-            )
             py_files = plan.changed or py_files
             duplication_files = plan.duplication_files
-            incremental.carried = plan.carried_violations
+
+            # Reuse only what this scan will not measure for itself.
+            #
+            # A plan with nothing changed still analyses the whole repository:
+            # an empty file list is reported as a skipped run scoring zero,
+            # which would tell someone their untouched repository had failed.
+            # So the scan recomputes precisely the findings it was offered to
+            # carry, and carrying them as well stored every one of them twice
+            # -- then three times, then four, because the next scan read the
+            # duplicates back as its own previous run and carried those too.
+            # A watched repository is swept on a schedule whether or not
+            # anything was pushed, so this was the ordinary case for it.
+            carried = plan.carried_violations if plan.changed else []
+            incremental.carried = carried
+
+            await _emit(
+                f"Incremental analysis: {plan.reason}. "
+                f"Reusing findings for {len(carried)} previous "
+                "issue(s) in unchanged modules."
+            )
 
     await _emit(
         f"Found {len(py_files)} Python files. Starting 4-layer analysis...",
@@ -374,7 +393,7 @@ async def run_analysis_on_repo(
                 fallback_heuristic,
                 fallback_reason,
                 _relay,
-                plan.carried_violations if plan and not plan.full else [],
+                carried,
                 duplication_files,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,

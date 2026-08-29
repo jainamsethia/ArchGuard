@@ -20,7 +20,6 @@ real corpus contains the real vectors of the real unchanged files.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 from pathlib import Path
@@ -28,6 +27,13 @@ from pathlib import Path
 import pytest
 
 from tests.db_fixtures import requires_postgres
+from tests.integration._pipeline_scan import (
+    identity,
+    make_user,
+    previous_run,
+    scan_repo,
+    violations_of,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -88,7 +94,7 @@ def clone_repo(tmp_path: Path) -> Path:
 
     This is the *source* the scans clone from, not a working tree. Tests mutate
     it between scans the way a user would push a commit; each scan then copies
-    it fresh -- see ``_scan``.
+    it fresh -- see ``scan_repo``.
     """
     src = Path(__file__).resolve().parents[1] / "fixtures" / "planted_duplication"
     repo = tmp_path / "source"
@@ -100,94 +106,9 @@ def clone_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _user(github_id: int, login: str) -> int:
-    from archguard.db import store
-    from archguard.db.session import session_scope
-
-    async def _go() -> int:
-        async with session_scope() as session:
-            return (await store.upsert_user(session, github_id=github_id, login=login)).id
-
-    return asyncio.run(_go())
-
-
-def _scan(source: Path, workdir: Path, repo_url: str, user_id: int, previous=None) -> dict:
-    """One scan through the real pipeline; incremental when *previous* is given.
-
-    Copies *source* into a fresh *workdir* first, because that is what the
-    product does: every job clones the repository into a new temporary
-    directory that is deleted afterwards. It matters here more than it looks.
-    The embedding cache lives at ``repo_root/.archguard-cache/embeddings.db``
-    (AnalysisOrchestrator.__init__, and the dashboard does not override it), so
-    a fresh clone means a fresh corpus holding only what *this* run embedded.
-    Scanning one directory twice would leave a deleted file's vectors sitting
-    in the corpus and let Layer 4 match against code that no longer exists --
-    an artefact of the test, not of the product.
-
-    Goes through ``run_analysis_on_repo`` rather than calling the layers
-    directly, because the defect lives in the handoff between the plan and the
-    orchestrator. A test that drove the orchestrator itself would step over it.
-    """
-    from archguard.dashboard.pipeline_adapter import (
-        IncrementalContext,
-        _archguard_version,
-        run_analysis_on_repo,
-    )
-    from archguard.db import store
-    from archguard.db.session import session_scope
-
-    shutil.copytree(
-        source, workdir, ignore=shutil.ignore_patterns(".git", ".archguard-cache")
-    )
-
-    async def _go() -> dict:
-        async with session_scope() as session:
-            job_id = (await store.create_job(session, repo_url, user_id=user_id)).id
-
-        measured: dict[str, dict[str, str]] = {}
-        ctx = IncrementalContext(
-            previous=previous,
-            version=_archguard_version(),
-            record_hashes=lambda h: measured.__setitem__("hashes", h),
-        )
-        await run_analysis_on_repo(
-            repo_path=workdir,
-            job_id=job_id,
-            repo_url=repo_url,
-            progress_callback=None,
-            incremental=ctx,
-        )
-        async with session_scope() as session:
-            run = await store.get_latest_run(session, job_id, user_id)
-        return {"run": run or {}, "hashes": measured.get("hashes", {})}
-
-    return asyncio.run(_go())
-
-
-def _previous_run(repo: Path, scan: dict):
-    """What the next scan is told about this one."""
-    from archguard.cache.incremental import PreviousRun
-    from archguard.dashboard.pipeline_adapter import (
-        _archguard_version,
-        _safe_load_contract,
-    )
-
-    return PreviousRun(
-        contract=_safe_load_contract(repo),
-        archguard_version=_archguard_version(),
-        file_hashes=scan["hashes"],
-        violations=list(scan["run"].get("violations") or []),
-    )
-
-
 def _layer4(run: dict) -> list[dict]:
-    """Layer 4 findings. ``str`` because the value is an int in the analyser and
-    a string once it has been through the database."""
-    return [v for v in (run.get("violations") or []) if str(v.get("layer")) == "4"]
-
-
-def _messages(violations: list[dict]) -> list[str]:
-    return sorted(str(v.get("message") or "") for v in violations)
+    """Layer 4 findings only."""
+    return violations_of(run, "4")
 
 
 # --------------------------------------------------------------- the reported bug
@@ -198,19 +119,19 @@ def _messages(violations: list[dict]) -> list[str]:
 def test_a_stale_clone_disappears_when_its_counterpart_changes(clone_repo, tmp_path, live_db):
     """Rewrite the clone out of one module; the other module's copy of the
     finding must not survive."""
-    user_id = _user(7301, "l4-stale")
+    user_id = make_user(7301, "l4-stale")
     url = "https://github.com/test/l4-stale.git"
 
-    first = _scan(clone_repo, tmp_path / "clone1", url, user_id)
+    first = scan_repo(clone_repo, tmp_path / "clone1", url, user_id)
     assert _layer4(first["run"]), (
         "the fixture produced no cross-module duplication, so every assertion "
         "below would pass vacuously; Layer 4 or the contract has regressed"
     )
 
     (clone_repo / "module_a" / "a.py").write_text(REWRITTEN_A, encoding="utf-8")
-    second = _scan(
+    second = scan_repo(
         clone_repo, tmp_path / "clone2", url, user_id,
-        previous=_previous_run(clone_repo, first),
+        previous=previous_run(clone_repo, first),
     )
     after = _layer4(second["run"])
 
@@ -240,16 +161,16 @@ def test_the_unchanged_module_is_not_left_holding_a_false_finding(clone_repo, tm
     when something changed" is blind to exactly this case, which is why the
     rule is that a Layer 4 finding is never carried at all.
     """
-    user_id = _user(7304, "l4-deleted")
+    user_id = make_user(7304, "l4-deleted")
     url = "https://github.com/test/l4-deleted.git"
 
-    first = _scan(clone_repo, tmp_path / "clone1", url, user_id)
+    first = scan_repo(clone_repo, tmp_path / "clone1", url, user_id)
     assert _layer4(first["run"]), "no duplication to begin with"
 
     (clone_repo / "module_a" / "a.py").unlink()
-    second = _scan(
+    second = scan_repo(
         clone_repo, tmp_path / "clone2", url, user_id,
-        previous=_previous_run(clone_repo, first),
+        previous=previous_run(clone_repo, first),
     )
 
     assert _layer4(second["run"]) == [], (
@@ -269,21 +190,21 @@ def test_an_unchanged_rescan_still_reports_the_clone(clone_repo, tmp_path, live_
     so -- re-measured rather than carried, so the number a user sees is one
     this scan actually established.
     """
-    user_id = _user(7302, "l4-unchanged")
+    user_id = make_user(7302, "l4-unchanged")
     url = "https://github.com/test/l4-unchanged.git"
 
-    first = _scan(clone_repo, tmp_path / "clone1", url, user_id)
+    first = scan_repo(clone_repo, tmp_path / "clone1", url, user_id)
     before = _layer4(first["run"])
     assert before, "no duplication to begin with"
 
-    second = _scan(
+    second = scan_repo(
         clone_repo, tmp_path / "clone2", url, user_id,
-        previous=_previous_run(clone_repo, first),
+        previous=previous_run(clone_repo, first),
     )
     after = _layer4(second["run"])
 
     assert after, "an unchanged rescan lost the duplication finding entirely"
-    assert _messages(after) == _messages(before), (
+    assert identity(after) == identity(before), (
         "an unchanged rescan reported different duplication than the scan before it"
     )
 
@@ -308,10 +229,10 @@ def test_the_clone_is_still_found_when_only_one_side_changed(clone_repo, tmp_pat
     Also pins the no-double-count property: Layer 4 recomputes over everything,
     so carrying it forward as well would report the same clone twice.
     """
-    user_id = _user(7303, "l4-onesided")
+    user_id = make_user(7303, "l4-onesided")
     url = "https://github.com/test/l4-onesided.git"
 
-    first = _scan(clone_repo, tmp_path / "clone1", url, user_id)
+    first = scan_repo(clone_repo, tmp_path / "clone1", url, user_id)
     assert _layer4(first["run"]), "no duplication to begin with"
 
     # A comment, so the file's hash changes and nothing else does. The clone
@@ -319,9 +240,9 @@ def test_the_clone_is_still_found_when_only_one_side_changed(clone_repo, tmp_pat
     path = clone_repo / "module_a" / "a.py"
     path.write_text(path.read_text(encoding="utf-8") + "\n# touched\n", encoding="utf-8")
 
-    second = _scan(
+    second = scan_repo(
         clone_repo, tmp_path / "clone2", url, user_id,
-        previous=_previous_run(clone_repo, first),
+        previous=previous_run(clone_repo, first),
     )
     after = _layer4(second["run"])
 
@@ -386,7 +307,7 @@ def test_the_incremental_scan_still_skips_the_unchanged_module(clone_repo, live_
     assert [p.name for p in plan.changed] == ["a.py"]
 
     # Layers 2 and 3 still carry forward; layer 4 does not.
-    assert _messages(plan.carried_violations) == ["fan_out=9"]
+    assert identity(plan.carried_violations) == [("2", "module_b", "fan_out=9")]
 
     # And layer 4 is handed the whole repository, including the file that did
     # not change -- without which the recomputed half has nothing to compare to.
