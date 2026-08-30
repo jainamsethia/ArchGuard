@@ -75,11 +75,45 @@ test('the sign-in overlay does not leave hidden content in the tab order', async
   expect(inertCount).toBeGreaterThan(0);
 });
 
+/**
+ * A dashboard with data in it.
+ *
+ * With none, poll.js calls renderEmptyState(), which hides
+ * `.dashboard-container` -- and the tablist lives inside it. That is correct:
+ * there is nothing to tab through on an empty dashboard. But it makes any
+ * assertion about the tabs a race against the first fetch, which is why this
+ * test passed alone and failed in a full run, where the server is busier and
+ * the fetch lands first.
+ *
+ * So the state is fixed rather than raced for.
+ */
+async function withOneRun(page) {
+  const run = {
+    job_id: 'a11y-job',
+    score: 82.0,
+    band: 'WATCH',
+    timestamp: '2026-08-30T10:00:00Z',
+    violations: [],
+    module_scores: { api: 90 },
+    layer_results: [],
+  };
+  await page.route('**/api/v1/runs?**', (r) =>
+    r.fulfill({ json: { runs: [run] } }));
+  await page.route('**/api/v1/runs/latest**', (r) => r.fulfill({ json: run }));
+  await page.route('**/api/v1/modules**', (r) =>
+    r.fulfill({ json: { modules: { api: 90 }, edges: [] } }));
+  await page.route('**/api/v1/evolution/**', (r) =>
+    r.fulfill({ json: { available: false, trends: [] } }));
+}
+
 test('the tablist is one tab stop, and arrows move within it', async ({ page }) => {
   // The ARIA tabs pattern. All four tabs used to sit in the page tab order,
   // and there was no arrow handling at all -- so a keyboard user paid four
   // stops to cross the bar and could not move between panels without a mouse.
-  await page.goto('/dashboard.html');
+  await withOneRun(page);
+  await page.goto('/dashboard.html?job_id=a11y-job');
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('.dashboard-container')).toBeVisible();
 
   const tabbable = page.locator('[role="tab"][tabindex="0"]');
   await expect(tabbable).toHaveCount(1);
