@@ -130,14 +130,49 @@ def dirty_modules(
     return dirty
 
 
-def contract_fingerprint(contract: dict[str, Any]) -> str:
-    """A stable digest of a contract's meaning.
+#: Contract keys that record how and when a contract came to exist, rather than
+#: what it asks the analysis to do.
+#:
+#: A blacklist, and the direction matters. Anything not listed here is hashed,
+#: so a contract setting nobody has classified invalidates the cache until
+#: somebody decides otherwise: the cost of being wrong that way is a slow scan,
+#: and the cost of being wrong the other way is findings measured under one set
+#: of rules being carried forward under another. (This is the opposite default
+#: to CARRYABLE_LAYERS below, for the same reason -- there, reuse is the risky
+#: answer; here, reuse is what the omission would cause.)
+#:
+#: `generated_at` is a timestamp written afresh on every generation, so hashing
+#: it meant any repository without a committed `.archguard.yml` produced a new
+#: fingerprint on every scan and never reused anything.
+#:
+#: `generated_by` records whether the module boundaries came from co-change
+#: history or the directory-name fallback. Worth reporting, but if the modules
+#: it produced are identical then so is the analysis.
+#:
+#: `model_weights_version` is the one that reads as though it belongs. It is
+#: not a model identifier: contract.writer computes it as
+#: f"{year}-Q{quarter}" from the clock, and nothing in the analysis consults
+#: it. Hashing it would put the same defect on a quarterly cycle -- every
+#: repository re-analysed in full on the first of January. If it ever becomes a
+#: real identifier for the embedding weights, move it out of this set; until
+#: then the archguard_version check above is what catches a changed analyser.
+EPHEMERAL_CONTRACT_FIELDS = frozenset(
+    {"generated_at", "generated_by", "model_weights_version"}
+)
 
-    Sorted keys, so re-serialising the same contract does not read as a change
-    and force a full analysis for nothing.
+
+def contract_fingerprint(contract: dict[str, Any]) -> str:
+    """A stable digest of what a contract asks for.
+
+    Provenance metadata is excluded (see EPHEMERAL_CONTRACT_FIELDS) so that
+    regenerating a contract is distinguishable from editing one. Sorted keys,
+    so re-serialising the same contract does not read as a change either.
     """
+    meaningful = {
+        k: v for k, v in contract.items() if k not in EPHEMERAL_CONTRACT_FIELDS
+    }
     return hashlib.sha256(
-        json.dumps(contract, sort_keys=True, default=str).encode("utf-8")
+        json.dumps(meaningful, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
 
 

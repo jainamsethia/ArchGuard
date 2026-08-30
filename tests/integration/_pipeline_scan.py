@@ -60,8 +60,15 @@ def scan_repo(
     from archguard.db import store
     from archguard.db.session import session_scope
 
+    # `.git` is kept: the product clones blobless but with full history
+    # (dashboard/workspace.py documents why depth must never be added), and
+    # contract generation reads co-change data from it. Dropping it here would
+    # silently exercise the directory-name fallback instead.
+    #
+    # `.archguard-cache` is not: production clones fresh, so the embedding
+    # database and audit trail start empty every job.
     shutil.copytree(
-        source, workdir, ignore=shutil.ignore_patterns(".git", ".archguard-cache")
+        source, workdir, ignore=shutil.ignore_patterns(".archguard-cache")
     )
 
     async def _go() -> dict[str, Any]:
@@ -89,15 +96,24 @@ def scan_repo(
 
 
 def previous_run(repo: Path, scan: dict[str, Any]) -> Any:
-    """What the next scan is told about this one."""
+    """What the next scan is told about this one.
+
+    The contract comes from the persisted run rather than from disk, because
+    that is where the worker gets it (``_incremental_context`` reads
+    ``last["contract"]``). It matters for a repository with no committed
+    `.archguard.yml`: the contract that scan used was generated inside a clone
+    that has since been deleted, so reading *repo* would find nothing and every
+    comparison would report the contract as changed.
+    """
     from archguard.cache.incremental import PreviousRun
     from archguard.dashboard.pipeline_adapter import (
         _archguard_version,
         _safe_load_contract,
     )
 
+    stored = scan["run"].get("contract")
     return PreviousRun(
-        contract=_safe_load_contract(repo),
+        contract=stored if stored else _safe_load_contract(repo),
         archguard_version=_archguard_version(),
         file_hashes=scan["hashes"],
         violations=list(scan["run"].get("violations") or []),
