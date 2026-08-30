@@ -54,6 +54,61 @@ services:
       - key: GITHUB_OAUTH_CLIENT_SECRET
         sync: false
 
+  # The analysis worker. Without it the site accepts jobs and never runs them:
+  # `queue_available()` returns true as soon as REDIS_URL is set, so every
+  # submission is enqueued, the browser gets a job id and a progress stream,
+  # and the queue simply grows. docker-compose declared a worker from the
+  # start, which is why local development worked and this was invisible.
+  #
+  # No healthCheckPath: it serves no port. Liveness is the queue draining,
+  # which the web service reports on /metrics.
+  - type: worker
+    name: archguard-worker
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Render builds a Dockerfile path without naming a stage, so the build
+    # argument is what selects the worker image -- the one carrying torch,
+    # faiss and pip-audit, with the embedding model already baked in. Set it in
+    # the Render dashboard under this service's Environment as a build-time
+    # variable. See docs/DEPLOYMENT.md: this is the one part of the Render
+    # setup that cannot be proven from the repository.
+    dockerCommand: docker-entrypoint.sh arq archguard.worker.main.WorkerSettings
+    envVars:
+      - key: ARCHGUARD_IMAGE
+        value: worker
+      - key: ENVIRONMENT
+        value: production
+      # Both are required, and for different reasons: without Redis the worker
+      # has no queue to read, and without PostgreSQL it cannot record the
+      # analysis it just performed.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: archguard-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: archguard-redis
+          property: connectionString
+      # Analysis calls the GitHub API for repository metadata and clones over
+      # HTTPS; the LLM key powers the advisor's explanations.
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      # The worker signs the audit trail with the same key as the web process,
+      # or the two write entries that cannot be verified against each other.
+      - key: SESSION_SECRET
+        sync: false
+      - key: ARCHGUARD_DASHBOARD_TOKEN
+        sync: false
+    disk:
+      # The embedding cache and the audit trail, written by whichever process
+      # runs the analysis -- which, now that there is a worker, is this one.
+      name: archguard-worker-cache
+      mountPath: /app/.archguard-cache
+      sizeGB: 1
+
 databases:
   - name: archguard-db
     databaseName: archguard

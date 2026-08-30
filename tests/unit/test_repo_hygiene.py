@@ -45,6 +45,9 @@ _ALLOWED_ROOT_FILES = {
     "poetry.lock",
     "pyproject.toml",
     "railway.toml",
+    # Railway takes one config file per service, so the analysis worker needs
+    # its own beside the web service's.
+    "railway.worker.toml",
     "render.yaml",
 }
 

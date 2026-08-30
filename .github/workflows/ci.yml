@@ -417,6 +417,29 @@ jobs:
       - name: The worker image must be able to start its queue consumer
         run: docker run --rm archguard:worker arq --help
 
+      # Render builds a Dockerfile path without naming a build stage, so its
+      # worker service selects the image through this build argument instead.
+      # Nothing else exercises that path, and if it silently produced the web
+      # image the worker would come up without torch, faiss or pip-audit and
+      # simply skip Layers 3 and 4 -- a degraded deployment that looks healthy.
+      - name: The build argument must select the worker image too
+        run: |
+          docker build --build-arg ARCHGUARD_IMAGE=worker -t archguard:worker-by-arg .
+          docker run --rm archguard:worker-by-arg pip-audit --version
+          docker run --rm archguard:worker-by-arg python -c "import torch, faiss"
+          echo "ARCHGUARD_IMAGE=worker selects the worker image"
+
+      # ...and the default must stay the slim one, or a bare `docker build .`
+      # starts producing the multi-gigabyte image for everyone.
+      - name: The default build must still be the web image
+        run: |
+          docker build -t archguard:default .
+          if docker run --rm archguard:default python -c "import torch" 2>/dev/null; then
+            echo "::error::a bare docker build now produces the worker image"
+            exit 1
+          fi
+          echo "the default build is still the web image"
+
   visual-regression:
     name: Visual regression
     needs: [docker]

@@ -1,0 +1,48 @@
+# The analysis worker, as a second Railway service.
+#
+# Railway takes one configuration file per service, so this sits beside
+# railway.toml rather than inside it. Create a second service from the same
+# repository and point it at this file (Service -> Settings -> Config-as-code).
+#
+# Without it the deployment accepts work it never does. `queue_available()` in
+# archguard/worker/queue.py returns true as soon as REDIS_URL is set, so every
+# submission is enqueued; with no worker consuming the queue the browser gets a
+# job id, a progress stream and no result, indefinitely.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "./Dockerfile"
+
+[env]
+ENVIRONMENT = "production"
+# Selects the worker image -- the one carrying torch, faiss and pip-audit with
+# the embedding model baked in. Railway passes service variables to the build,
+# and the Dockerfile's final stage is chosen by this argument because not every
+# platform can name a build target. The web service leaves it unset and gets
+# the slim image.
+ARCHGUARD_IMAGE = "worker"
+
+# DATABASE_URL and REDIS_URL must be set on this service too, referencing the
+# same plugins the web service uses: ${{Postgres.DATABASE_URL}} and
+# ${{Redis.REDIS_URL}}. A worker without Redis has no queue to read; one
+# without PostgreSQL cannot record the analysis it performed. SESSION_SECRET
+# and ARCHGUARD_DASHBOARD_TOKEN must match the web service -- the audit trail
+# is signed with them, and two processes signing with different keys write
+# entries that cannot be verified against each other. GITHUB_TOKEN and
+# GEMINI_API_KEY are used by the analysis itself.
+#
+# They are set in the Railway dashboard rather than here: this file is
+# committed and they are credentials.
+
+[deploy]
+# Migrations run in the entrypoint, exactly as they do for the web service.
+# Running them from both is safe -- alembic locks alembic_version and an
+# up-to-date database is a no-op -- and it means whichever process starts first
+# brings the schema to head.
+startCommand = "docker-entrypoint.sh arq archguard.worker.main.WorkerSettings"
+
+# No healthcheckPath: the worker serves no HTTP port, so a health check would
+# fail it into a restart loop. Liveness is the queue draining, which the web
+# service reports on /metrics.
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

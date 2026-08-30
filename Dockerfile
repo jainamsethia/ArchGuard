@@ -120,4 +120,13 @@ CMD ["arq", "archguard.worker.main.WorkerSettings"]
 # --- Default target --------------------------------------------------------
 # Last stage wins for a bare `docker build .`, and the web image is the safer
 # default: a plain build should not silently produce the multi-gigabyte one.
-FROM web AS default
+#
+# Selectable by build argument as well as by `--target`, because not every
+# platform exposes one. Render's blueprints, for instance, build a Dockerfile
+# path with no way to name a stage:
+#
+#   docker build .                                     -> web
+#   docker build --target worker .                     -> worker
+#   docker build --build-arg ARCHGUARD_IMAGE=worker .  -> worker
+ARG ARCHGUARD_IMAGE=web
+FROM ${ARCHGUARD_IMAGE} AS default

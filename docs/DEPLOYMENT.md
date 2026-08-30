@@ -59,37 +59,87 @@ curl http://localhost:8000/health
 # → {"status":"ok","version":"1.0.0","environment":"production","uptime_seconds":42}
 ```
 
+### Two processes, not one
+
+Every deployment runs **two** services from the same repository:
+
+| Service | Image | Command | Serves a port |
+|---|---|---|---|
+| web | `--target web` | `uvicorn archguard.dashboard.app:app` | yes, `/ready` |
+| worker | `--target worker` | `arq archguard.worker.main.WorkerSettings` | no |
+
+This is not optional and it fails quietly if you skip it. `queue_available()`
+returns true as soon as `REDIS_URL` is set, so a deployment with Redis and no
+worker accepts submissions, hands back a job id, streams a progress bar, and
+never analyses anything — the queue just grows. There is no error to see.
+
+The two images are deliberately different. The worker carries torch, faiss and
+`pip-audit` with the embedding model baked in; the web image carries none of
+them, because the web process never loads a model and torch is larger than
+everything else combined. `docker build .` gives you the web image. Select the
+worker with either `--target worker` or `--build-arg ARCHGUARD_IMAGE=worker`,
+whichever your platform supports.
+
 ### Option B: Render (Managed Platform)
 
-1. Fork the repository to your GitHub account.
-2. In Render Dashboard → New → Web Service → Connect your fork.
-3. **Settings:**
-   - Build Command: `docker build -t archguard .`
-   - Start Command: (uses Dockerfile CMD — uvicorn)
-   - Health Check Path: `/health`
-4. **Environment Variables (set in Render Dashboard → Secrets):**
-   - `ARCHGUARD_DASHBOARD_TOKEN` — **required**
-   - `ENVIRONMENT=production`
-   - `GEMINI_API_KEY` — optional, for all AI features
-   - `GITHUB_TOKEN` — optional, for higher API rate limits
-   - `ALLOWED_ORIGINS` — your frontend domain(s)
-5. Deploy.
+`render.yaml` is a Blueprint declaring both services plus the database and
+Redis. Fork the repository, then Render Dashboard → New → Blueprint → connect
+your fork.
+
+Set these as secrets on **both** services: `SESSION_SECRET`,
+`ARCHGUARD_DASHBOARD_TOKEN`, `GITHUB_TOKEN`, `GEMINI_API_KEY`. The first two
+must be *identical* across the services — the audit trail is signed with them,
+and two processes signing with different keys write entries that cannot be
+verified against each other. `DATABASE_URL` and `REDIS_URL` are wired by
+reference in the blueprint and need no manual entry. The web service also takes
+`ALLOWED_ORIGINS`.
+
+The health check is `/ready`, not `/health`: a check that returns 200 whenever
+the process is alive reports a service as healthy while its database is
+unreachable and every request is failing, which stops the platform rolling
+back. The worker has no health check because it serves no port.
+
+> **Needs verification on the provider.** Render builds a Dockerfile path
+> without naming a build stage, so the worker service selects its image through
+> the `ARCHGUARD_IMAGE=worker` build variable in `render.yaml`. That the
+> blueprint is well-formed and names the right command is checked by
+> `tests/unit/test_deployment_config.py`; that Render passes the variable to
+> the build has not been confirmed against a live deploy. Check the worker's
+> first build log for `--extras "worker"` before relying on Layers 3 and 4. If
+> it built the slim image, deploy the worker from a pre-built image instead
+> (`runtime: image`) — CI already builds both.
 
 ### Option C: Railway
 
-1. Fork the repository.
-2. In Railway → New Project → Deploy from GitHub repo.
-3. Set `ENVIRONMENT=production` and `ARCHGUARD_DASHBOARD_TOKEN` in the dashboard.
-4. Railway sets `PORT=8000` automatically (see `railway.toml`).
+Railway takes one configuration file per service, so this is two services from
+the same repository: the web service uses `railway.toml`, the worker uses
+`railway.worker.toml` (Service → Settings → Config-as-code).
+
+Add the Postgres and Redis plugins, then set `DATABASE_URL` and `REDIS_URL` on
+both services as `${{Postgres.DATABASE_URL}}` and `${{Redis.REDIS_URL}}`, plus
+the same secrets listed under Render. Railway sets `PORT` for the web service
+automatically.
 
 ### Option D: Bare Metal / VPS
 
+Two processes, from a checkout rather than an image:
+
 ```bash
-pip install archguard[dashboard,cloud,ml]
-export ARCHGUARD_DASHBOARD_TOKEN=$(python -c "import secrets; print(secrets.token_hex(32))")
+poetry install --extras worker          # the worker host needs the ML extras
 export ENVIRONMENT=production
-uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000 --workers 2
+export DATABASE_URL=postgresql+asyncpg://...
+export REDIS_URL=redis://...
+export SESSION_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))")
+
+alembic upgrade head                    # once, before either process starts
+uvicorn archguard.dashboard.app:app --host 0.0.0.0 --port 8000   # web host
+arq archguard.worker.main.WorkerSettings                         # worker host
 ```
+
+Run one uvicorn worker per process, and scale with more processes behind a load
+balancer rather than with `--workers`. The web process holds no job state now,
+so either works, but `--workers` shares nothing useful and complicates the
+readiness signal.
 
 ---
 
