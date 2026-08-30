@@ -515,21 +515,37 @@ async def get_dependency_scan(
 
 
 async def list_suppressions(
-    session: AsyncSession, repo_url: str, include_inactive: bool = True
+    session: AsyncSession,
+    user_id: int,
+    repo_url: str,
+    include_inactive: bool = True,
 ) -> list[Suppression]:
+    """This user's suppressions for a repository.
+
+    Scoped by user as well as by repository. Two accounts analysing the same
+    public repository are not collaborating: the reason text is whatever
+    somebody typed, and which findings a team has chosen to ignore is not
+    public information just because the code is.
+    """
     repo = (
         await session.execute(select(Repository).where(Repository.url == repo_url))
     ).scalar_one_or_none()
     if repo is None:
         return []
-    stmt = select(Suppression).where(Suppression.repository_id == repo.id)
+    stmt = select(Suppression).where(
+        Suppression.user_id == user_id,
+        Suppression.repository_id == repo.id,
+    )
     if not include_inactive:
         stmt = stmt.where(Suppression.active.is_(True))
-    return list((await session.execute(stmt.order_by(Suppression.created_at.desc()))).scalars())
+    return list(
+        (await session.execute(stmt.order_by(Suppression.created_at.desc()))).scalars()
+    )
 
 
 async def add_suppression(
     session: AsyncSession,
+    user_id: int,
     repo_url: str,
     module: str,
     layer: int,
@@ -538,8 +554,14 @@ async def add_suppression(
     expires_at: datetime | None = None,
     pr_number: int | None = None,
     commit_sha: str = "",
-    user_id: int | None = None,
+    created_by: str = "local",
 ) -> Suppression:
+    """Record a suppression against this user's view of a repository.
+
+    *user_id* is required rather than optional. A suppression with no owner is
+    invisible to every scoped query -- which fails safe, but silently, and a
+    row nobody can ever see or delete is not a state worth being able to reach.
+    """
     repo = await upsert_repository(session, repo_url)
     suppression = Suppression(
         user_id=user_id,
@@ -551,20 +573,63 @@ async def add_suppression(
         expires_at=expires_at,
         pr_number=pr_number,
         commit_sha=commit_sha,
+        created_by=created_by,
     )
     session.add(suppression)
     await session.flush()
     return suppression
 
 
-async def delete_suppression(session: AsyncSession, suppression_id: str) -> bool:
-    """True if a row was removed. False means the id did not exist, which the
-    route turns into a 404 rather than reporting a successful no-op."""
+async def delete_suppression(
+    session: AsyncSession, suppression_id: str, user_id: int
+) -> bool:
+    """True if a row was removed.
+
+    False covers both "no such id" and "not yours", and the route turns both
+    into 404. Distinguishing them would confirm to a stranger that an id exists,
+    which is the fact worth withholding.
+    """
     existing = await session.get(Suppression, suppression_id)
-    if existing is None:
+    if existing is None or existing.user_id != user_id:
         return False
     await session.delete(existing)
     return True
+
+
+async def active_suppression_hashes(
+    session: AsyncSession, user_id: int, repo_url: str
+) -> set[str]:
+    """The violation hashes this user has chosen to hide, right now.
+
+    What the analysis filters against. Returned as hashes rather than rows
+    because that is all the filter needs, and handing the analysis a set of
+    strings keeps it free of both the database and the ORM.
+
+    Expiry is applied here rather than by the caller: a lapsed suppression that
+    still hides its violation is the exact failure the expiry date exists to
+    prevent, and leaving that to each call site is how one of them forgets.
+    """
+    repo = (
+        await session.execute(select(Repository).where(Repository.url == repo_url))
+    ).scalar_one_or_none()
+    if repo is None:
+        return set()
+
+    now = datetime.now(UTC)
+    rows = (
+        await session.execute(
+            select(Suppression.violation_hash).where(
+                Suppression.user_id == user_id,
+                Suppression.repository_id == repo.id,
+                Suppression.active.is_(True),
+                or_(
+                    Suppression.expires_at.is_(None),
+                    Suppression.expires_at > now,
+                ),
+            )
+        )
+    ).scalars()
+    return set(rows)
 
 
 # --------------------------------------------------------- watched repositories
@@ -832,16 +897,3 @@ async def save_file_hashes(
     await session.flush()
 
 
-async def active_violation_hashes(session: AsyncSession, repo_url: str) -> set[str]:
-    """Hashes to filter out of a run, for the repository being analysed.
-
-    Expiry is applied here rather than by a sweep, so an expired suppression
-    stops taking effect at the moment it expires rather than whenever something
-    next happens to tidy up.
-    """
-    now = datetime.now(UTC)
-    return {
-        s.violation_hash
-        for s in await list_suppressions(session, repo_url, include_inactive=False)
-        if s.expires_at is None or s.expires_at > now
-    }

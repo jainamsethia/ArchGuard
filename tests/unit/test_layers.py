@@ -171,7 +171,6 @@ def test_analysis_orchestrator_context_manager(tmp_path):
 
 
 def test_filter_suppressed_layer_4(tmp_path):
-    from unittest.mock import patch
 
     from archguard.analysis._models import Severity
     from archguard.analysis.layers import AnalysisOrchestrator, ViolationDetail
@@ -197,13 +196,19 @@ def test_filter_suppressed_layer_4(tmp_path):
         commit_sha="abcd123",
     )
 
-    with patch("archguard.suppression.store.SuppressionStore") as mock_store_cls:
-        mock_store = mock_store_cls.return_value
-        mock_store.is_suppressed.return_value = True
+    from archguard.suppression.models import make_violation_hash
 
-        filtered = _filter_suppressed(orchestrator.repo_root, [violation])
+    # Suppression is now matched on the violation's identity, computed by the
+    # same function the API records it under. Nothing is read from disk: whose
+    # suppressions apply is a question about the account that submitted the
+    # job, and the analysis is handed the answer.
+    hidden = make_violation_hash("api", 4, "Duplicate function body")
 
-        assert len(filtered) == 0
-        mock_store.is_suppressed.assert_called_once_with(
-            "api", 4, "Duplicate function body"
-        )
+    assert _filter_suppressed(orchestrator.repo_root, [violation], {hidden}) == []
+
+    # A different finding with the same shape is untouched.
+    assert _filter_suppressed(orchestrator.repo_root, [violation], {"other"}) == [
+        violation
+    ]
+    # And no suppressions means nothing is hidden.
+    assert _filter_suppressed(orchestrator.repo_root, [violation], None) == [violation]

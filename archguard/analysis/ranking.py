@@ -95,7 +95,7 @@ class Selection:
 def finding_key(finding: dict[str, Any]) -> str:
     """Stable identity for a finding, for matching a plan back to a table row.
 
-    Uses the same (module, layer, message) triple the suppression store hashes,
+    Uses the same (module, layer, message) triple a suppression hashes,
     so a row identified here is the same row a user can suppress.
     """
     return "|".join(

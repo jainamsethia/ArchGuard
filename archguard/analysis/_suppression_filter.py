@@ -1,4 +1,4 @@
-"""Suppression filtering for analysis violations."""
+"""Removing the findings a user has chosen to ignore."""
 
 from __future__ import annotations
 
@@ -12,38 +12,43 @@ logger: logging.Logger = logging.getLogger(__name__)
 def _filter_suppressed(
     repo_root: Path,
     violations: list[Any],
-    store_path: Path | None = None,
+    suppressed_hashes: set[str] | None = None,
 ) -> list[Any]:
-    """Remove violations that match an active suppression.
+    """Drop violations whose identity the caller has marked as suppressed.
 
-    *store_path*, when given, overrides the default
-    ``<repo_root>/.archguard-cache/suppressions.jsonl`` location. The default is
-    correct for the CLI, where the analysed checkout persists between runs and
-    the suppression file lives inside it. It is wrong for the dashboard, which
-    analyses a throwaway clone: the file it would look for there is one no user
-    ever wrote to, so every suppressed violation came back on the next scan.
+    *suppressed_hashes* is the set of ``make_violation_hash`` digests to hide,
+    resolved by the caller. Passed as data rather than looked up here because
+    this runs inside the analysis thread, which holds no database session --
+    and because whose suppressions apply is a question about the person who
+    submitted the job, not about the checkout on disk.
+
+    It used to read a JSONL file named after the repository. That file was
+    shared by every account that had analysed the same repository, so one
+    user's suppression removed a finding from a stranger's report.
+
+    ``None`` means nothing is suppressed, which is what a caller with no user
+    context wants.
     """
-    try:
-        from archguard.suppression.store import SuppressionStore
+    if not suppressed_hashes:
+        return violations
 
-        store = (
-            SuppressionStore.at_path(store_path)
-            if store_path is not None
-            else SuppressionStore(repo_root)
-        )
+    try:
+        from archguard.suppression.models import make_violation_hash
+
         kept = [
             v
             for v in violations
-            if not store.is_suppressed(v.module, v.layer, v.message)
+            if make_violation_hash(v.module, v.layer, v.message) not in suppressed_hashes
         ]
         if len(kept) != len(violations):
             logger.info(
-                "Suppressed %d of %d violations from %s",
-                len(violations) - len(kept), len(violations), store._path,
+                "Suppressed %d of %d violations",
+                len(violations) - len(kept),
+                len(violations),
             )
         return kept
     except Exception as exc:
-        logger.warning(
-            "Suppression store unavailable (%s). Proceeding unfiltered.", exc
-        )
+        # Reporting a finding that someone asked to hide is a smaller failure
+        # than hiding one nobody did, so an error here shows everything.
+        logger.warning("Could not apply suppressions (%s). Reporting unfiltered.", exc)
         return violations

@@ -37,7 +37,7 @@ def _finalize_result(
     violations = _filter_suppressed_fn(
         orchestrator.repo_root,
         violations,
-        store_path=getattr(orchestrator, "suppression_path", None),
+        suppressed_hashes=getattr(orchestrator, "suppressed_hashes", None),
     )
 
     scores = LayerScores(layer1, layer2, layer3, layer4)

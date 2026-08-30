@@ -1,19 +1,33 @@
-"""Tests for suppression persistence across dashboard re-scans.
+"""A suppression has to outlive the scan that produced the finding.
 
-The bug these pin: the dashboard stored suppressions under
-``.archguard-cache/suppressions-{job_id}.jsonl`` while the analysis-time filter
-looked inside the analysed tree. Both halves were wrong for the dashboard's
-model -- it clones a throwaway workspace per scan, and every scan gets a new job
-id -- so "Suppress" never affected what the next scan reported.
+Suppressing something is only useful if it stays suppressed. The dashboard
+clones a throwaway workspace per scan and mints a new job id each time, so
+anything keyed to either is gone before it is ever consulted -- which is what
+the original defect was: suppressions were written under
+``suppressions-{job_id}.jsonl`` and the filter looked inside the analysed tree.
+
+The fix for that keyed them by repository instead, in a file named after the
+URL, and traded one bug for a worse one: every account that had analysed the
+same public repository shared the file. Storage is now PostgreSQL, keyed by
+repository *and* owner, and these tests pin what has to survive the move --
+that a suppression applies to later scans, that it stops applying when it
+expires, and that the analysis reads nothing from the clone.
+
+Cross-account isolation is pinned separately, at the HTTP layer, in
+tests/integration/test_suppression_tenancy.py.
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from archguard.analysis._suppression_filter import _filter_suppressed
-from archguard.suppression.scope import repo_slug, suppression_path_for_repo
-from archguard.suppression.store import SuppressionStore
+from archguard.suppression.models import make_violation_hash
+from tests.db_fixtures import requires_postgres
+
+REPO = "https://github.com/owner/repo"
 
 
 class _V:
@@ -25,163 +39,226 @@ class _V:
         self.message = message
 
 
-# ---------------------------------------------------------------------------
-# Keying: one repository -> one store, however its URL is spelled
-# ---------------------------------------------------------------------------
+def _violations() -> list[_V]:
+    return [
+        _V("lib", 2, "fan_out=22 exceeds budget=10"),
+        _V("tests", 2, "fan_out=14 exceeds budget=10"),
+    ]
+
+
+# ------------------------------------------------------- the filter itself
+
+
+def test_the_filter_reads_nothing_from_the_analysed_tree(tmp_path):
+    """It is handed the answer rather than looking for it.
+
+    The clone is a fresh temp directory nobody has ever suppressed anything in,
+    so any filter that consults it is either finding nothing or finding
+    somebody else's file.
+    """
+    clone = tmp_path / "throwaway-clone"
+    clone.mkdir()
+
+    # Nothing supplied: nothing hidden, whatever is or is not on disk.
+    assert len(_filter_suppressed(clone, _violations())) == 2
+
+    hidden = {make_violation_hash("lib", 2, "fan_out=22 exceeds budget=10")}
+    kept = _filter_suppressed(clone, _violations(), hidden)
+    assert [v.module for v in kept] == ["tests"]
+
+    # And the clone stayed empty -- no cache directory, no store file.
+    assert list(clone.iterdir()) == []
+
+
+def test_an_unrecognised_hash_hides_nothing(tmp_path):
+    """A stale or foreign identity must not silently match something."""
+    kept = _filter_suppressed(tmp_path, _violations(), {"not-a-real-hash"})
+    assert len(kept) == 2
+
+
+# --------------------------------------------------- persistence across scans
+
+
+@requires_postgres
+def test_a_suppression_applies_to_every_later_scan(live_db):
+    """The property the whole feature rests on.
+
+    Each scan is a new job and a new clone, so this is stored against the
+    repository and the account, and looked up again by both.
+    """
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def scenario() -> tuple[set[str], set[str]]:
+        async with session_scope() as session:
+            user = await store.upsert_user(session, github_id=8901, login="persist")
+            user_id = user.id
+
+        async def hashes() -> set[str]:
+            async with session_scope() as session:
+                return await store.active_suppression_hashes(session, user_id, REPO)
+
+        before = await hashes()
+
+        async with session_scope() as session:
+            await store.add_suppression(
+                session,
+                user_id=user_id,
+                repo_url=REPO,
+                module="lib",
+                layer=2,
+                violation_hash=make_violation_hash(
+                    "lib", 2, "fan_out=22 exceeds budget=10"
+                ),
+                reason="accepted debt",
+            )
+
+        return before, await hashes()
+
+    before, after = asyncio.run(scenario())
+    target = make_violation_hash("lib", 2, "fan_out=22 exceeds budget=10")
+
+    assert target not in before, "suppressed before anything was suppressed"
+    assert target in after, "the suppression did not survive to the next lookup"
+
+    # And it does what it is for: two later scans, each a different clone.
+    assert [v.module for v in _filter_suppressed("/clone-2", _violations(), after)] == [
+        "tests"
+    ]
+    assert [v.module for v in _filter_suppressed("/clone-3", _violations(), after)] == [
+        "tests"
+    ]
+
+
+@requires_postgres
+def test_persistence_is_not_permanence(live_db):
+    """An expiry date that does not expire anything is decoration."""
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def scenario() -> set[str]:
+        async with session_scope() as session:
+            user = await store.upsert_user(session, github_id=8902, login="expiring")
+            user_id = user.id
+            await store.add_suppression(
+                session,
+                user_id=user_id,
+                repo_url=REPO,
+                module="lib",
+                layer=2,
+                violation_hash=make_violation_hash(
+                    "lib", 2, "fan_out=22 exceeds budget=10"
+                ),
+                reason="temporary",
+                expires_at=datetime.now(UTC) - timedelta(days=1),
+            )
+        async with session_scope() as session:
+            return await store.active_suppression_hashes(session, user_id, REPO)
+
+    active = asyncio.run(scenario())
+    assert active == set(), "a lapsed suppression is still hiding its violation"
+    assert len(_filter_suppressed("/clone", _violations(), active)) == 2
+
+
+@requires_postgres
+def test_a_repository_nobody_has_scanned_has_no_suppressions(live_db):
+    """The lookup must not invent a repository row as a side effect of asking."""
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def scenario() -> set[str]:
+        async with session_scope() as session:
+            user = await store.upsert_user(session, github_id=8903, login="unknown-repo")
+            return await store.active_suppression_hashes(
+                session, user.id, "https://github.com/never/scanned"
+            )
+
+    assert asyncio.run(scenario()) == set()
+
+
+@requires_postgres
+def test_deleting_a_suppression_brings_its_violation_back(live_db):
+    """Un-suppressing has to work, or the button is a one-way door."""
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def scenario() -> tuple[set[str], set[str]]:
+        async with session_scope() as session:
+            user = await store.upsert_user(session, github_id=8904, login="undo")
+            user_id = user.id
+            row = await store.add_suppression(
+                session,
+                user_id=user_id,
+                repo_url=REPO,
+                module="lib",
+                layer=2,
+                violation_hash=make_violation_hash(
+                    "lib", 2, "fan_out=22 exceeds budget=10"
+                ),
+                reason="temporarily hidden",
+            )
+            row_id = row.id
+
+        async with session_scope() as session:
+            with_it = await store.active_suppression_hashes(session, user_id, REPO)
+
+        async with session_scope() as session:
+            removed = await store.delete_suppression(session, row_id, user_id)
+            assert removed is True
+
+        async with session_scope() as session:
+            return with_it, await store.active_suppression_hashes(session, user_id, REPO)
+
+    with_it, without = asyncio.run(scenario())
+    assert with_it, "the suppression was never active"
+    assert without == set(), "the suppression outlived its own deletion"
+
+
+@requires_postgres
+def test_deleting_something_that_does_not_exist_reports_failure(live_db):
+    """False rather than a silent success, so the route can answer 404."""
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async def scenario() -> bool:
+        async with session_scope() as session:
+            user = await store.upsert_user(session, github_id=8905, login="missing")
+            return await store.delete_suppression(
+                session, "00000000-0000-0000-0000-000000000000", user.id
+            )
+
+    assert asyncio.run(scenario()) is False
+
+
+# The identity a suppression is filed under is shared with the filter, so a
+# record cannot be stored under one spelling and looked up under another.
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("module", "layer", "message"),
     [
-        "https://github.com/sqlmapproject/sqlmap",
-        "https://github.com/sqlmapproject/sqlmap.git",
-        "https://github.com/sqlmapproject/sqlmap/",
-        "git@github.com:sqlmapproject/sqlmap.git",
-        "https://github.com/SqlmapProject/SqlMap",
+        ("lib", 2, "fan_out=22 exceeds budget=10"),
+        ("", 0, ""),
+        ("a/b", 4, "x <-> y"),
     ],
 )
-def test_url_spellings_of_one_repo_share_a_store(url):
-    """A re-scan must find last scan's suppressions even if the user pasted the
-    URL differently the second time."""
-    assert repo_slug(url) == "sqlmapproject__sqlmap"
-
-
-def test_different_repos_do_not_share_a_store():
-    a = repo_slug("https://github.com/owner/alpha")
-    b = repo_slug("https://github.com/owner/beta")
-    c = repo_slug("https://github.com/other/alpha")
-    assert len({a, b, c}) == 3
-
-
-def test_slug_is_a_single_safe_path_segment():
-    slug = repo_slug("https://github.com/owner/repo")
-    assert "/" not in slug and "\\" not in slug
-    assert ".." not in slug
-
-
-def test_unparseable_url_gets_a_stable_hashed_slug():
-    """Better a stable private bucket than collapsing unknown repos together."""
-    weird = "not-a-github-url"
-    first, second = repo_slug(weird), repo_slug(weird)
-
-    assert first == second
-    assert first.startswith("url-")
-    assert first != repo_slug("also-not-a-url")
-
-
-def test_path_is_scoped_under_the_base_directory(tmp_path):
-    path = suppression_path_for_repo(tmp_path, "https://github.com/owner/repo")
-
-    assert path.parent.parent == tmp_path
-    assert path.name == "owner__repo.jsonl"
-    # Never escapes the base, even for a hostile-looking URL.
-    hostile = suppression_path_for_repo(tmp_path, "https://github.com/../../etc/passwd")
-    assert tmp_path in hostile.parents
-
-
-# ---------------------------------------------------------------------------
-# The analysis-time filter honours an explicit store
-# ---------------------------------------------------------------------------
-
-
-def test_filter_uses_the_explicit_store_not_the_analysed_tree(tmp_path):
-    """The regression: the dashboard's store lives outside the analysed clone."""
-    clone = tmp_path / "throwaway-clone"
-    clone.mkdir()
-    durable = tmp_path / "durable" / "owner__repo.jsonl"
-    durable.parent.mkdir(parents=True)
-
-    SuppressionStore.at_path(durable).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="accepted debt",
+def test_the_hash_is_stable_for_the_same_finding(module, layer, message):
+    assert make_violation_hash(module, layer, message) == make_violation_hash(
+        module, layer, message
     )
 
-    violations = [
-        _V("lib", 2, "fan_out=22 exceeds budget=10"),
-        _V("tests", 2, "fan_out=14 exceeds budget=10"),
-    ]
 
-    # Without the explicit store the clone has nothing, so nothing is filtered.
-    assert len(_filter_suppressed(clone, violations)) == 2
-
-    kept = _filter_suppressed(clone, violations, store_path=durable)
-    assert [v.module for v in kept] == ["tests"]
-
-
-def test_filter_survives_a_missing_store_file(tmp_path):
-    """A repo with no suppressions yet must analyse normally."""
-    violations = [_V("lib", 2, "fan_out=22 exceeds budget=10")]
-    missing = tmp_path / "never-written" / "owner__repo.jsonl"
-
-    assert len(_filter_suppressed(tmp_path, violations, store_path=missing)) == 1
-
-
-def test_suppression_written_once_applies_to_every_later_scan(tmp_path):
-    """End-to-end shape of the fix, without running the analyser.
-
-    Scan 1 sees the violation, the user suppresses it, and scans 2 and 3 -- each
-    of which would have had its own job id -- no longer report it.
-    """
-    base = tmp_path / "cache"
-    url = "https://github.com/owner/repo"
-    violations = [
-        _V("lib", 2, "fan_out=22 exceeds budget=10"),
-        _V("tests", 2, "fan_out=14 exceeds budget=10"),
-    ]
-
-    def scan(clone_dir: str) -> list[str]:
-        # A different throwaway clone each time, as a real re-scan would have.
-        clone = tmp_path / clone_dir
-        clone.mkdir()
-        path = suppression_path_for_repo(base, url)
-        return [v.module for v in _filter_suppressed(clone, violations, store_path=path)]
-
-    assert scan("clone-1") == ["lib", "tests"]
-
-    path = suppression_path_for_repo(base, url)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    SuppressionStore.at_path(path).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="accepted debt",
-    )
-
-    assert scan("clone-2") == ["tests"]
-    assert scan("clone-3") == ["tests"]
-
-
-def test_expired_suppression_stops_hiding_the_violation(tmp_path):
-    """Suppression persistence must not mean permanence."""
-    path = tmp_path / "owner__repo.jsonl"
-    SuppressionStore.at_path(path).add(
-        module="lib", layer=2, message="fan_out=22 exceeds budget=10",
-        reason="temporary", expires_at="2020-01-01T00:00:00+00:00",
-    )
-
-    violations = [_V("lib", 2, "fan_out=22 exceeds budget=10")]
-    assert len(_filter_suppressed(tmp_path, violations, store_path=path)) == 1
-
-
-# ---------------------------------------------------------------------------
-# Store construction
-# ---------------------------------------------------------------------------
-
-
-def test_at_path_backs_the_store_with_the_given_file(tmp_path):
-    path = tmp_path / "nested" / "store.jsonl"
-    path.parent.mkdir(parents=True)
-    store = SuppressionStore.at_path(path)
-
-    store.add(module="m", layer=2, message="msg", reason="r")
-
-    assert path.exists()
-    assert store.is_suppressed("m", 2, "msg") is True
-
-
-def test_repo_root_constructor_still_uses_the_checkout(tmp_path):
-    """The CLI's keying is unchanged: suppressions live inside the checkout."""
-    from archguard.config import SUPPRESSION_FILE
-
-    store = SuppressionStore(tmp_path)
-    store.add(module="m", layer=2, message="msg", reason="r")
-
-    assert (tmp_path / SUPPRESSION_FILE).exists()
+def test_different_findings_hash_differently():
+    assert make_violation_hash("lib", 2, "a") != make_violation_hash("lib", 2, "b")
+    assert make_violation_hash("lib", 2, "a") != make_violation_hash("lib", 3, "a")
+    assert make_violation_hash("lib", 2, "a") != make_violation_hash("app", 2, "a")

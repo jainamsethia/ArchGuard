@@ -1,17 +1,15 @@
 import logging
-from datetime import UTC
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from archguard.dashboard._auth import check_token
 from archguard.dashboard._identity import current_user
 from archguard.dashboard._rate_limit import rate_limiter
 from archguard.dashboard._workspace_paths import JobIdQuery
 from archguard.db.models import User
-from archguard.suppression.store import SuppressionStore
 
 #: Mounted at /api/v1 by app.py. The dependencies live on the router rather
 #: than on each decorator: repeating them per route is how one of them ends up
@@ -21,21 +19,25 @@ router = APIRouter(dependencies=[Depends(check_token), Depends(rate_limiter)])
 
 
 async def repo_url_for_job(job_id: str | None, user_id: int) -> str | None:
-    """Resolve a job id to the repository it analysed.
+    """Resolve a job id to the repository it analysed, for this user.
 
-    The jobs table is the durable answer; the in-memory job map is only a
-    fast path for a job this process is still running. Suppressions must
-    outlive both a job and a server restart, so a lookup that only consulted
-    process memory would silently start a fresh store after every deploy --
-    which is what the orphaned ``suppressions-<uuid>.jsonl`` files are.
+    Scoped, and that is the point: the job id is the only thing a caller
+    supplies that names a repository, so it is the obvious thing to borrow.
+    ``get_job_repo_url`` filters on the owner, so a job belonging to somebody
+    else resolves to None and the route answers 404 -- the same answer as an id
+    that does not exist, which is the fact worth withholding.
+
+    A suppression outlives the job that revealed the finding: every scan mints
+    a new job id, and a suppression is only ever useful on the *next* scan. So
+    this resolves to the repository, and the repository plus the owner is what
+    the suppression is stored against.
     """
     if not job_id:
         return None
 
-    # The in-memory map is not consulted first any more: it records no owner,
-    # so trusting it would answer "which repository is job X?" for a job that
-    # belongs to someone else. The jobs table knows, and is also the only one of
-    # the two that survives a restart.
+    # The jobs table rather than the in-memory job map: the map records no
+    # owner, so trusting it would answer "which repository is job X?" for a job
+    # that belongs to someone else -- and it does not survive a restart.
     try:
         from archguard.db.session import session_scope
         from archguard.db.store import get_job_repo_url
@@ -48,64 +50,31 @@ async def repo_url_for_job(job_id: str | None, user_id: int) -> str | None:
     return None
 
 
-def suppression_base_dir() -> Path:
-    """Durable root for dashboard suppressions (never the ephemeral clone)."""
-    base = Path.cwd() / ".archguard-cache"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
-
-
-def _suppression_store(
-    repo_url: str | None, job_id: str | None = None
-) -> SuppressionStore:
-    """Return the durable, repository-keyed SuppressionStore.
-
-    Keyed by ``owner/repo`` rather than ``job_id``: every scan creates a new job
-    id, so a job-scoped store could never be found again on the next scan of the
-    same repository -- which is the only time a suppression is any use.
-
-    The repository is passed in rather than looked up, because both callers
-    already know it: a route has resolved the job, and ``_selection`` has the
-    run, which records its own ``repo_url``.
-    """
-    from archguard.suppression.scope import suppression_path_for_repo
-
-    base = suppression_base_dir()
-
-    if repo_url:
-        store_path = suppression_path_for_repo(base, repo_url)
-    elif job_id:
-        # Repository unknown (job evicted and no audit entry). Fall back to the
-        # old per-job file so the request still works; it just won't be found by
-        # the next scan. Logged because that is a real limitation, not a detail.
-        logging.getLogger(__name__).warning(
-            "Could not resolve a repository for job %s; using a job-scoped "
-            "suppression store that will not persist across scans.", job_id,
-        )
-        store_path = base / f"suppressions-{job_id}.jsonl"
-    else:
-        store_path = base / "suppressions.jsonl"
-
-    store_path.parent.mkdir(parents=True, exist_ok=True)
-    return SuppressionStore.at_path(store_path)
-
-
 @router.get("/suppressions")
 async def get_suppressions(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
-    suppressions = store.list_all(include_inactive=True)
-    return {"suppressions": [s.__dict__ for s in suppressions]}
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    repo_url = await repo_url_for_job(job_id, user.id)
+    if not repo_url:
+        return {"suppressions": []}
+
+    async with session_scope() as session:
+        rows = await store.list_suppressions(session, user.id, repo_url)
+        return {"suppressions": [_to_dict(r) for r in rows]}
+
 
 class AddSuppressionRequest(BaseModel):
-    module: str
-    layer: int
-    message: str
-    reason: str
-    expires_in_days: int | None = None
+    module: str = Field(..., max_length=200)
+    layer: int = Field(..., ge=1, le=4)
+    message: str = Field(..., max_length=2000)
+    reason: str = Field(..., max_length=500)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
     pr_number: int | None = None
-    commit_sha: str | None = None
+    commit_sha: str | None = Field(default=None, max_length=40)
+
 
 @router.post("/suppressions")
 async def add_suppression(
@@ -113,30 +82,47 @@ async def add_suppression(
     job_id: JobIdQuery = None,
     user: User = Depends(current_user),
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from archguard.suppression.models import make_violation_hash
+
+    repo_url = await repo_url_for_job(job_id, user.id)
+    if not repo_url:
+        # The job is not this user's, or does not exist. Same answer either
+        # way: confirming which would tell a stranger that an id is real.
+        raise HTTPException(status_code=404, detail="Job not found")
 
     expires_at = None
     if req.expires_in_days:
-        from datetime import datetime, timedelta
-        expires_at = (datetime.now(UTC) + timedelta(days=req.expires_in_days)).isoformat()
+        expires_at = datetime.now(UTC) + timedelta(days=req.expires_in_days)
 
     try:
-        store.add(
-            module=req.module,
-            layer=req.layer,
-            message=req.message,
-            reason=req.reason,
-            expires_at=expires_at,
-            pr_number=req.pr_number,
-            commit_sha=req.commit_sha or ""
-        )
-    except Exception as e:
-        logging.getLogger(__name__).warning("Suppression add failed: %s", e)
-        raise HTTPException(status_code=400, detail="Failed to add suppression.")
+        async with session_scope() as session:
+            await store.add_suppression(
+                session,
+                user_id=user.id,
+                repo_url=repo_url,
+                module=req.module,
+                layer=req.layer,
+                # The same hash the analysis matches on, from the same
+                # function, so a suppression cannot be recorded under an
+                # identity the filter will never look up.
+                violation_hash=make_violation_hash(req.module, req.layer, req.message),
+                reason=req.reason,
+                expires_at=expires_at,
+                pr_number=req.pr_number,
+                commit_sha=req.commit_sha or "",
+                created_by=user.login or "unknown",
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Suppression add failed: %s", exc)
+        raise HTTPException(status_code=400, detail="Failed to add suppression.") from exc
     return {"status": "success"}
 
+
 class RemoveSuppressionRequest(BaseModel):
-    suppression_id: str
+    suppression_id: str = Field(..., max_length=64)
+
 
 @router.delete("/suppressions")
 async def remove_suppression(
@@ -144,7 +130,35 @@ async def remove_suppression(
     job_id: JobIdQuery = None,
     user: User = Depends(current_user),
 ) -> Any:
-    store = _suppression_store(await repo_url_for_job(job_id, user.id), job_id)
-    if not store.delete(req.suppression_id):
-        raise HTTPException(status_code=404, detail="Suppression not found")
+    from archguard.db import store
+    from archguard.db.session import session_scope
+
+    async with session_scope() as session:
+        # Ownership is settled inside the store, which returns False for both
+        # "no such id" and "not yours" so this route cannot accidentally tell
+        # the two apart.
+        if not await store.delete_suppression(session, req.suppression_id, user.id):
+            raise HTTPException(status_code=404, detail="Suppression not found")
     return {"status": "success"}
+
+
+def _to_dict(row: Any) -> dict[str, Any]:
+    """The shape the dashboard already renders.
+
+    Explicit rather than ``__dict__``: that carried SQLAlchemy's internal
+    state, and it would hand out ``user_id`` -- which is nobody's business but
+    the owner's, and useless to them.
+    """
+    return {
+        "id": row.id,
+        "module": row.module,
+        "layer": row.layer,
+        "violation_hash": row.violation_hash,
+        "reason": row.reason,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_by": row.created_by,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "pr_number": row.pr_number,
+        "commit_sha": row.commit_sha,
+        "active": row.active,
+    }

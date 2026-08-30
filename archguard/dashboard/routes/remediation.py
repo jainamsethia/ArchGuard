@@ -29,7 +29,7 @@ class RemediationRequest(BaseModel):
 
 
 def _selection_summary_no_job(selection: Any) -> dict[str, Any]:
-    """Selection counts for the job-less POST variant (no suppression store)."""
+    """Selection counts for the job-less POST variant (no suppressions applied)."""
     from archguard.dashboard._selection import selection_summary
 
     return selection_summary(selection)
@@ -61,7 +61,7 @@ async def remediation_plan(body: RemediationRequest) -> Any:
 
     # Rank and cap even when the caller supplies the list. Without this the LLM
     # receives whatever order the caller happened to send, and a LOW-severity
-    # finding can crowd out a CRITICAL one. No suppression store is consulted
+    # finding can crowd out a CRITICAL one. No suppressions are consulted
     # here -- this endpoint has no job context; the GET variant below does.
     selection = select_for_remediation(body.violations)
 
@@ -103,8 +103,14 @@ async def remediation_plan_from_audit(
     else:
         return {"empty": True, "message": "No analysis selected. Submit or select a repository to see health data."}
     from archguard.dashboard._selection import select_findings, selection_summary
+    from archguard.db import store as _store
+    from archguard.db.session import session_scope as _scope
 
-    selection = select_findings(latest, job_id)
+    async with _scope() as _session:
+        hidden = await _store.active_suppression_hashes(
+            _session, user.id, str(latest.get("repo_url") or "")
+        )
+    selection = select_findings(latest, hidden)
     violations = [r.finding for r in selection.selected if not r.is_fitness_gate]
     gates = [r.finding for r in selection.selected if r.is_fitness_gate]
 

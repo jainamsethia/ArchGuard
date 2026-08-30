@@ -86,25 +86,40 @@ class AnalysisJobResult:
 #: transition into one.
 ProgressCallback = Callable[[str, "str | None"], Awaitable[None]]
 
-def _dashboard_suppression_path(repo_url: str) -> Path | None:
-    """The durable, repository-keyed suppression file for *repo_url*.
+async def _suppressed_hashes(job_id: str, repo_url: str) -> set[str]:
+    """The findings the person who submitted this job has chosen to hide.
 
-    Returns None when the repository cannot be identified, in which case the
-    analysis falls back to the default location inside the analysed tree.
+    Resolved here, on the async side, and handed to the analysis as a set of
+    hashes: the analysis runs in a worker thread with no database session, and
+    it has no business knowing who anybody is.
+
+    Scoped to that person. Suppressions used to live in a file named after the
+    repository, shared by every account that had analysed it, so one user could
+    remove a finding from a stranger's report.
+
+    An empty set on any failure. Showing a finding somebody asked to hide is a
+    smaller failure than hiding one nobody did.
     """
     if not repo_url:
-        return None
+        return set()
     try:
-        from archguard.dashboard.routes.suppression import suppression_base_dir
-        from archguard.suppression.scope import suppression_path_for_repo
+        from archguard.db import store
+        from archguard.db.models import Job
+        from archguard.db.session import session_scope
 
-        return suppression_path_for_repo(suppression_base_dir(), repo_url)
+        async with session_scope() as session:
+            job = await session.get(Job, job_id)
+            if job is None or job.user_id is None:
+                return set()
+            return await store.active_suppression_hashes(
+                session, job.user_id, repo_url
+            )
     except Exception as exc:
         logger.warning(
-            "Could not resolve suppression store for %s (%s); "
-            "suppressions will not be applied to this run.", repo_url, exc,
+            "Could not load suppressions for %s (%s); reporting every finding.",
+            repo_url, exc,
         )
-        return None
+        return set()
 
 
 def _collect_python_files(repo_path: Path) -> list[Path]:
@@ -395,6 +410,7 @@ async def run_analysis_on_repo(
                 _relay,
                 carried,
                 repo_files,
+                await _suppressed_hashes(job_id, repo_url),
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -511,6 +527,7 @@ def _run_analysis_sync(
     on_progress: Any = None,
     carried_violations: list[dict[str, Any]] | None = None,
     repo_files: list[Path] | None = None,
+    suppressed_hashes: set[str] | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -522,13 +539,12 @@ def _run_analysis_sync(
     from archguard.analysis.layers import AnalysisOrchestrator
 
     commit_sha = AnalysisOrchestrator.get_commit_sha(repo_path)
-    # Point the suppression filter at the durable, repository-keyed store the
-    # dashboard writes to. Without this it looks inside repo_path -- a throwaway
-    # clone that no user has ever suppressed anything in -- so every suppressed
-    # violation reappeared on the next scan.
+    # Resolved by the caller, on the async side: the suppressions that apply
+    # belong to the account that submitted this job, and the answer lives in
+    # PostgreSQL rather than in the throwaway clone.
     orchestrator = AnalysisOrchestrator(
         repo_root=repo_path,
-        suppression_path=_dashboard_suppression_path(repo_url),
+        suppressed_hashes=suppressed_hashes,
     )
 
     with orchestrator:

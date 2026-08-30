@@ -16,47 +16,33 @@ from archguard.analysis.ranking import Selection, finding_key, select_for_remedi
 logger = logging.getLogger(__name__)
 
 
-def _suppression_store_for(repo_url: str | None, job_id: str | None) -> Any:
-    """Resolve the dashboard's suppression store.
-
-    A module-level seam rather than an inline import: it keeps the dependency on
-    the route layer explicit and lets tests substitute a store without needing a
-    real one on disk.
-    """
-    from archguard.dashboard.routes.suppression import _suppression_store
-
-    return _suppression_store(repo_url, job_id)
-
-
-def select_findings(run: dict[str, Any], job_id: str | None) -> Selection:
+def select_findings(
+    run: dict[str, Any], suppressed_hashes: set[str] | None = None
+) -> Selection:
     """Rank a run's findings and take the top N for an LLM remediation plan.
 
-    Suppressions are read from the dashboard's own store -- the one the
-    Suppressions tab writes to. The analysis-time filter in
-    ``archguard.analysis._suppression_filter`` reads the *cloned workspace* root
-    instead, which for a dashboard job is a fresh temp directory that never
-    holds the user's suppressions, so relying on it alone would spend LLM budget
-    explaining findings the user had already dismissed.
+    *suppressed_hashes* is what the account that owns this run has chosen to
+    hide, resolved by the caller. Findings matching one are excluded, so LLM
+    budget is not spent explaining something the user already dismissed.
+
+    Passed in rather than looked up. This function is synchronous and the
+    answer lives in PostgreSQL; more importantly, the suppressions that apply
+    belong to a person, and they used to be read from a file named after the
+    repository -- shared by every account that had analysed it.
     """
-    try:
-        # The run records the repository it analysed, so no lookup is needed
-        # here -- which is what keeps this function synchronous.
-        store = _suppression_store_for(run.get("repo_url"), job_id)
-    except Exception as exc:
-        logger.warning("Suppression store unavailable (%s); ranking without it.", exc)
-        store = None
+    hidden = suppressed_hashes or set()
 
     def _is_suppressed(v: dict[str, Any]) -> bool:
-        if store is None:
+        if not hidden:
             return False
         try:
-            return bool(
-                store.is_suppressed(
-                    str(v.get("module") or ""),
-                    int(v.get("layer") or 0),
-                    str(v.get("message") or ""),
-                )
-            )
+            from archguard.suppression.models import make_violation_hash
+
+            return make_violation_hash(
+                str(v.get("module") or ""),
+                int(v.get("layer") or 0),
+                str(v.get("message") or ""),
+            ) in hidden
         except (ValueError, TypeError):
             return False
 

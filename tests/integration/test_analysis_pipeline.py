@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from archguard.analysis._suppression_filter import _filter_suppressed
 from archguard.analysis.layers import AnalysisOrchestrator
-from archguard.suppression.store import SuppressionStore
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "sample_project"
 
@@ -48,17 +48,20 @@ def test_health_score_semantics_are_consistent(temp_project, monkeypatch):
 
 
 def test_layer4_violations_can_be_suppressed(tmp_path, temp_project):
-    """After Bug N-1 fix, Layer 4 violations must be suppressable."""
-    store = SuppressionStore(temp_project)
+    """Layer 4 findings are suppressable like any other.
 
-    store.add(
-        module="api",
-        layer=4,
-        message="Duplicate function body",
-        reason="Test suppression for layer 4",
-    )
+    Asserted against the identity the suppression is stored under, which is what
+    the filter matches on -- the layer number is part of it, and Layer 4 used to
+    be excluded from suppression entirely.
+    """
+    from archguard.suppression.models import make_violation_hash
 
-    assert store.is_suppressed("api", 4, "Duplicate function body") is True
+    hidden = {make_violation_hash("api", 4, "Duplicate function body")}
+
+    class _V:
+        module, layer, message = "api", 4, "Duplicate function body"
+
+    assert _filter_suppressed(temp_project, [_V()], hidden) == []
 
 
 def test_suppressed_violation_absent_from_analysis(temp_project, monkeypatch):
@@ -73,17 +76,23 @@ def test_suppressed_violation_absent_from_analysis(temp_project, monkeypatch):
     assert len(result1.violations) > 0
     violation_to_suppress = result1.violations[0]
 
-    # Add suppression
-    store = SuppressionStore(temp_project)
-    store.add(
-        module=violation_to_suppress.module,
-        layer=violation_to_suppress.layer,
-        message=violation_to_suppress.message,
-        reason="Suppressing first violation",
-    )
+    # Suppress it, the way the API does: by the identity the filter matches on.
+    from archguard.suppression.models import make_violation_hash
 
-    # Re-run analysis
-    orchestrator2 = AnalysisOrchestrator(repo_root=temp_project)
+    hidden = {
+        make_violation_hash(
+            violation_to_suppress.module,
+            violation_to_suppress.layer,
+            violation_to_suppress.message,
+        )
+    }
+
+    # Re-run. The suppressions are handed to the analysis rather than read from
+    # the tree, because whose they are is a question about the account that
+    # submitted the job, not about the checkout on disk.
+    orchestrator2 = AnalysisOrchestrator(
+        repo_root=temp_project, suppressed_hashes=hidden
+    )
     result2 = orchestrator2.run(changed_files=changed_files, commit_sha="testsha3")
 
     # Confirm the suppressed violation is absent

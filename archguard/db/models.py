@@ -240,9 +240,10 @@ class Violation(Base):
 class Suppression(Base):
     """A deliberately ignored finding.
 
-    Keyed by repository, not by job: every scan creates a new job id, so a
-    job-scoped suppression could never be found again on the next scan of the
-    same repository -- which is the only time one is any use.
+    Keyed by repository and owner. Not by job, because every scan creates a
+    new job id and a job-scoped suppression could never be found again on the
+    next scan -- which is the only time one is any use. And not by repository
+    alone, because that was shared by every account that had analysed it.
     """
 
     __tablename__ = "suppressions"
@@ -250,8 +251,14 @@ class Suppression(Base):
     id: Mapped[str] = mapped_column(
         Uuid(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    #: Required. A suppression without an owner is invisible to every scoped
+    #: query -- which fails safe, but silently, and a row nobody can see or
+    #: delete is not a state worth being able to reach. Keyed by repository AND
+    #: owner because two accounts analysing the same public repository are not
+    #: collaborating: which findings a team has chosen to ignore, and why, is
+    #: not public information just because the code is.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     repository_id: Mapped[int] = mapped_column(
         ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False, index=True

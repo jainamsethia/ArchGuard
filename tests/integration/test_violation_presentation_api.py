@@ -97,21 +97,38 @@ def test_selection_is_stable_across_repeated_reads(persisted_run, test_user):
 
 
 def test_suppressed_violations_are_excluded_from_counts_and_selection(
-    persisted_run, test_user, monkeypatch
+    persisted_run, test_user
 ):
-    """Suppression is read from the dashboard's own store, which is what the
-    Suppressions tab writes to."""
-    from archguard.dashboard import _selection
+    """Suppression hides a finding from the LLM, not from the user.
+
+    Seeded in PostgreSQL against this account rather than through a stubbed
+    store, so the path under test is the one production runs: the route
+    resolves the caller's suppressions and hands them to the ranking. A stub
+    would have agreed that everything worked while the routes were reading a
+    file every account shared.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from archguard.suppression.models import make_violation_hash
 
     suppressed = {"module_00", "module_01", "module_02"}
 
-    class _FakeStore:
-        def is_suppressed(self, module, layer, message):
-            return module in suppressed
+    async def _seed() -> None:
+        async with session_scope() as session:
+            for i, module in enumerate(sorted(suppressed)):
+                await store.add_suppression(
+                    session,
+                    user_id=test_user.id,
+                    repo_url="https://github.com/example/repo",
+                    module=module,
+                    layer=2,
+                    violation_hash=make_violation_hash(
+                        module, 2, f"fan_out={11 + i} exceeds budget=10"
+                    ),
+                    reason="accepted debt",
+                )
 
-    monkeypatch.setattr(
-        _selection, "_suppression_store_for", lambda repo_url, jid: _FakeStore()
-    )
+    asyncio.run(_seed())
 
     run = _latest(persisted_run, test_user)
     sel = run["remediation_selection"]
@@ -123,3 +140,42 @@ def test_suppressed_violations_are_excluded_from_counts_and_selection(
     assert len(run["violations"]) == 20
     for key in sel["selected_keys"]:
         assert key.split("|")[0] not in suppressed
+
+
+def test_another_accounts_suppression_does_not_shrink_this_selection(
+    persisted_run, test_user, live_db
+):
+    """The tenancy consequence, at the layer where it costs money.
+
+    A shared store meant a stranger's suppression removed findings from this
+    account's remediation plan -- so the LLM was asked to fix a different set of
+    problems than the one the user was looking at.
+    """
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from archguard.suppression.models import make_violation_hash
+
+    async def _seed_other_account() -> None:
+        async with session_scope() as session:
+            stranger = await store.upsert_user(
+                session, github_id=9502, login="stranger"
+            )
+            await store.add_suppression(
+                session,
+                user_id=stranger.id,
+                repo_url="https://github.com/example/repo",
+                module="module_00",
+                layer=2,
+                violation_hash=make_violation_hash(
+                    "module_00", 2, "fan_out=11 exceeds budget=10"
+                ),
+                reason="not this user's decision",
+            )
+
+    asyncio.run(_seed_other_account())
+
+    sel = _latest(persisted_run, test_user)["remediation_selection"]
+    assert sel["suppressed"] == 0, (
+        "another account's suppression removed a finding from this user's plan"
+    )
+    assert sel["eligible"] == 20
