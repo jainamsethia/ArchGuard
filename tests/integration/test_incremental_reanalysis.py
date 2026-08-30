@@ -268,8 +268,8 @@ def test_editing_one_module_reanalyses_only_that_module(sample_repo, live_db):
         archguard_version="0.3.0",
         file_hashes=hash_files(_files(sample_repo), sample_repo),
         violations=[
-            {"module": "alpha", "layer": 2, "message": "alpha stale"},
-            {"module": "beta", "layer": 2, "message": "beta still true"},
+            {"module": "alpha", "layer": 3, "message": "alpha stale"},
+            {"module": "beta", "layer": 3, "message": "beta still true"},
         ],
     )
 

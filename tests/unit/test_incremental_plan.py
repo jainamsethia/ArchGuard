@@ -233,9 +233,12 @@ def test_findings_are_carried_forward_only_for_clean_modules(repo):
     known = incremental.hash_files(files_of(repo), repo)
     (repo / "pkg" / "a.py").write_text("import os\nimport json\n", encoding="utf-8")
 
+    # Layer 3, because it is the only layer that is not re-measured over the
+    # whole repository every scan and so the only one there is any point
+    # carrying. See incremental.CARRYABLE_LAYERS.
     previous_violations = [
-        {"module": "pkg", "layer": 2, "message": "fan_out=9 exceeds budget=3"},
-        {"module": "other", "layer": 2, "message": "fan_out=5 exceeds budget=3"},
+        {"module": "pkg", "layer": 3, "message": "semantic drift 0.41"},
+        {"module": "other", "layer": 3, "message": "semantic drift 0.38"},
     ]
     contract = {
         "version": "3.0",
@@ -320,14 +323,14 @@ def test_a_duplication_finding_is_never_carried_forward(repo):
             violations=[
                 {"module": "other", "layer": 4, "message": "pkg/a.py <-> other/c.py"},
                 {"module": "other", "layer": "4", "message": "same rule, str layer"},
-                {"module": "other", "layer": 2, "message": "fan_out=9 exceeds budget=3"},
+                {"module": "other", "layer": 3, "message": "semantic drift 0.41"},
             ],
         ),
     )
 
     assert plan.dirty_modules == {"pkg"}
     carried = [v["message"] for v in plan.carried_violations]
-    assert carried == ["fan_out=9 exceeds budget=3"], (
+    assert carried == ["semantic drift 0.41"], (
         "a duplication finding filed against the clean module was carried "
         "forward, so a clone deleted from the dirty module survives the rescan"
     )
@@ -352,7 +355,7 @@ def test_a_duplication_finding_is_not_carried_even_when_nothing_changed(repo):
             hashes=known,
             violations=[
                 {"module": "pkg", "layer": 4, "message": "pkg/a.py <-> other/c.py"},
-                {"module": "pkg", "layer": 2, "message": "fan_out=9 exceeds budget=3"},
+                {"module": "pkg", "layer": 3, "message": "semantic drift 0.41"},
             ],
         ),
     )
@@ -362,7 +365,7 @@ def test_a_duplication_finding_is_not_carried_even_when_nothing_changed(repo):
     assert "pkg/a.py <-> other/c.py" not in carried, (
         "the clone's counterpart was deleted, but the finding was carried anyway"
     )
-    assert carried == ["fan_out=9 exceeds budget=3"]
+    assert carried == ["semantic drift 0.41"]
 
 
 def test_layer_four_sees_every_file_even_on_an_incremental_scan(repo):
@@ -382,14 +385,20 @@ def test_layer_four_sees_every_file_even_on_an_incremental_scan(repo):
 
     assert plan.full is False
     assert [p.name for p in plan.changed] == ["a.py"]
-    assert sorted(plan.duplication_files) == sorted(files_of(repo)), (
-        "layer 4 was given only the changed slice"
+    assert sorted(plan.repo_files) == sorted(files_of(repo)), (
+        "the repository-wide layers were given only the changed slice"
     )
 
 
-def test_layers_two_and_three_stay_incrementally_scoped(repo):
-    """The other half of the rule: this fix must not quietly turn every
-    incremental scan into a full one."""
+def test_layer_three_stays_incrementally_scoped(repo):
+    """The other half of the rule: this must not quietly turn every incremental
+    scan into a full one.
+
+    Layer 3 is the saving that is left. Layers 1, 2 and 4 measure the whole
+    repository every scan -- cheaply, because layer 2 already parsed it and
+    layer 4 already embedded it -- so only layer 3, whose per-module cost is a
+    model rather than a parse, is still scoped to what changed.
+    """
     known = incremental.hash_files(files_of(repo), repo)
     (repo / "pkg" / "a.py").write_text("import os\nimport json\n", encoding="utf-8")
 
@@ -416,4 +425,4 @@ def test_a_full_analysis_gives_layer_four_everything(repo):
         previous=None,
     )
     assert plan.full is True
-    assert sorted(plan.duplication_files) == sorted(files_of(repo))
+    assert sorted(plan.repo_files) == sorted(files_of(repo))

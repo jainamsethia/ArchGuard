@@ -321,7 +321,7 @@ async def run_analysis_on_repo(
     # and the ArchGuard version both match the previous run -- see
     # archguard.cache.incremental.plan_analysis.
     plan = None
-    duplication_files: list[Path] | None = None
+    repo_files: list[Path] | None = None
     # Findings from the previous run that this scan will not recompute. Its own
     # variable rather than read off the plan twice, so the list handed to the
     # analysis is the same one the progress message describes and there is a
@@ -343,7 +343,7 @@ async def run_analysis_on_repo(
             await _emit(f"Full analysis: {plan.reason}.")
         else:
             py_files = plan.changed or py_files
-            duplication_files = plan.duplication_files
+            repo_files = plan.repo_files
 
             # Reuse only what this scan will not measure for itself.
             #
@@ -394,7 +394,7 @@ async def run_analysis_on_repo(
                 fallback_reason,
                 _relay,
                 carried,
-                duplication_files,
+                repo_files,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -510,7 +510,7 @@ def _run_analysis_sync(
     fallback_reason: str = "",
     on_progress: Any = None,
     carried_violations: list[dict[str, Any]] | None = None,
-    duplication_files: list[Path] | None = None,
+    repo_files: list[Path] | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -542,10 +542,11 @@ def _run_analysis_sync(
             # orchestrator emits was thrown away and the stream showed only the
             # four the adapter itself produced.
             quiet=on_progress is None,
-            # Layer 4 measures a relationship, so it is not scoped to the
-            # incremental slice. None on a full analysis, where py_files is
-            # already everything.
-            duplication_files=duplication_files,
+            # Layers 1, 2 and 4 measure the repository, not the slice, so
+            # their scores are comparable between an incremental scan and a
+            # full one. None on a full analysis, where py_files is already
+            # everything.
+            repo_files=repo_files,
         )
 
     # -- Build the persistable payload --
@@ -621,7 +622,11 @@ def _run_analysis_sync(
             # -- Compute module_scores from violations --
             severity_weights = {"critical": 10, "high": 5, "medium": 2, "low": 1}
             module_penalty: dict[str, float] = {}
-            for vp in v_list_out:
+            # Over the carried findings as well as the fresh ones. A module
+            # this scan did not re-analyse still has whatever was wrong with
+            # it, and scoring only what was measured reported it as perfect
+            # with its own violations listed underneath.
+            for vp in v_list_out + carried:
                 mod = vp.module or "unknown"
                 module_penalty[mod] = module_penalty.get(mod, 0) + severity_weights.get(vp.severity, 1)
 

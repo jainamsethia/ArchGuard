@@ -132,7 +132,7 @@ def _run_orchestrator(
     progress_callback: Any = None,
     fail_fast: bool = False,
     quiet: bool = False,
-    duplication_files: list[Path] | None = None,
+    repo_files: list[Path] | None = None,
 ) -> AnalysisResult:
     py_files = [f for f in changed_files if str(f).endswith(".py")]
     rel_files = [
@@ -158,15 +158,31 @@ def _run_orchestrator(
         orchestrator.repo_root, orchestrator.contract, py_files
     )
 
-    # Layers 1-3 stay scoped to what this scan was given. Layer 4 does not: a
-    # duplication finding names two modules, so scoping it to the changed slice
-    # both hides real clones and leaves stale ones standing with nothing to
-    # disprove them. See cache.incremental.RELATIONAL_LAYERS.
-    dup_py_files = [
-        f for f in (duplication_files or changed_files) if str(f).endswith(".py")
+    # Layers 1, 2 and 4 measure the whole repository; only Layer 3 is scoped to
+    # the slice this scan was given.
+    #
+    # The reason is cost, not principle. Layer 2 already parses every file in
+    # the repository to build its edge list and then scored only the changed
+    # modules, throwing the rest away -- so widening it costs a dict walk.
+    # Layer 4 has been repository-wide since duplication stopped being carried
+    # forward. Layer 1 is the only real addition, one AST pass on the thread
+    # that is already blocked waiting for Layer 2's parse.
+    #
+    # What that buys is the property that matters: a score computed from a
+    # slice is not comparable to one computed from a repository, and this
+    # pipeline reported both under the same name. Editing a single file in a
+    # module with no findings took a repository from 0.0/FAIL to 100.0/PASS
+    # while still listing all four of its violations.
+    #
+    # Layer 3 keeps the slice because it is the one layer whose per-module cost
+    # is a transformer forward pass rather than a parse. Its findings are
+    # therefore the only ones carried forward -- see
+    # cache.incremental.CARRYABLE_LAYERS.
+    all_py_files = [
+        f for f in (repo_files or changed_files) if str(f).endswith(".py")
     ]
-    dup_affected = _get_affected_modules_fn(
-        orchestrator.repo_root, orchestrator.contract, dup_py_files
+    all_affected = _get_affected_modules_fn(
+        orchestrator.repo_root, orchestrator.contract, all_py_files
     )
 
     def emit(message: str, phase: str | None = None) -> None:
@@ -194,8 +210,8 @@ def _run_orchestrator(
 
     v1_2, l1, l2, f_1_2, res1_2 = _run_layer_1_2(
         orchestrator,
-        py_files,
-        affected,
+        all_py_files,
+        all_affected,
         emit,
         fail_fast,
         _eval_fitness,
@@ -225,7 +241,7 @@ def _run_orchestrator(
         return res3
 
     v4, l4 = _run_layer_4(
-        orchestrator, v3, dup_affected, emit, metrics, commit_sha
+        orchestrator, v3, all_affected, emit, metrics, commit_sha
     )
 
     return _finalize_result(
@@ -238,7 +254,7 @@ def _run_orchestrator(
         l2,
         l3,
         l4,
-        affected,
+        all_affected,
         rel_files,
         f_1_2,
     )

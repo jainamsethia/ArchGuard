@@ -297,6 +297,7 @@ def test_the_incremental_scan_still_skips_the_unchanged_module(clone_repo, live_
             file_hashes=known,
             violations=[
                 {"module": "module_b", "layer": 2, "message": "fan_out=9"},
+                {"module": "module_b", "layer": 3, "message": "semantic drift 0.41"},
                 {"module": "module_b", "layer": 4, "message": "a.py <-> b.py"},
             ],
         ),
@@ -306,9 +307,15 @@ def test_the_incremental_scan_still_skips_the_unchanged_module(clone_repo, live_
     assert plan.dirty_modules == {"module_a"}, "the untouched module was re-analysed"
     assert [p.name for p in plan.changed] == ["a.py"]
 
-    # Layers 2 and 3 still carry forward; layer 4 does not.
-    assert identity(plan.carried_violations) == [("2", "module_b", "fan_out=9")]
+    # Layer 3 is the only one carried. Layers 2 and 4 measure the whole
+    # repository on every scan, so carrying their findings would list each of
+    # them twice -- and their scores would still be right either way, which is
+    # what makes carrying them pure downside.
+    assert identity(plan.carried_violations) == [
+        ("3", "module_b", "semantic drift 0.41")
+    ]
 
-    # And layer 4 is handed the whole repository, including the file that did
-    # not change -- without which the recomputed half has nothing to compare to.
-    assert sorted(plan.duplication_files) == sorted(clone_repo.rglob("*.py"))
+    # And the repository-wide layers are handed every file, including the one
+    # that did not change -- without which a recomputed clone has nothing to
+    # compare against and an untouched module contributes nothing to the score.
+    assert sorted(plan.repo_files) == sorted(clone_repo.rglob("*.py"))

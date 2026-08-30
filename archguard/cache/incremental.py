@@ -141,20 +141,20 @@ def contract_fingerprint(contract: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-#: Layers whose findings describe more than the module they are filed under.
+#: Layers whose findings may be reused from the previous run.
 #:
-#: Layers 1-3 are attributable: an import-boundary violation belongs to a file,
-#: a fan-out or drift figure to a module. Skipping an unchanged module and
-#: carrying its previous findings forward is therefore sound -- nothing outside
-#: it can make them false.
+#: A whitelist rather than a blacklist, deliberately. The safe answer for a
+#: layer nobody has thought about is "measure it again": a finding that is
+#: recomputed unnecessarily costs time, while one that is carried when it
+#: should not be is simply wrong, and the run has no way to tell.
 #:
-#: A Layer 4 duplication finding is a *relationship*. Its message names a clone
-#: spanning two files ("a.py <-> b.py") but the row is recorded against one
-#: module, so it stops being true when the OTHER module changes -- and this
-#: plan cannot tell which one that was. Such a finding is never carried
-#: forward; its layer is re-measured over `AnalysisPlan.duplication_files`
-#: instead. Add a layer number here rather than special-casing it elsewhere.
-RELATIONAL_LAYERS = frozenset({"4"})
+#: Only Layer 3 is listed. Layers 1, 2 and 4 measure the whole repository on
+#: every scan (see analysis._orchestrator_run), so carrying their findings
+#: would report each of them twice and then persist the duplicate as the next
+#: scan's starting point. Layer 3 is the exception because its per-module cost
+#: is a transformer forward pass rather than a parse, which is the only saving
+#: in this pipeline large enough to be worth the risk of reuse.
+CARRYABLE_LAYERS = frozenset({"3"})
 
 
 @dataclass(frozen=True)
@@ -185,11 +185,10 @@ class AnalysisPlan:
 
     #: Every file this scan looked at, changed or not.
     #:
-    #: Layers in RELATIONAL_LAYERS must see all of it. A clone's counterpart
-    #: commonly lives in a file that did not change, and a Layer 4 run scoped
-    #: to `changed` alone can neither find it nor clear a stale finding about
-    #: it -- it simply has nothing to compare against.
-    duplication_files: list[Path] = field(default_factory=list)
+    #: Layers 1, 2 and 4 measure against all of it, so that the score they
+    #: produce describes the repository rather than whichever slice happened to
+    #: change. Layer 3 uses `changed` instead.
+    repo_files: list[Path] = field(default_factory=list)
 
 
 def plan_analysis(
@@ -223,7 +222,7 @@ def plan_analysis(
             reason=reason,
             changed=list(files),
             unchanged=[],
-            duplication_files=list(files),
+            repo_files=list(files),
         )
 
     if previous is None:
@@ -244,18 +243,18 @@ def plan_analysis(
     # contract no longer declares was measured against a boundary that is gone;
     # both are left for this run to produce again if they still hold.
     #
-    # And never a relational one, however clean its own module looks. See
-    # RELATIONAL_LAYERS: a duplication finding depends on a module this plan
-    # may have decided was untouched, so "my module is clean" is not evidence
-    # that it still holds. `str` because the value is an int coming out of the
-    # analyser and a string coming back out of the database.
+    # And only from a layer that will not measure this module again anyway.
+    # See CARRYABLE_LAYERS: layers 1, 2 and 4 now cover the whole repository
+    # every scan, so carrying their findings would list each one twice. `str`
+    # because the layer is an int coming out of the analyser and a string
+    # coming back out of the database.
     carried = [
         v
         for v in previous.violations
         if v.get("module")
         and v["module"] in module_paths
         and v["module"] not in dirty
-        and str(v.get("layer")) not in RELATIONAL_LAYERS
+        and str(v.get("layer")) in CARRYABLE_LAYERS
     ]
 
     return AnalysisPlan(
@@ -269,7 +268,7 @@ def plan_analysis(
         dirty_modules=dirty,
         carried_violations=carried,
         # changed + unchanged is the whole input set by construction.
-        duplication_files=list(files),
+        repo_files=list(files),
     )
 
 
