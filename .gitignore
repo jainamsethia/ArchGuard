@@ -112,3 +112,10 @@ archguard_website_framework_v7_combined.md
 # Vendored agent skills (re-fetchable from source, see skills-lock.json)
 .agents/
 skills-lock.json
+
+# Playwright visual baselines are per-platform, and CI renders on Linux, so the
+# -linux.png files are the ones that mean anything. A local run on another OS
+# writes its own set beside them; committing those would mean every developer
+# diffing against whichever machine happened to record first.
+tests/visual/snapshots/**/*-win32.png
+tests/visual/snapshots/**/*-darwin.png
