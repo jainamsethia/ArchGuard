@@ -67,6 +67,83 @@ describe('C3: run comparison', () => {
     assert.equal(toggle.disabled, true, 'nothing to compare against');
     assert.match(toggle.title, /at least 2/i);
   });
+
+  it('reveals the comparison picker when the button is clicked', async () => {
+    // Enablement is not the feature. The previous tests asserted the button
+    // could be pressed and never pressed it, so a toggle that did nothing at
+    // all read as working: initCompareControls() was called twice, the second
+    // listener saw the state the first had just set, and every click undid
+    // itself.
+    const window = await loadDashboard({ respond: twoRuns });
+    const { document } = window;
+
+    const toggle = document.getElementById('compare-toggle-btn');
+    const picker = document.getElementById('compare-picker');
+
+    assert.equal(picker.hidden, true, 'the picker should start hidden');
+
+    toggle.click();
+    assert.equal(
+      picker.hidden,
+      false,
+      'clicking Compare did not reveal the picker -- the handler is registered ' +
+        'more than once, so each click is immediately undone by the next listener',
+    );
+  });
+
+  it('hides the picker again on a second click', async () => {
+    const window = await loadDashboard({ respond: twoRuns });
+    const { document } = window;
+
+    const toggle = document.getElementById('compare-toggle-btn');
+    const picker = document.getElementById('compare-picker');
+
+    toggle.click();
+    toggle.click();
+
+    assert.equal(picker.hidden, true, 'a second click should collapse it again');
+    assert.equal(picker.value, '', 'collapsing should clear the selection');
+    assert.equal(
+      document.getElementById('compare-panel').hidden,
+      true,
+      'collapsing should hide any comparison already drawn',
+    );
+  });
+
+  it('registers exactly one handler per compare control', async () => {
+    // The property behind both tests above, stated directly so a future
+    // regression names its own cause rather than showing up as a toggle that
+    // mysteriously does nothing.
+    const window = await loadDashboard({ respond: twoRuns });
+    const { document } = window;
+
+    const toggle = document.getElementById('compare-toggle-btn');
+    const picker = document.getElementById('compare-picker');
+
+    let calls = 0;
+    const original = Object.getOwnPropertyDescriptor(
+      window.HTMLElement.prototype,
+      'hidden',
+    );
+    Object.defineProperty(picker, 'hidden', {
+      configurable: true,
+      get() {
+        return original.get.call(this);
+      },
+      set(value) {
+        calls += 1;
+        original.set.call(this, value);
+      },
+    });
+
+    toggle.click();
+    assert.equal(
+      calls,
+      1,
+      `one click set the picker's visibility ${calls} times -- the click ` +
+        'handler is attached once per call to initCompareControls()',
+    );
+  });
 });
 
 describe('C4: empty state', () => {

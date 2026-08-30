@@ -63,7 +63,11 @@ export function initActionButtons() {
     const refreshSupBtn = document.getElementById('refresh-suppressions-btn');
     if (refreshSupBtn) refreshSupBtn.addEventListener('click', loadSuppressions);
 
-    initCompareControls();
+    // initCompareControls() is NOT called here. init() calls it, immediately
+    // after this function, and calling it from both attached two click
+    // listeners to the same button: the second read the state the first had
+    // just written, so every click undid itself and Compare did nothing at
+    // all. The button was enabled, which is all anything checked.
 
     // Delegated removal for per-row suppression "Remove" buttons (rendered
     // dynamically, so bind once on the static tbody).
