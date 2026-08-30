@@ -474,6 +474,17 @@ jobs:
           # sign-in overlay and every assertion about signed-in chrome fails
           # for a reason that has nothing to do with what is being tested.
           ARCHGUARD_RATE_LIMIT_MAX_REQUESTS: '100000'
+          # One of these tests drives the AI advisor. Without a key the
+          # capabilities endpoint reports the feature unavailable and the
+          # template renders its input `disabled`, so the test waited thirty
+          # seconds to fill a box that can never accept text -- a failure about
+          # configuration wearing the costume of a broken control.
+          #
+          # The mock is what the Python jobs already use for the same reason:
+          # it serves canned responses so the feature genuinely works without a
+          # key. Set here and not on the snapshot job, whose baselines were
+          # recorded with the AI notice showing.
+          ARCHGUARD_MOCK_LLM: '1'
       # Behaviour, not pixels: these drive the page and assert what happens.
       # Blocking, because a broken control is a bug wherever it is found. All
       # four were failing silently under the old `continue-on-error: true` --
