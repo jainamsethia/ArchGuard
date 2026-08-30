@@ -34,6 +34,20 @@
   <div id="login-error" class="login-error"></div>
 </div>
 
+<!-- Who is signed in, and how to stop being.
+     Outside #dashboard-main deliberately: renderEmptyState() hides that
+     container, and hiding the way out of a session because the account has no
+     analyses yet is exactly backwards. A direct child of body, so the sign-in
+     overlay's `inert` still covers it -- there is nothing to sign out of until
+     there is a session. -->
+<div class="account-bar account-bar-dashboard">
+  <a href="/" class="account-home">&larr; Analyse a repository</a>
+  <span id="whoami" class="account-name" hidden></span>
+  <button id="sign-out-button" type="button" class="btn-signout" hidden>
+    Sign out
+  </button>
+</div>
+
 <script src="{{ asset('auth.js') }}"></script>
 <!-- id, not just the class: renderEmptyState creates its own panel carrying
      the same `dashboard-container` class, so a querySelector on the class alone

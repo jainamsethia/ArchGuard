@@ -37,7 +37,7 @@ export default defineConfig({
   // './tests/visual', so `playwright test tests/a11y/` matched nothing and
   // exited 0 -- a job that reports success while running no tests.
   testDir: './tests',
-  testMatch: ['visual/**/*.spec.ts', 'a11y/**/*.spec.ts'],
+  testMatch: ['visual/**/*.spec.ts', 'a11y/**/*.spec.ts', 'e2e/**/*.spec.ts'],
   snapshotDir: './tests/visual/snapshots',
   // Explicit, because the default template includes {testFileDir} -- which is
   // relative to testDir. Widening testDir from './tests/visual' to './tests'

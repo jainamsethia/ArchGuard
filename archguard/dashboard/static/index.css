@@ -1595,6 +1595,44 @@ body.page-dashboard {
     color: var(--text-secondary);
 }
 
+/* The dashboard's account bar spans the page rather than the 56rem column the
+   submit page centres, and puts the way back on the left with the account on
+   the right. */
+.account-bar-dashboard {
+    max-width: none;
+    justify-content: space-between;
+    padding-inline: var(--page-pad, 16px);
+}
+
+.account-home {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.account-home:hover { color: var(--text-primary); }
+
+/* Quieter than .btn-login, deliberately: signing out is a thing a visitor
+   looks for when they want it, not a call to action. Still a real target --
+   44px, because it is small and easy to miss on a phone. */
+.btn-signout {
+    padding: 0.5rem 1rem;
+    min-height: 44px;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+    font-size: 0.875rem;
+    cursor: pointer;
+    transform: scale(1);
+    transition: background-color var(--dur-fast) var(--ease-standard),
+                color var(--dur-fast) var(--ease-standard),
+                transform var(--dur-fast) var(--ease-standard);
+}
+
+.btn-signout:hover  { color: var(--text-primary); background: var(--surface-hover, rgba(128, 128, 128, 0.08)); }
+.btn-signout:active { transform: scale(0.96); transition-duration: var(--dur-instant); }
+
 /* Why an AI control is disabled. Hidden entirely when the features work, so
    an instance with a key shows no apology it does not owe. */
 .ai-unavailable-note {

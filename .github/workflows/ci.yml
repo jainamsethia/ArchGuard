@@ -467,6 +467,13 @@ jobs:
           done
         env:
           SESSION_SECRET: ci-session-secret-not-used-anywhere-real-0123456789
+          # Two browser suites drive this one server, several requests per page
+          # load, from a single address. The default 50/minute is a bound on
+          # abusive traffic, not on a test run, and hitting it makes
+          # /api/v1/auth/status answer 429 -- at which point the page shows the
+          # sign-in overlay and every assertion about signed-in chrome fails
+          # for a reason that has nothing to do with what is being tested.
+          ARCHGUARD_RATE_LIMIT_MAX_REQUESTS: '100000'
       # Behaviour, not pixels: these drive the page and assert what happens.
       # Blocking, because a broken control is a bug wherever it is found. All
       # four were failing silently under the old `continue-on-error: true` --
@@ -521,7 +528,7 @@ jobs:
           path: test-results/
 
   accessibility:
-    name: Accessibility (axe-core)
+    name: Browser journeys (axe-core + end-to-end)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -543,11 +550,24 @@ jobs:
           done
         env:
           SESSION_SECRET: ci-session-secret-not-used-anywhere-real-0123456789
+          # See the note on the same variable in visual-regression: two browser
+          # suites share this server, and the default 50/minute bound is for
+          # abusive traffic rather than a test run.
+          ARCHGUARD_RATE_LIMIT_MAX_REQUESTS: '100000'
       # Serious and critical only, for now. The CSS already carries real
       # accessibility intent -- prefers-reduced-motion, prefers-contrast,
       # :focus-visible -- and the JS does not; P2-5 closes that gap and can
       # tighten this threshold once it has.
       - name: Run axe-core
         run: npx playwright test tests/a11y/
+        env:
+          PLAYWRIGHT_REUSE_SERVER: '1'
+
+      # On the same server rather than in a job of its own: booting a second
+      # one costs a minute to prove the same thing twice. These cover what only
+      # a real browser can -- that a control exists, that pressing it goes
+      # somewhere, and that the page it left is no longer on screen.
+      - name: Run the end-to-end journeys
+        run: npx playwright test tests/e2e/
         env:
           PLAYWRIGHT_REUSE_SERVER: '1'

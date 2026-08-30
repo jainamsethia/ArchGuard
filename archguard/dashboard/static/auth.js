@@ -10,6 +10,7 @@
   const overlay = document.getElementById('login-overlay');
   const errEl = document.getElementById('login-error');
   const signInBtn = document.getElementById('sign-in-button');
+  const signOutBtn = document.getElementById('sign-out-button');
   const whoami = document.getElementById('whoami');
 
   // Only the dashboard is gated. A first-time visitor has to be able to read
@@ -73,8 +74,22 @@
       whoami.textContent = status.user.login;
       whoami.hidden = false;
     }
+    if (signOutBtn) {
+      signOutBtn.hidden = false;
+      signOutBtn.addEventListener('click', signOut);
+    }
+
+    // Back after signing out restores this page from the back/forward cache
+    // without re-running any of it, so a signed-out visitor would be looking
+    // at their own dashboard again -- stale, since every fetch behind it now
+    // 401s, but still on screen. Re-ask on restore.
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted) window.location.reload();
+    });
     return;
   }
+
+  if (signOutBtn) signOutBtn.hidden = true;
 
   if (signInBtn) {
     signInBtn.hidden = false;
@@ -92,9 +107,27 @@
   );
 })();
 
+/**
+ * End the session, then leave.
+ *
+ * POST, not a link: it changes state, and a GET would be followed by every
+ * link prefetcher and every crawler that ever saw the URL.
+ *
+ * The redirect is in `finally` on purpose. Somebody signing out on a shared
+ * machine has decided to stop being signed in, and leaving them on a
+ * signed-in page because the network blipped is the wrong way to fail. The
+ * cookie still goes with the request, so the server ends the session if it
+ * ever receives it; what this guarantees is that the screen does not keep
+ * showing their data either way.
+ */
 async function signOut() {
   try {
     await fetch('/api/v1/auth/logout', { method: 'POST' });
+  } catch (e) {
+    // Caught rather than left to become an unhandled rejection. It is not
+    // actionable by the user and the page is leaving anyway; swallowing it
+    // silently would be worse, so it goes to the console.
+    console.warn('Sign-out request failed; leaving the page anyway.', e);
   } finally {
     window.location.href = '/';
   }
