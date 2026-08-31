@@ -53,6 +53,7 @@ const PAGE = `<!doctype html><html><body>
   <div class="account-bar">
     <span id="whoami" class="account-name" hidden></span>
     <button id="sign-out-button" type="button" class="btn-signout" hidden>Sign out</button>
+    <button id="delete-account-button" type="button" class="btn-danger-quiet" hidden>Delete account</button>
     <button id="sign-in-button" type="button" class="btn-login" hidden>Sign in with GitHub</button>
     <div id="login-error" class="login-error"></div>
   </div>
@@ -66,7 +67,7 @@ const PAGE = `<!doctype html><html><body>
  * was called rather than only on what the DOM ended up looking like -- the
  * difference between signing out and appearing to.
  */
-async function loadAuth({ status, html = PAGE } = {}) {
+async function loadAuth({ status, html = PAGE, confirm = true, ok = true } = {}) {
   const virtualConsole = new VirtualConsole();
   const navigations = navigationAttempts(virtualConsole);
   const dom = new JSDOM(html, {
@@ -76,20 +77,29 @@ async function loadAuth({ status, html = PAGE } = {}) {
   });
   const { window } = dom;
 
+  // jsdom does not implement confirm(), so it has to be supplied either way.
+  // `confirms` records the prompt so a test can assert the user was told what
+  // they were agreeing to, not merely that something was asked.
+  const confirms = [];
+  window.confirm = (message) => {
+    confirms.push(String(message));
+    return confirm;
+  };
+
   const requests = [];
   window.fetch = (url, init) => {
     requests.push({ url: String(url), method: init?.method ?? 'GET' });
     if (String(url).includes('/auth/status')) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(status) });
     }
-    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) });
+    return Promise.resolve({ ok, status: ok ? 200 : 500, json: () => Promise.resolve({ ok }) });
   };
 
   window.eval(AUTH_JS);
   // auth.js begins with an async IIFE; let its fetch settle.
   await new Promise((r) => setTimeout(r, 0));
 
-  return { window, document: window.document, requests, navigations };
+  return { window, document: window.document, requests, navigations, confirms };
 }
 
 const SIGNED_IN = {
@@ -209,6 +219,95 @@ describe('M-3: signing out', () => {
     );
   });
 
+  it('offers account deletion to a signed-in visitor, and not to anyone else', async () => {
+    const signedIn = await loadAuth({ status: SIGNED_IN });
+    assert.equal(
+      signedIn.document.getElementById('delete-account-button').hidden,
+      false,
+      'a signed-in visitor is offered no way to delete their account',
+    );
+
+    const signedOut = await loadAuth({ status: SIGNED_OUT });
+    assert.equal(
+      signedOut.document.getElementById('delete-account-button').hidden,
+      true,
+      'account deletion was offered to someone with no account in this session',
+    );
+  });
+});
+
+describe('I-4: deleting the account', () => {
+  it('asks first, and says what will be deleted', async () => {
+    // "Are you sure?" gives someone nothing to decide on. The prompt has to
+    // name what goes and that it does not come back.
+    const { document, confirms } = await loadAuth({ status: SIGNED_IN });
+
+    document.getElementById('delete-account-button').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    assert.equal(confirms.length, 1, 'the account was deleted without asking');
+    assert.match(confirms[0], /cannot be undone/i);
+    assert.match(confirms[0], /analysis|jobs|runs|findings/i);
+  });
+
+  it('does nothing at all when the confirmation is declined', async () => {
+    const { document, requests, navigations } = await loadAuth({
+      status: SIGNED_IN,
+      confirm: false,
+    });
+
+    document.getElementById('delete-account-button').click();
+    await new Promise((r) => setTimeout(r, 5));
+
+    assert.equal(
+      requests.filter((r) => r.url.includes('/auth/account')).length,
+      0,
+      'declining the confirmation still deleted the account',
+    );
+    assert.equal(navigations.length, 0, 'the page left after a declined confirmation');
+  });
+
+  it('calls the endpoint with DELETE', async () => {
+    const { document, requests } = await loadAuth({ status: SIGNED_IN });
+
+    document.getElementById('delete-account-button').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const call = requests.find((r) => r.url.includes('/auth/account'));
+    assert.ok(call, `no request to the deletion endpoint: ${JSON.stringify(requests)}`);
+    assert.equal(call.method, 'DELETE');
+    assert.match(call.url, /\/api\/v1\/auth\/account$/);
+  });
+
+  it('leaves the protected page once the account is gone', async () => {
+    const { document, navigations } = await loadAuth({ status: SIGNED_IN });
+
+    document.getElementById('delete-account-button').click();
+    await new Promise((r) => setTimeout(r, 5));
+
+    assert.equal(navigations.length, 1, 'the deleted account was left looking at its dashboard');
+  });
+
+  it('stays put and says so when the deletion fails', async () => {
+    // The opposite of sign-out. Nothing was deleted, so leaving would imply it
+    // had been -- and the user would never know their data is still there.
+    const { document, navigations } = await loadAuth({ status: SIGNED_IN, ok: false });
+
+    document.getElementById('delete-account-button').click();
+    await new Promise((r) => setTimeout(r, 5));
+
+    assert.equal(navigations.length, 0, 'a failed deletion still redirected, implying success');
+    const err = document.getElementById('login-error');
+    assert.match(err.textContent, /could not delete/i);
+    assert.match(
+      err.textContent,
+      /nothing has been removed/i,
+      'the error does not say whether the data survived, which is the only thing the user needs to know',
+    );
+  });
+});
+
+describe('M-3: signing out (continued)', () => {
   it('does not reload on an ordinary first load', async () => {
     // pageshow fires on every load, not only on a restore. Reloading when
     // `persisted` is false would put the page in a loop.

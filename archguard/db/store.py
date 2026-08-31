@@ -16,9 +16,10 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import delete, or_, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from archguard.db.models import (
@@ -84,6 +85,35 @@ async def upsert_user(
     user.login = login
     user.avatar_url = avatar_url
     return user
+
+
+async def delete_user(session: AsyncSession, user_id: int) -> bool:
+    """Delete an account and everything attached to it. True if one was there.
+
+    Every table that references a user declares ``ondelete="CASCADE"``, so the
+    database removes the jobs, runs, findings, suppressions and watched
+    repositories on its own -- and the run artifacts and violations that hang
+    off those, which are a cascade further out again.
+
+    A Core ``DELETE`` rather than ``session.delete(user)``, and the difference
+    is not stylistic. ``jobs.user_id`` and ``runs.user_id`` are nullable, and
+    the ORM's default behaviour for a relationship without ``passive_deletes``
+    is to load the children and null their foreign key before deleting the
+    parent. That satisfies the constraint, commits cleanly and answers 200 --
+    leaving every job, run and finding in the database owned by nobody, after
+    the person was told it had been removed. Going through Core hands the whole
+    decision to PostgreSQL, which does what the schema says.
+    """
+    # `execute` is typed as returning `Result`, which has no `rowcount`; a DML
+    # statement always returns a `CursorResult`, which does.
+    result = cast(
+        "CursorResult[Any]",
+        await session.execute(delete(User).where(User.id == user_id)),
+    )
+    deleted = bool(result.rowcount)
+    if deleted:
+        logger.info("Deleted account %s and everything attached to it", user_id)
+    return deleted
 
 
 async def upsert_repository(session: AsyncSession, url: str) -> Repository:

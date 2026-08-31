@@ -87,12 +87,22 @@ def test_every_referenced_static_asset_exists(template: Path) -> None:
     is not a file on disk, so it is resolved against the route table instead --
     a link to a route that does not exist is still a broken link, and
     ``test_every_internal_link_resolves`` below is what catches it.
+
+    "Has a file extension" is the first half of telling those apart, and on its
+    own it is wrong: ``/dashboard.html`` is a rendered page with a handler, not
+    a file in ``static/``. So anything the route table answers is a page by
+    definition, whatever its path happens to end in. Nothing is loosened by
+    that -- a reference that is neither on disk nor served still fails.
     """
+    from archguard.dashboard.app import app
+
+    routes = {getattr(r, "path", "") for r in app.routes}
     static = TEMPLATES.parent / "static"
     html = template.read_text(encoding="utf-8")
     refs = re.findall(r'(?:src|href)="/([^"?#]+)"', html)
-    # An asset has a file extension; a route does not.
-    assets = [r for r in refs if "." in r.rsplit("/", 1)[-1]]
+    assets = [
+        r for r in refs if "." in r.rsplit("/", 1)[-1] and f"/{r}" not in routes
+    ]
     missing = [r for r in assets if not (static / r).exists()]
     assert not missing, f"{template.name} references missing static files: {missing}"
 

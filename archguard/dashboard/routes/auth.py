@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
 from archguard.dashboard import _oauth, _sessions
-from archguard.dashboard._identity import dev_login_permitted, optional_user
+from archguard.dashboard._identity import (
+    current_user,
+    dev_login_permitted,
+    optional_user,
+)
 from archguard.dashboard._rate_limit import rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -148,6 +152,48 @@ async def logout(request: Request, response: Response) -> dict[str, bool]:
     if cookie_value:
         _sessions.revoke(cookie_value)
     response.delete_cookie(key=_sessions.COOKIE_NAME, path="/")
+    return {"ok": True}
+
+
+@router.delete("/auth/account", include_in_schema=False)
+async def delete_account(
+    request: Request, response: Response, user: Any = Depends(current_user)
+) -> dict[str, bool]:
+    """Delete the signed-in account and everything attached to it.
+
+    The privacy policy promises this, and until now there was no way to ask for
+    it: no endpoint, no control, and no address on the page to write to.
+
+    DELETE rather than GET, and not because of REST. A destructive action
+    reachable by navigation is one that prefetchers, link scanners and the
+    browser's own speculative loading will eventually perform on the user's
+    behalf. The session cookie is `SameSite=lax`, which is sent on a top-level
+    GET navigation and not on a cross-site DELETE, so the method is also what
+    keeps another site from spending the visitor's account.
+
+    Ordering: revoke first, then delete. The other way round leaves a window in
+    which the row is gone and the session is not, and every request arriving in
+    it takes the `dev_login_permitted` branch on an unconfigured instance --
+    signing the caller straight back in as a brand new account. Revoking first
+    means the worst case is a live row with a dead session, which is a user who
+    has to sign in again rather than one whose deletion silently undid itself.
+
+    Sessions held elsewhere need no sweeping: `current_user` resolves a cookie
+    to a user id and 401s when the row behind it is gone, so a cookie in another
+    browser stops working the moment the account does.
+    """
+    from archguard.db.session import session_scope
+    from archguard.db.store import delete_user
+
+    cookie_value = request.cookies.get(_sessions.COOKIE_NAME, "")
+    if cookie_value:
+        _sessions.revoke(cookie_value)
+
+    async with session_scope() as session:
+        await delete_user(session, user.id)
+
+    response.delete_cookie(key=_sessions.COOKIE_NAME, path="/")
+    logger.info("Account %s deleted at its owner's request", user.id)
     return {"ok": True}
 
 

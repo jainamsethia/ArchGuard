@@ -46,6 +46,13 @@
   <button id="sign-out-button" type="button" class="btn-signout" hidden>
     Sign out
   </button>
+  <!-- The privacy policy promises this and, until now, named no way to do it.
+       Last in the bar and styled quietly rather than as a peer of Sign out:
+       it is the one control here that cannot be undone, so it should not sit
+       under the thumb of someone reaching for the one next to it. -->
+  <button id="delete-account-button" type="button" class="btn-danger-quiet" hidden>
+    Delete account
+  </button>
 </div>
 
 <script src="{{ asset('auth.js') }}"></script>

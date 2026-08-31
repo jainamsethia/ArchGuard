@@ -1633,6 +1633,29 @@ body.page-dashboard {
 .btn-signout:hover  { color: var(--text-primary); background: var(--surface-hover, rgba(128, 128, 128, 0.08)); }
 .btn-signout:active { transform: scale(0.96); transition-duration: var(--dur-instant); }
 
+/* Deleting an account. Deliberately the quietest control in the bar until it
+   is deliberately approached: an irreversible action drawn as loudly as the
+   ones around it is an irreversible action people press by mistake. It still
+   carries the same 44px target and a real focus ring, because "quiet" must not
+   mean "hard to hit on purpose" or invisible to a keyboard. */
+.btn-danger-quiet {
+    padding: 0.5rem 1rem;
+    min-height: 44px;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-standard),
+                border-color var(--dur-fast) var(--ease-standard);
+}
+.btn-danger-quiet:hover,
+.btn-danger-quiet:focus-visible {
+    color: var(--color-critical, #d64545);
+    border-color: var(--color-critical, #d64545);
+}
+
 /* Why an AI control is disabled. Hidden entirely when the features work, so
    an instance with a key shows no apology it does not owe. */
 .ai-unavailable-note {
