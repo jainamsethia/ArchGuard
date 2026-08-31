@@ -23,6 +23,55 @@ from tests.db_fixtures import (  # noqa: F401
 
 
 @pytest.fixture()
+def resolves_only(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Answer one hostname with one address, and leave every other name alone.
+
+    The SSRF guard resolves a webhook's hostname before accepting it, so any
+    test that configures a webhook and expects it to be *accepted* performs a
+    live DNS lookup for whatever name it used. That makes the test's result
+    depend on the resolver being reachable and on what it answers today, which
+    is how `test_a_watch_never_returns_the_webhook_url` came to fail once in a
+    run and pass on retry.
+
+    Deliberately narrow rather than a blanket stub. `socket.getaddrinfo` is how
+    asyncpg reaches PostgreSQL too, so replacing it wholesale sends the database
+    connection wherever the webhook test happened to point -- which surfaces
+    several frames away as a foreign key violation with nothing to do with
+    webhooks. Every name except the one named here goes to the real resolver.
+
+    Returns the list of names that were looked up, so a test can assert its
+    hostname went through the stub rather than out to the network.
+    """
+    import socket
+
+    real = socket.getaddrinfo
+    lookups: list[str] = []
+
+    def _install(hostname: str, address: str) -> list[str]:
+        def _resolver(host: Any, port: Any = None, *args: Any, **kwargs: Any) -> Any:
+            # anyio IDNA-encodes names before resolving, so the same lookup can
+            # arrive as bytes or as str depending on the caller.
+            name = (
+                host.decode("ascii") if isinstance(host, bytes | bytearray) else str(host)
+            )
+            if name != hostname:
+                return real(host, port, *args, **kwargs)
+            lookups.append(name)
+            family = socket.AF_INET6 if ":" in address else socket.AF_INET
+            sockaddr = (
+                (address, port or 443, 0, 0)
+                if family == socket.AF_INET6
+                else (address, port or 443)
+            )
+            return [(family, socket.SOCK_STREAM, 6, "", sockaddr)]
+
+        monkeypatch.setattr(socket, "getaddrinfo", _resolver)
+        return lookups
+
+    return _install
+
+
+@pytest.fixture()
 def minimal_contract() -> dict[str, Any]:
     """Return a minimal valid contract dict."""
     return {

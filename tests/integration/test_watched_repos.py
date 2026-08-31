@@ -654,30 +654,9 @@ def test_a_scheduled_job_belongs_to_the_watcher(live_db):
 # --------------------------------------------------- the webhook, at the door
 
 
-def _resolve_only(hostname, address, monkeypatch):
-    """Answer one hostname with one address, and leave every other name alone.
-
-    Deliberately narrow: `socket.getaddrinfo` is how asyncpg reaches Postgres
-    too, so a blanket stub sends the database connection to whatever address
-    the webhook test picked and the failure arrives as a foreign key violation
-    three frames away from anything to do with webhooks.
-    """
-    import socket
-
-    real = socket.getaddrinfo
-
-    def _resolver(host, port=None, *args, **kwargs):
-        name = host.decode("ascii") if isinstance(host, bytes | bytearray) else str(host)
-        if name != hostname:
-            return real(host, port, *args, **kwargs)
-        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 443))]
-
-    monkeypatch.setattr(socket, "getaddrinfo", _resolver)
-
-
 @requires_postgres
 def test_a_watch_cannot_be_created_pointing_at_an_internal_address(
-    auth_client, monkeypatch
+    auth_client, resolves_only
 ):
     """The other caller of the SSRF guard, checked through the route.
 
@@ -687,7 +666,7 @@ def test_a_watch_cannot_be_created_pointing_at_an_internal_address(
     in a week that alerts go nowhere, and it is the only thing standing between
     a stored webhook and a worker that will call it on a schedule.
     """
-    _resolve_only("looks-fine.example", "169.254.169.254", monkeypatch)
+    resolves_only("looks-fine.example", "169.254.169.254")
 
     response = auth_client.post(
         "/api/v1/watch",
@@ -702,13 +681,13 @@ def test_a_watch_cannot_be_created_pointing_at_an_internal_address(
 
 
 @requires_postgres
-def test_a_watch_with_an_ordinary_webhook_is_still_accepted(auth_client, monkeypatch):
+def test_a_watch_with_an_ordinary_webhook_is_still_accepted(auth_client, resolves_only):
     """The guard has to let the normal case through.
 
     Without this, a validator that refused everything would satisfy the test
     above and break every watch in the product.
     """
-    _resolve_only("hooks.example.com", "93.184.216.34", monkeypatch)
+    resolves_only("hooks.example.com", "93.184.216.34")
 
     response = auth_client.post(
         "/api/v1/watch",

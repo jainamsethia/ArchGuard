@@ -381,9 +381,18 @@ def test_an_unsafe_webhook_url_is_refused(two_users):
 
 
 @requires_postgres
-def test_a_watch_never_returns_the_webhook_url(two_users):
+def test_a_watch_never_returns_the_webhook_url(two_users, resolves_only):
     """It routinely carries a token in its path. The UI needs to know one is
-    set, not what it is."""
+    set, not what it is.
+
+    The hostname is resolved by a stub. Accepting a webhook means passing the
+    SSRF guard, and passing it means resolving the name -- so this test used to
+    make a real DNS query for example.com and fail with a 400 whenever the
+    resolver was slow or unreachable, for a reason that has nothing to do with
+    whether a secret leaks into a response.
+    """
+    lookups = resolves_only("example.com", "93.184.216.34")
+
     client = _client(two_users["a"]["cookie"])
     created = client.post(
         "/api/v1/watch",
@@ -393,6 +402,9 @@ def test_a_watch_never_returns_the_webhook_url(two_users):
         },
     )
     assert created.status_code == 201, created.text
+    assert lookups == ["example.com"], (
+        f"the hostname did not go through the stub resolver: {lookups}"
+    )
     assert "SUPERSECRET" not in created.text
     assert created.json()["watched"]["has_webhook"] is True
     assert "SUPERSECRET" not in client.get("/api/v1/watch").text
