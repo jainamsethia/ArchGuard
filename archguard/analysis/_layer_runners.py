@@ -271,6 +271,23 @@ def _run_layer3(
     # it. (Callers treat any non-empty reason as "this layer did not run".)
     if measured_modules:
         skip_reason = ""
+    elif not skip_reason:
+        # Nothing was measured and no module said why, because there were no
+        # modules: the loop above never ran. An empty reason is how this
+        # function says "I ran", so a layer that looked at nothing was reported
+        # as a clean 0.00 and averaged into the composite as a real measurement.
+        #
+        # An incremental scan reaches this whenever its changed files belong to
+        # no module the contract declares -- routine, since an auto-generated
+        # contract names only the modules it could measure and leaves the rest
+        # of the repository out. The same tree scanned in full hands this every
+        # module and gets "no prior baseline" instead, so the layer is excluded
+        # from the composite there and included here: two different scores for
+        # one repository state, which is the thing incremental analysis is not
+        # allowed to do.
+        skip_reason = (
+            "no module was in scope for this scan - semantic drift not measured"
+        )
 
     return max_drift, module_drifts, violations, skip_reason
 
