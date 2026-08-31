@@ -23,8 +23,22 @@ import pytest
 
 from archguard.alerting.trend_detector import TrendAlert
 from archguard.alerting.webhooks import send_generic_webhook, send_slack_alert
+from archguard.utils.url_validator import SafeTarget
 
 _URL = "https://hooks.example.com/services/T0/B0/xxx"
+
+#: What the SSRF guard hands back for `_URL`. Stubbed rather than resolved:
+#: which addresses are acceptable, and that the approved one is the one
+#: contacted, are tests/unit/test_url_validator.py and
+#: tests/unit/test_ssrf_pinning.py. Here it only has to be a valid answer.
+_TARGET = SafeTarget(
+    request_url="https://93.184.216.34/services/T0/B0/xxx",
+    host="hooks.example.com",
+    ip="93.184.216.34",
+    port=443,
+    headers={"Host": "hooks.example.com"},
+    extensions={"sni_hostname": "hooks.example.com"},
+)
 
 
 def _alert() -> TrendAlert:
@@ -41,11 +55,26 @@ def _alert() -> TrendAlert:
 class _FakeResponse:
     def __init__(self, status_code: int = 200) -> None:
         self.status_code = status_code
-        self.text = "body"
+
+    async def aiter_bytes(self) -> Any:
+        yield b"body"
+
+
+class _FakeStream:
+    """`AsyncClient.stream` is an async context manager, not a coroutine."""
+
+    def __init__(self, response: _FakeResponse) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> _FakeResponse:
+        return self._response
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
 
 
 class _FakeClient:
-    """Records how it was constructed and what it was asked to post."""
+    """Records how it was constructed and what it was asked to send."""
 
     last_kwargs: dict[str, Any] = {}
     posts: list[tuple[str, dict[str, Any]]] = []
@@ -60,9 +89,9 @@ class _FakeClient:
     async def __aexit__(self, *_exc: object) -> None:
         return None
 
-    async def post(self, url: str, **kwargs: Any) -> _FakeResponse:
+    def stream(self, _method: str, url: str, **kwargs: Any) -> _FakeStream:
         type(self).posts.append((url, kwargs))
-        return _FakeResponse(type(self).status_code)
+        return _FakeStream(_FakeResponse(type(self).status_code))
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +103,7 @@ def fake_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
     # The SSRF guard is exercised in test_url_validator.py; here it must not
     # make a real DNS query.
     monkeypatch.setattr(
-        "archguard.alerting.webhooks.validate_webhook_url", lambda _url: None
+        "archguard.alerting.webhooks.validate_webhook_url", lambda _url: _TARGET
     )
 
 
@@ -128,8 +157,9 @@ async def test_url_validation_runs_off_the_event_loop(
     seen: dict[str, str] = {}
     main_thread = threading.current_thread().name
 
-    def _record(_url: str) -> None:
+    def _record(_url: str) -> SafeTarget:
         seen["thread"] = threading.current_thread().name
+        return _TARGET
 
     monkeypatch.setattr("archguard.alerting.webhooks.validate_webhook_url", _record)
 

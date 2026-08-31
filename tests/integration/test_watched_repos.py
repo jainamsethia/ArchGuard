@@ -649,3 +649,74 @@ def test_a_scheduled_job_belongs_to_the_watcher(live_db):
             return owned_by_bob
 
     assert _run(scenario()) == [], "a scheduled job was readable by the wrong account"
+
+
+# --------------------------------------------------- the webhook, at the door
+
+
+def _resolve_only(hostname, address, monkeypatch):
+    """Answer one hostname with one address, and leave every other name alone.
+
+    Deliberately narrow: `socket.getaddrinfo` is how asyncpg reaches Postgres
+    too, so a blanket stub sends the database connection to whatever address
+    the webhook test picked and the failure arrives as a foreign key violation
+    three frames away from anything to do with webhooks.
+    """
+    import socket
+
+    real = socket.getaddrinfo
+
+    def _resolver(host, port=None, *args, **kwargs):
+        name = host.decode("ascii") if isinstance(host, bytes | bytearray) else str(host)
+        if name != hostname:
+            return real(host, port, *args, **kwargs)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 443))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _resolver)
+
+
+@requires_postgres
+def test_a_watch_cannot_be_created_pointing_at_an_internal_address(
+    auth_client, monkeypatch
+):
+    """The other caller of the SSRF guard, checked through the route.
+
+    Refusing at configuration time is not the control -- DNS can be repointed
+    afterwards, which is why delivery validates again and pins the address it
+    approved. It is still the difference between being told now and finding out
+    in a week that alerts go nowhere, and it is the only thing standing between
+    a stored webhook and a worker that will call it on a schedule.
+    """
+    _resolve_only("looks-fine.example", "169.254.169.254", monkeypatch)
+
+    response = auth_client.post(
+        "/api/v1/watch",
+        json={
+            "repo_url": "https://github.com/x/watched-ssrf",
+            "webhook_url": "https://looks-fine.example/hook",
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert "rejected" in response.text.lower()
+
+
+@requires_postgres
+def test_a_watch_with_an_ordinary_webhook_is_still_accepted(auth_client, monkeypatch):
+    """The guard has to let the normal case through.
+
+    Without this, a validator that refused everything would satisfy the test
+    above and break every watch in the product.
+    """
+    _resolve_only("hooks.example.com", "93.184.216.34", monkeypatch)
+
+    response = auth_client.post(
+        "/api/v1/watch",
+        json={
+            "repo_url": "https://github.com/x/watched-ok",
+            "webhook_url": "https://hooks.example.com/services/T0/B0/xxx",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["watched"]["has_webhook"] is True

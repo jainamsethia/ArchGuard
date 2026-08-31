@@ -120,8 +120,9 @@ async def _deliver(
     try:
         # send_generic_webhook validates the destination against the SSRF guard
         # on every send -- not only when it was configured -- because DNS can
-        # be repointed at an internal address after the fact. It also carries a
-        # timeout and checks the response status.
+        # be repointed at an internal address after the fact, and connects to
+        # the address that check approved rather than resolving the name again.
+        # It also carries a timeout, refuses redirects, and checks the status.
         await send_generic_webhook(webhook_url, [alert])
         return True
     except Exception:

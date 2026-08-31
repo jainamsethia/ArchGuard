@@ -43,6 +43,10 @@ async def _check_webhook(url: str | None) -> None:
     at send time, in `send_generic_webhook`, because a hostname that resolved
     to a public address today can be repointed at an internal one tomorrow --
     this check is a courtesy, that one is the control.
+
+    Only the send-time call keeps its answer: it connects to the address the
+    check approved, so nothing can be repointed between the two. The result is
+    discarded here because nothing is being delivered yet.
     """
     if not url:
         return
