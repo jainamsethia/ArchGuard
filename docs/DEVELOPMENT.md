@@ -138,6 +138,36 @@ Frontend tests use jsdom and Node's built-in runner:
 npm test
 ```
 
+### Visual snapshots
+
+The browser suites run against a server you start yourself:
+
+```bash
+PLAYWRIGHT_REUSE_SERVER=1 npx playwright test tests/a11y tests/e2e tests/visual
+```
+
+Two of the visual tests compare screenshots, and screenshots belong to the
+machine that took them — the same page renders thousands of pixels differently
+on Windows and on Linux through font hinting alone. Only the `-linux.png`
+baselines are committed, because Linux is what CI compares against; `-win32`
+and `-darwin` images are gitignored so a local run cannot commit its own
+rendering as the reference.
+
+That means a deliberate UI change cannot have its baseline refreshed from a
+Windows or macOS checkout. Run the **Regenerate visual baselines** workflow
+from the Actions tab instead, download the `linux-visual-baselines` artifact,
+copy it over `tests/visual/snapshots/` and commit it. Regenerating is a claim
+that the new rendering is correct, which is why it is a manual dispatch rather
+than something that happens on every push.
+
+Locally the snapshot tests compare against your own platform's baselines, which
+Playwright writes on first run. They are useful for catching an accidental
+change in the same session, and they are not what CI checks:
+
+```bash
+PLAYWRIGHT_REUSE_SERVER=1 npx playwright test tests/visual --update-snapshots
+```
+
 ## Migrations
 
 Autogenerate after changing a model in `archguard/db/models.py`:

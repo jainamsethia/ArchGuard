@@ -1,0 +1,98 @@
+# Regenerate the committed Linux visual baselines.
+#
+# Snapshot baselines are pixel comparisons, so they belong to the machine that
+# rendered them: the same page on Windows and on Linux differs by thousands of
+# pixels through font hinting alone. Only the `-linux.png` files are committed
+# (`.gitignore` keeps `-win32` and `-darwin` out), because Linux is what CI
+# compares against -- which means they cannot be refreshed from a developer's
+# machine unless that machine is Linux with the same Chromium build.
+#
+# That left no way to update them at all, so they went stale and stayed stale:
+# they predate the determinate progress bar, the sign-in overlay and the
+# account bar, all of which are deliberate changes rather than regressions.
+# A baseline nobody can regenerate is a comparison nobody can trust, and the
+# snapshot job has been advisory ever since for exactly that reason.
+#
+# This workflow is the missing step. Run it from the Actions tab after a
+# deliberate UI change, download the artifact, drop the files in and commit
+# them. It is a manual dispatch on purpose: regenerating baselines is a claim
+# that the new rendering is *correct*, which is a judgement, not something to
+# do automatically on every push -- an auto-updating baseline would accept
+# every visual regression the moment it was introduced.
+#
+# Every step below is copied from the `visual-snapshots` job in ci.yml. That is
+# the point: the images this produces are only useful if they come from the
+# same runner image, the same Node, the same Chromium and the same server
+# configuration as the job that will later compare against them. If one of them
+# changes there, change it here in the same commit.
+#
+# Upgrade path, deliberately not taken yet: this could open a pull request with
+# the regenerated files using the built-in GITHUB_TOKEN. That needs
+# `contents: write` and `pull-requests: write` on a workflow whose whole job is
+# to rewrite the images the visual tests trust, so the artifact stays a human
+# step until somebody decides otherwise.
+
+name: Regenerate visual baselines
+
+on:
+  workflow_dispatch:
+
+# Mirrors ci.yml's top-level env, so the interpreter is pinned in one obvious
+# place in each file rather than inline where a drift would be invisible.
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  regenerate:
+    name: Regenerate Linux snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
+
+      # --update-snapshots rewrites the baseline for every @snapshot test
+      # rather than comparing. Playwright exits 0 whether or not anything
+      # changed, so the diff below is what says whether this run did anything.
+      - name: Rewrite the baselines
+        run: npx playwright test tests/visual/ --grep "@snapshot" --update-snapshots
+        env:
+          PLAYWRIGHT_REUSE_SERVER: '0'
+
+      # What actually changed, in the job summary, so a reviewer sees it
+      # without downloading anything. An empty list means the committed
+      # baselines were already current and there is nothing to do.
+      - name: Report what changed
+        run: |
+          {
+            echo '## Regenerated Linux baselines'
+            echo
+            if git diff --quiet -- tests/visual/snapshots/; then
+              echo 'No change: the committed baselines already match this runner.'
+            else
+              echo 'These files differ from the committed baselines:'
+              echo
+              echo '```'
+              git diff --stat -- tests/visual/snapshots/
+              echo '```'
+              echo
+              echo 'Download the `linux-visual-baselines` artifact, copy the'
+              echo 'files over `tests/visual/snapshots/`, and commit them.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only the Linux files. A glob over the directory would sweep up the
+      # `-win32`/`-darwin` images if a runner ever produced them, and those are
+      # gitignored precisely so they cannot reach the repository.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-visual-baselines
+          path: tests/visual/snapshots/**/*-linux.png
+          if-no-files-found: error

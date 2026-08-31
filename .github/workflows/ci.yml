@@ -538,9 +538,15 @@ jobs:
     # which is not a regression. The diff artifact is the point: a reviewer
     # looks at it and either accepts the change or does not.
     #
-    # TODO: regenerate the committed -linux baselines. They predate the
-    # determinate progress bar and the sign-in overlay, so they currently
-    # differ by design.
+    # The committed -linux baselines are currently stale by design: they
+    # predate the determinate progress bar, the sign-in overlay, the account
+    # bar and the delete-account control. Refresh them by running the
+    # "Regenerate visual baselines" workflow (visual-baselines.yml) from the
+    # Actions tab and committing the artifact it produces -- they can only be
+    # produced on a Linux runner with this Chromium build, which is why they
+    # went stale in the first place. Keep the steps there in step with the
+    # steps here; images generated under a different setup are not comparable
+    # against this job.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
