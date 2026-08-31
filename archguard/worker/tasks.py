@@ -14,6 +14,7 @@ worker that happens in a process holding no session keys and no HTTP surface.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -137,6 +138,13 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
             if incremental_ctx is not None:
                 await _save_hashes(job_id, incremental_ctx)
 
+            # Inside the workspace, because the scan reads the clone and the
+            # clone does not outlive this block. Doing it on demand from a
+            # request meant the data source had usually been swept by the time
+            # anyone asked, which is what the endpoint's 410 was for.
+            await emit("Checking dependencies for known vulnerabilities...")
+            await scan_dependencies(job_id, repo)
+
         await set_status("complete")
 
         # If this repository is watched, compare the run against the previous
@@ -258,6 +266,69 @@ async def _incremental_context(job_id: str) -> Any:
     except Exception:
         logger.exception("[job %s] Could not prepare incremental analysis", job_id)
         return None
+
+
+async def scan_dependencies(job_id: str, repo_path: Any) -> None:
+    """Audit the clone's pinned dependencies and record the result.
+
+    Runs here rather than in the request handler for two reasons. It shells out
+    to pip-audit over a requirements file from a repository nobody vetted, and
+    the process holding every session key is the wrong place for that -- the
+    worker was split out precisely to contain this kind of work. And the web
+    image deliberately does not carry pip-audit: C2 was that the scanner was a
+    dev-group dependency missing from every deployed image, and installing it
+    into the worker while the call stayed in the web process fixed the
+    container that does not run the code.
+
+    Never raises. An analysis that succeeded must not be reported as failed
+    because a vulnerability scan could not run: the scan is information about
+    the repository, not part of measuring it. Every failure is recorded as a
+    skipped result with its reason, because a job with nothing stored is
+    indistinguishable from one whose scan never ran -- and answering a later
+    request with an empty vulnerability list would read as a clean bill of
+    health nobody established.
+    """
+    from archguard.analysis.deps import analyze_dependencies
+    from archguard.db import store
+    from archguard.db.models import Job
+    from archguard.db.session import session_scope
+
+    try:
+        async with session_scope() as session:
+            job = await session.get(Job, job_id)
+            if job is None or job.user_id is None:
+                return
+            user_id = job.user_id
+
+        # In a thread: pip-audit is a subprocess with a network round trip to
+        # the advisory database, and the worker's event loop is also serving
+        # this job's progress stream.
+        result = await asyncio.to_thread(analyze_dependencies, repo_path)
+
+        payload = {
+            "score": result.score,
+            "vulnerable_packages": [
+                {
+                    "package": v.package,
+                    "version": v.version,
+                    "id": v.vulnerability_id,
+                    "description": v.description,
+                }
+                for v in result.vulnerabilities
+            ],
+            "scanned_packages": result.scanned_packages,
+            "skipped": result.skipped,
+            "skip_reason": result.skip_reason,
+            "error": result.error,
+        }
+
+        async with session_scope() as session:
+            await store.save_dependency_scan(session, job_id, user_id, payload)
+    except Exception:
+        logger.exception(
+            "[job %s] Dependency scan failed; the analysis itself is unaffected",
+            job_id,
+        )
 
 
 async def _save_hashes(job_id: str, ctx: Any) -> None:

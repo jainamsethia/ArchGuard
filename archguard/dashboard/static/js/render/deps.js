@@ -90,9 +90,13 @@ export async function scanDependencies() {
     const tableContainer = document.getElementById('deps-table-container');
     const tbody = document.querySelector('#depsTable tbody');
 
+    // The scan itself ran in the worker, during the analysis, while the clone
+    // still existed. This reads the result. Saying "running pip-audit" here
+    // would describe work that finished minutes ago -- and, before the scan
+    // moved, described work the web process could not do at all.
     btn.disabled = true;
-    btn.textContent = "Scanning...";
-    statusEl.textContent = "Running pip-audit... (this may take a while)";
+    btn.textContent = "Loading…";
+    statusEl.textContent = "Loading the dependency scan for this analysis…";
 
     try {
         const res = await fetch(`/api/v1/deps${jobQuery}`);
@@ -132,7 +136,7 @@ export async function scanDependencies() {
         statusEl.textContent = "Error scanning dependencies.";
     } finally {
         btn.disabled = false;
-        btn.textContent = "Scan Dependencies";
+        btn.textContent = "Show dependency scan";
     }
 }
 

@@ -53,19 +53,28 @@ def test_get_deps_unknown_job_returns_404(test_user):
 
 
 @requires_postgres
-def test_get_deps_on_your_own_job_with_no_workspace_returns_410(seed_run, test_user):
-    """Your job, no stored scan, clone swept -> 410 with something to do about it.
+def test_get_deps_on_your_own_job_with_no_stored_scan_says_so(seed_run, test_user):
+    """Your job, no stored scan -> a skipped result that explains itself.
 
-    The distinction 404 does not draw for strangers is still drawn for the
-    owner, who is entitled to know their analysis existed and expired.
+    This used to be a 410 about an expired workspace, because the scan was run
+    on demand from the clone and the clone had usually been swept by the time
+    anyone asked. The scan now runs in the worker while the clone still exists,
+    so an absent result no longer means "too late" -- it means the analysis
+    predates the feature, or its scan failed.
+
+    Answered as skipped-with-a-reason rather than as a score of zero and an
+    empty vulnerability list, which would read as "scanned, nothing found": a
+    clean bill of health nobody established.
     """
     import asyncio
 
     job_id = seed_run()
-    with pytest.raises(HTTPException) as exc:
-        asyncio.run(runs.get_deps(job_id=job_id, user=test_user))
-    assert exc.value.status_code == 410
-    assert "expired" in exc.value.detail.lower()
+    body = asyncio.run(runs.get_deps(job_id=job_id, user=test_user))
+
+    assert body["skipped"] is True
+    assert body["skip_reason"], "nothing told the owner why there is no result"
+    assert body["vulnerable_packages"] == []
+    assert body["scanned_packages"] == 0
 
 
 @requires_postgres

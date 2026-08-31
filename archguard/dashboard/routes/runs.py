@@ -192,15 +192,21 @@ async def get_module_trends(
 async def get_deps(
     job_id: JobIdQuery = None, user: User = Depends(current_user)
 ) -> Any:
-    """Dependency vulnerability scan for one analysis.
+    """The dependency vulnerability scan recorded for one analysis.
 
-    Stored separately from the run: the scan is triggered on demand, after the
-    analysis, and folding it into run history is what previously injected a
-    bogus entry into the trend chart.
+    A read. The scan itself runs in the worker, while the job's clone still
+    exists -- see `archguard.worker.tasks.scan_dependencies`. It used to run
+    here, in the request handler, which was wrong twice over: it shelled out to
+    pip-audit over a requirements file from an unvetted repository inside the
+    process holding every session key, and it needed a clone that had usually
+    been swept by the time anyone asked, which is what this endpoint's 410 was
+    for. The web image does not carry pip-audit and does not need to.
+
+    Stored separately from the run rather than folded into it: the scan is a
+    property of the repository's dependencies rather than of its architecture,
+    and putting it in run history is what previously injected a bogus point
+    into the trend chart.
     """
-    from archguard.analysis.deps import analyze_dependencies
-    from archguard.dashboard._workspace_paths import get_target_path
-
     if not job_id:
         raise HTTPException(
             status_code=400, detail="No analysis selected. Submit a job first."
@@ -212,6 +218,7 @@ async def get_deps(
         # mean "nothing of yours to show", and telling them apart is what makes
         # a job id worth guessing.
         owns_job = await store.get_job(session, job_id, user.id) is not None
+
     if persisted is not None:
         return persisted
     if not owns_job:
@@ -219,51 +226,17 @@ async def get_deps(
             status_code=404, detail=f"No analysis found for job_id {job_id}"
         )
 
-    # No stored scan: it can only be produced from the clone, so an expired
-    # workspace is an honest 410. A job we have no record of must not look like
-    # a job that scanned clean.
-    try:
-        target = get_target_path(job_id)
-    except HTTPException:
-        raise HTTPException(
-            status_code=410,
-            detail="Analysis workspace expired. Re-run the analysis to scan dependencies.",
-        )
-
-    try:
-        result = analyze_dependencies(target)
-        output = {
-            "score": result.score,
-            "vulnerable_packages": [
-                {
-                    "package": v.package,
-                    "version": v.version,
-                    "id": v.vulnerability_id,
-                    "description": v.description,
-                }
-                for v in result.vulnerabilities
-            ],
-            "scanned_packages": result.scanned_packages,
-            "skipped": result.skipped,
-            "skip_reason": result.skip_reason,
-            "error": result.error,
-        }
-        try:
-            async with session_scope() as session:
-                await store.save_dependency_scan(session, job_id, user.id, output)
-        except Exception as exc:
-            # The scan succeeded; only caching it did not. Returning the
-            # degraded payload here would report a healthy repository as
-            # unscannable because of a database hiccup.
-            _logger.warning("Could not store the dependency scan for %s: %s", job_id, exc)
-        return output
-    except Exception as e:
-        _logger.warning("Dependency analysis failed for job_id=%s: %s", job_id, e)
-        return {
-            "score": 0.0,
-            "vulnerable_packages": [],
-            "scanned_packages": 0,
-            "skipped": True,
-            "skip_reason": "Dependency scan could not complete",
-            "error": None,
-        }
+    # The job is this user's, and no scan was recorded against it. Said plainly
+    # rather than answered with a score of zero and an empty list, which reads
+    # as "scanned, nothing found" -- a clean bill of health nobody established.
+    return {
+        "score": 0.0,
+        "vulnerable_packages": [],
+        "scanned_packages": 0,
+        "skipped": True,
+        "skip_reason": (
+            "No dependency scan was recorded for this analysis. Scans run "
+            "with the analysis; re-run it to produce one."
+        ),
+        "error": None,
+    }

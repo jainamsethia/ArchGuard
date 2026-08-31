@@ -363,6 +363,21 @@ jobs:
           fi
           echo "torch is absent from the web image, as intended"
 
+      # The other half of the split, and the half nobody was checking. C2 was
+      # that pip-audit was missing from every deployed image; the fix installed
+      # it into the worker while the call stayed in the web request handler, so
+      # the endpoint went on answering "pip-audit not found in PATH". Asserting
+      # only that the worker has it proves the package exists somewhere, which
+      # was never the question. The scan runs in the worker now, so the web
+      # image must not carry it -- if it does, someone has moved the call back.
+      - name: The web image must NOT contain pip-audit
+        run: |
+          if docker run --rm archguard:web pip-audit --version >/dev/null 2>&1; then
+            echo "::error::pip-audit is in the web image; the dependency scan belongs to the worker"
+            exit 1
+          fi
+          echo "pip-audit is absent from the web image, as intended"
+
       - name: The web image must still import the app
         run: docker run --rm archguard:web python -c "import archguard.dashboard.app"
 
@@ -403,6 +418,16 @@ jobs:
       # a shipped feature that had never once worked in production.
       - name: The worker image must have pip-audit on PATH
         run: docker run --rm archguard:worker pip-audit --version
+
+      # `--version` proves the package installed, not that the scan works. This
+      # runs the real code path -- analyze_dependencies over a requirements
+      # file -- inside the worker image, and fails if it comes back skipped,
+      # which is what "pip-audit not found in PATH" would look like.
+      - name: The worker image must be able to run a dependency scan
+        run: |
+          mkdir -p /tmp/depscan
+          echo 'urllib3==1.24.1' > /tmp/depscan/requirements.txt
+          docker run --rm -v /tmp/depscan:/scan:ro archguard:worker             python -c 'import pathlib, sys; from archguard.analysis.deps import analyze_dependencies; r = analyze_dependencies(pathlib.Path("/scan"), timeout=180); print("skipped:", r.skipped, "| reason:", r.skip_reason); sys.exit("pip-audit is not runnable inside the worker image") if r.skipped and "not found" in (r.skip_reason or "") else print("the worker image can run a dependency scan")'
 
       # Downloading ~90 MB from HuggingFace at request time into an ephemeral
       # layer meant every replaced container paid for it again, and failed

@@ -58,54 +58,52 @@ def test_deps_endpoint_requires_job_id():
 
 
 @requires_postgres
-def test_deps_endpoint_success(monkeypatch, seed_run, auth_client):
-    """GET /api/v1/deps?job_id=<uuid> returns 200 with dependency data.
+def test_deps_endpoint_success(seed_run, auth_client, test_user):
+    """GET /api/v1/deps?job_id=<uuid> returns the scan recorded for that job.
 
-    Seeds a job the caller owns, creates the matching workspace directory so
-    get_target_path resolves it, and mocks analyze_dependencies at the
-    subprocess level to avoid requiring pip-audit in the test environment.
+    It used to run the scan itself: seed a job, create the workspace directory
+    so get_target_path resolves, stub subprocess so pip-audit need not exist in
+    the test environment, then assert the handler produced a result. That
+    described an architecture where the web process shells out to a
+    vulnerability scanner over an unvetted repository -- and, because pip-audit
+    was only ever installed into the worker image, one where the endpoint
+    answered "pip-audit not found in PATH" in every deployment.
+
+    The scan now runs in the worker, during the job, while the clone still
+    exists. So this seeds what the worker would have stored and asserts the
+    endpoint serves it. No workspace, no subprocess, no scanner in the web
+    process at all -- which is the point.
     """
-    import json
-    import shutil
-    import tempfile
-    from pathlib import Path
+    import asyncio
+
+    from archguard.db import store
+    from archguard.db.session import session_scope
 
     job_id = seed_run()
-    workspace = Path(tempfile.gettempdir()) / f"archguard-{job_id}" / "repo"
-    workspace.mkdir(parents=True, exist_ok=True)
+    scan = {
+        "score": 100.0,
+        "vulnerable_packages": [],
+        "scanned_packages": 1,
+        "skipped": False,
+        "skip_reason": "",
+        "error": None,
+    }
 
-    # Create a fake requirements.txt so _find_req_file returns something
-    (workspace / "requirements.txt").write_text("requests==2.31.0\n")
+    async def _seed_scan() -> None:
+        async with session_scope() as session:
+            await store.save_dependency_scan(session, job_id, test_user.id, scan)
 
-    # Mock subprocess.run so _run_pip_audit returns a known JSON payload
-    fake_audit_output = json.dumps({
-        "dependencies": [
-            {"name": "requests", "version": "2.31.0", "vulns": []},
-        ]
-    })
+    asyncio.run(_seed_scan())
 
-    def _fake_subprocess_run(*args, **kwargs):
-        class FakeProc:
-            stdout = fake_audit_output
-            stderr = ""
-            returncode = 0
-        return FakeProc()
+    response = auth_client.get(f"/api/v1/deps?job_id={job_id}")
 
-    monkeypatch.setattr("archguard.analysis.deps.subprocess.run", _fake_subprocess_run)
-
-    try:
-        response = auth_client.get(f"/api/v1/deps?job_id={job_id}")
-
-        assert response.status_code == 200, (
-            f"Expected 200, got {response.status_code}: {response.text[:200]}"
-        )
-        data = response.json()
-        assert "score" in data
-        assert "vulnerable_packages" in data
-        assert "scanned_packages" in data
-        assert data["scanned_packages"] == 1  # one dep in our fake output
-    finally:
-        shutil.rmtree(Path(tempfile.gettempdir()) / f"archguard-{job_id}", ignore_errors=True)
+    assert response.status_code == 200, (
+        f"Expected 200, got {response.status_code}: {response.text[:200]}"
+    )
+    data = response.json()
+    assert data["scanned_packages"] == 1
+    assert data["skipped"] is False
+    assert data["vulnerable_packages"] == []
 
 
 @requires_postgres
