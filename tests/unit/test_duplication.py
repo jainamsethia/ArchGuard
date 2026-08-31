@@ -91,25 +91,40 @@ class TestDuplicationAnalyzer:
         assert result.skipped is True
         assert "stale" in result.skip_reason.lower()
 
-    def test_invalid_cache_no_skip(
+    def test_a_module_with_no_stored_centroid_is_not_called_stale(
         self,
         cache: EmbeddingCache,
     ) -> None:
-        """Invalid cache (hash mismatch) -> skipped=False."""
-        # No centroid stored -> is_cache_stale returns False
+        """What this has always been about: staleness, not the corpus.
+
+        It used to assert `skipped is False`, which passed for the wrong
+        reason -- there is no centroid *and* no corpus here, and the second one
+        now stops the module being reported as measured. The property the name
+        describes is that an absent centroid is not treated as an expired one.
+        """
         analyzer = DuplicationAnalyzer(cache)
         result = analyzer.analyze_module("mod", ["a.py"], [])
-        assert result.skipped is False
+        assert "stale" not in result.skip_reason.lower()
 
     def test_empty_corpus(
         self,
         cache: EmbeddingCache,
     ) -> None:
-        """Empty corpus -> aggregate_score=0.0, no matches."""
+        """Nothing indexed is not the same as nothing found.
+
+        A module whose functions never reached the corpus was reported as
+        measured with an aggregate of 0.00, which the layer above averages into
+        the health score as a clean pass. Duplication cannot be ruled out by
+        not looking.
+        """
         analyzer = DuplicationAnalyzer(cache)
         result = analyzer.analyze_module("mod", ["a.py"], [])
         assert result.aggregate_score == 0.0
         assert result.matches == []
+        assert result.skipped is True, (
+            "a module with nothing indexed was reported as measured and clean"
+        )
+        assert "not measured" in result.skip_reason
 
     def test_same_module_excluded(
         self,

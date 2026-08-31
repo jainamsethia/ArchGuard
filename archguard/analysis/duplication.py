@@ -243,7 +243,25 @@ class DuplicationAnalyzer:
         index, keys, module_embeddings = self._build_faiss_index(module_file_set)
 
         if not keys or index is None:
-            return DuplicationResult(module_name=module_name)
+            # Nothing to search. This used to return a default result, which is
+            # `skipped=False, aggregate_score=0.0` -- "measured, no duplication
+            # found" -- for a module whose functions were never in the corpus at
+            # all. Duplication cannot be ruled out by not looking, and the
+            # caller averages a measured 0.00 into the health score.
+            #
+            # It is reached for a module with no embeddable functions, and for
+            # one whose files never made it into the corpus. Reporting it as
+            # skipped costs nothing when other modules were measured -- the
+            # layer score is a max over them -- and is the whole difference when
+            # no module was.
+            return DuplicationResult(
+                module_name=module_name,
+                skipped=True,
+                skip_reason=(
+                    f"no indexed functions for {module_name} - "
+                    "duplication not measured"
+                ),
+            )
 
         matches = self._query_module_matches(
             index, keys, module_embeddings, module_name, module_paths_cfg, k

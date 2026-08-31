@@ -310,6 +310,7 @@ def _run_layer4(
     }
     max_agg = 0.0
     skip_reason = ""
+    measured_modules = 0
 
     # Fill the corpus before searching it. Layer 4 matches against the
     # embeddings table, and Layer 3 only ever writes the modules that scan
@@ -366,8 +367,13 @@ def _run_layer4(
 
             result = analyzer.analyze_module(mod_name, rel_files, mod_paths)
             if result.skipped:
-                skip_reason = result.skip_reason
-            elif result.aggregate_score > 0.0 and not result.skipped:
+                # The first reason, not the last. `affected` is a dict, so
+                # "whichever module happened to come last" made the layer's
+                # explanation depend on iteration order.
+                skip_reason = skip_reason or result.skip_reason
+            else:
+                measured_modules += 1
+            if not result.skipped and result.aggregate_score > 0.0:
                 # Collect file information from the matches
                 match_details = []
                 for m in result.matches[:8]:  # limit to top 8 to avoid huge messages
@@ -414,5 +420,31 @@ def _run_layer4(
             raise AnalysisError(
                 f"Layer 4 analysis failed on module {mod_name}", cause=e
             ) from e
+
+    # Three states, and the caller can only see two of them: it reads a
+    # non-empty reason as "this layer did not run" and an empty one as "it did".
+    # So the reason has to carry the distinction.
+    #
+    #   measured, clean      -> no reason; a real 0.00 goes into the composite
+    #   nothing measurable   -> a reason naming the scope, and the layer is
+    #                           reweighted out rather than scored as a pass
+    #   unavailable          -> a reason from the analyzer (no ML extras, stale
+    #                           cache), which is what it already produced
+    #
+    # Same rule as Layer 3, deliberately. One measured module means the layer
+    # produced a real signal, and calling it skipped because another module had
+    # nothing to index would throw that signal away. Nothing measured means the
+    # 0.00 is an absence of measurement rather than an absence of duplication,
+    # and reporting it as a clean pass is how a check that never ran contributes
+    # a perfect score.
+    if measured_modules:
+        skip_reason = ""
+    elif not skip_reason:
+        # No modules at all: the loop never ran and no module could explain
+        # itself. Reachable whenever the contract declares nothing that matches
+        # a file in the repository.
+        skip_reason = (
+            "no module was in scope for this scan - duplication not measured"
+        )
 
     return max_agg, violations, skip_reason
