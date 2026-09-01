@@ -109,9 +109,14 @@ def test_api_runs_remote_no_token_401(mock_audit_logger, monkeypatch):
 
         response = client.get("/api/v1/runs")
         assert response.status_code == 401
-        assert (
-            "Dashboard requires ARCHGUARD_DASHBOARD_TOKEN" in response.json()["detail"]
-        )
+        # The refusal itself is the property, and it is unchanged. The message
+        # is not: it used to tell the caller to set an operator environment
+        # variable, which is advice for whoever runs the server and is no
+        # longer what makes an ordinary request work -- a session authenticates
+        # on its own now. It names what this caller can actually do.
+        detail = response.json()["detail"]
+        assert "Sign in" in detail, detail
+        assert "Bearer" in detail, detail
 
 
 @requires_postgres
