@@ -65,7 +65,16 @@ def test_watching_a_repository_then_listing_it_back(live_db):
 
 @requires_postgres
 def test_watching_the_same_repository_twice_does_not_duplicate_it(live_db):
-    """Otherwise the second submit doubles the scans and the alerts."""
+    """Otherwise the second submit doubles the scans and the alerts.
+
+    The second call now also leaves the existing watch alone and reports that
+    it did not create one. It used to assign the threshold and the webhook from
+    its arguments, which made "watch this" a way to silently reconfigure a
+    watch that already existed -- and every layer above supplies a default for
+    the threshold, so a caller who mentioned neither still overwrote both.
+    Changing configuration is `update_watched`, which leaves omitted fields
+    alone.
+    """
     from archguard.db import store
     from archguard.db.session import session_scope
 
@@ -73,15 +82,27 @@ def test_watching_the_same_repository_twice_does_not_duplicate_it(live_db):
         alice, _ = await _two_users(store, session_scope)
         url = "https://github.com/x/watched-twice"
         async with session_scope() as session:
-            await store.watch_repository(session, alice, url, health_drop_threshold=5.0)
+            _watch, first_created = await store.watch_repository(
+                session, alice, url, health_drop_threshold=5.0
+            )
         async with session_scope() as session:
-            await store.watch_repository(session, alice, url, health_drop_threshold=9.0)
+            _watch, second_created = await store.watch_repository(
+                session, alice, url, health_drop_threshold=9.0
+            )
         async with session_scope() as session:
-            return await store.list_watched(session, alice)
+            return (
+                await store.list_watched(session, alice),
+                first_created,
+                second_created,
+            )
 
-    watched = _run(scenario())
+    watched, first_created, second_created = _run(scenario())
     assert len(watched) == 1
-    assert watched[0]["health_drop_threshold"] == 9.0, "the second submit did not update"
+    assert first_created is True
+    assert second_created is False, "the second call claimed to have created a watch"
+    assert watched[0]["health_drop_threshold"] == 5.0, (
+        "the second call overwrote the configured threshold"
+    )
 
 
 @requires_postgres
@@ -92,7 +113,7 @@ def test_an_inactive_watch_is_never_due(live_db):
     async def scenario():
         alice, _ = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session, alice, "https://github.com/x/watched-inactive"
             )
             watch_id = watch.id
@@ -115,7 +136,7 @@ def test_a_watch_checked_recently_is_not_due_again(live_db):
     async def scenario():
         alice, _ = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session, alice, "https://github.com/x/watched-recent"
             )
             watch_id = watch.id
@@ -139,7 +160,7 @@ def test_a_watch_checked_long_ago_is_due(live_db):
     async def scenario():
         alice, _ = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session, alice, "https://github.com/x/watched-stale"
             )
             watch_id = watch.id
@@ -181,7 +202,7 @@ def test_one_user_cannot_read_anothers_watch_by_id(live_db):
     async def scenario():
         alice, bob = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session, alice, "https://github.com/x/alice-by-id"
             )
             watch_id = watch.id
@@ -207,7 +228,7 @@ def test_one_user_cannot_modify_anothers_watch(live_db):
     async def scenario():
         alice, bob = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session,
                 alice,
                 "https://github.com/x/alice-modify",
@@ -235,7 +256,7 @@ def test_one_user_cannot_delete_anothers_watch(live_db):
     async def scenario():
         alice, bob = await _two_users(store, session_scope)
         async with session_scope() as session:
-            watch = await store.watch_repository(
+            watch, _ = await store.watch_repository(
                 session, alice, "https://github.com/x/alice-delete"
             )
             watch_id = watch.id
@@ -574,7 +595,7 @@ def test_the_sweep_enqueues_a_job_for_a_due_watch(live_db):
         alice, _ = await _two_users(store, session_scope)
         url = "https://github.com/x/due-for-sweep"
         async with session_scope() as session:
-            watch = await store.watch_repository(session, alice, url)
+            watch, _ = await store.watch_repository(session, alice, url)
             watch_id = watch.id
         async with session_scope() as session:
             row = await session.get(WatchedRepository, watch_id)
@@ -626,7 +647,7 @@ def test_a_scheduled_job_belongs_to_the_watcher(live_db):
         alice, bob = await _two_users(store, session_scope)
         url = "https://github.com/x/owned-sweep"
         async with session_scope() as session:
-            watch = await store.watch_repository(session, alice, url)
+            watch, _ = await store.watch_repository(session, alice, url)
             watch_id = watch.id
         async with session_scope() as session:
             row = await session.get(WatchedRepository, watch_id)
@@ -850,3 +871,147 @@ def test_the_watch_survives_a_new_session(auth_client, live_db):
     listed = fresh.get("/api/v1/watch").json()["watched"]
 
     assert [w["health_drop_threshold"] for w in listed] == [3.5]
+
+
+# ----------------------------------- POST cannot overwrite a watch (I-6 follow-up)
+
+
+@requires_postgres
+def test_a_second_post_does_not_reset_the_threshold(auth_client):
+    """POST is create, not "create or silently reconfigure".
+
+    `watch_repository` used to assign webhook_url and health_drop_threshold
+    unconditionally on the existing path, so any POST for an already-watched
+    repository reset both to whatever the request happened to carry -- and the
+    threshold carries a Pydantic default, so omitting it was not omitting it.
+    """
+    url = "https://github.com/x/no-overwrite"
+    first = auth_client.post(
+        "/api/v1/watch", json={"repo_url": url, "health_drop_threshold": 2.0}
+    )
+    assert first.status_code == 201, first.text
+
+    # No threshold in the body at all: the model fills in 5.0, which used to be
+    # written straight over the stored 2.0.
+    second = auth_client.post("/api/v1/watch", json={"repo_url": url})
+
+    assert second.status_code == 409, (
+        f"a second POST was accepted and may have reconfigured the watch: "
+        f"{second.status_code} {second.text[:200]}"
+    )
+    listed = auth_client.get("/api/v1/watch").json()["watched"]
+    assert len(listed) == 1, "the refusal still created a duplicate"
+    assert listed[0]["health_drop_threshold"] == 2.0, "the threshold was reset"
+
+
+@requires_postgres
+def test_a_second_post_does_not_clear_the_webhook(auth_client, resolves_only):
+    """The same field the SSRF work exists to protect, wiped by an omission."""
+    resolves_only("hooks.example.com", "93.184.216.34")
+    url = "https://github.com/x/keep-webhook"
+    auth_client.post(
+        "/api/v1/watch",
+        json={"repo_url": url, "webhook_url": "https://hooks.example.com/t/abc"},
+    )
+
+    auth_client.post("/api/v1/watch", json={"repo_url": url})
+
+    listed = auth_client.get("/api/v1/watch").json()["watched"]
+    assert listed[0]["has_webhook"] is True, "a POST with no webhook cleared the stored one"
+
+
+@requires_postgres
+def test_the_refusal_says_how_to_change_the_watch(auth_client):
+    """A conflict that does not say what to do instead is a dead end.
+
+    The id is in the message because recovering means PATCHing it, and a client
+    that has just been refused should not have to go looking for it.
+    """
+    url = "https://github.com/x/conflict-detail"
+    created = auth_client.post("/api/v1/watch", json={"repo_url": url})
+    watch_id = created.json()["watched"]["id"]
+
+    refused = auth_client.post("/api/v1/watch", json={"repo_url": url})
+
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert isinstance(detail, str), detail
+    assert str(watch_id) in detail, detail
+    assert "PATCH" in detail or "patch" in detail, detail
+
+
+@requires_postgres
+def test_a_paused_watch_is_also_a_conflict_not_a_silent_resume(auth_client):
+    """Resuming is PATCH {active: true}, which keeps the configuration.
+
+    POST re-activating was the other half of the overwrite: it turned a paused
+    watch back on *and* rewrote its settings in the same call.
+    """
+    url = "https://github.com/x/paused-conflict"
+    created = auth_client.post(
+        "/api/v1/watch", json={"repo_url": url, "health_drop_threshold": 3.0}
+    )
+    watch_id = created.json()["watched"]["id"]
+    auth_client.patch(f"/api/v1/watch/{watch_id}", json={"active": False})
+
+    refused = auth_client.post("/api/v1/watch", json={"repo_url": url})
+
+    assert refused.status_code == 409
+    listed = auth_client.get("/api/v1/watch").json()["watched"]
+    assert listed[0]["active"] is False, "the refused POST resumed the watch anyway"
+    assert listed[0]["health_drop_threshold"] == 3.0
+
+
+@requires_postgres
+def test_patch_is_still_how_configuration_changes(auth_client):
+    """The refusal must not remove the way to do it properly."""
+    url = "https://github.com/x/patch-still-works"
+    watch_id = auth_client.post(
+        "/api/v1/watch", json={"repo_url": url, "health_drop_threshold": 2.0}
+    ).json()["watched"]["id"]
+
+    updated = auth_client.patch(
+        f"/api/v1/watch/{watch_id}", json={"health_drop_threshold": 8.0}
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["watched"]["health_drop_threshold"] == 8.0
+
+
+@requires_postgres
+def test_two_accounts_can_still_watch_the_same_repository(live_db):
+    """The conflict is per account, not per repository.
+
+    The unique constraint is (user_id, repository_id); a refusal keyed on the
+    repository alone would let whoever watched it first stop anyone else.
+    """
+    import os
+
+    from fastapi.testclient import TestClient
+
+    from archguard.dashboard import _sessions
+    from archguard.dashboard.app import app
+    from archguard.db import store
+    from archguard.db.session import session_scope
+    from tests.db_fixtures import TEST_SESSION_SECRET
+
+    os.environ["SESSION_SECRET"] = TEST_SESSION_SECRET
+
+    async def _users() -> tuple[int, int]:
+        async with session_scope() as session:
+            a = await store.upsert_user(session, github_id=7301, login="shared-a")
+            b = await store.upsert_user(session, github_id=7302, login="shared-b")
+            return a.id, b.id
+
+    a_id, b_id = _run(_users())
+    url = "https://github.com/x/shared-watch"
+
+    responses = []
+    for uid in (a_id, b_id):
+        client = TestClient(app)
+        client.cookies.set(_sessions.COOKIE_NAME, _sessions.issue(uid))
+        responses.append(client.post("/api/v1/watch", json={"repo_url": url}))
+
+    assert [r.status_code for r in responses] == [201, 201], (
+        "one account's watch blocked another's"
+    )

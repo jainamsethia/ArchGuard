@@ -678,11 +678,23 @@ async def watch_repository(
     *,
     webhook_url: str | None = None,
     health_drop_threshold: float = 5.0,
-) -> WatchedRepository:
-    """Start watching a repository, or update the existing watch.
+) -> tuple[WatchedRepository, bool]:
+    """Start watching a repository. Returns ``(watch, created)``.
 
-    Idempotent by (user, repository): a second submit re-activates and updates
+    Idempotent by (user, repository): a second call returns the existing watch
     rather than creating a duplicate that would scan and alert twice.
+
+    It also returns it *untouched*, which is the part that changed. This used
+    to assign `active`, `webhook_url` and `health_drop_threshold` on the
+    existing path, so calling it again reconfigured a watch as a side effect of
+    trying to create one -- and because `health_drop_threshold` carries a
+    default at every layer above, omitting it was not omitting it: a call with
+    no threshold wrote 5.0 over whatever was stored, and a call with no webhook
+    wrote NULL over a configured one.
+
+    `created` is what lets the caller tell the two apart. The route answers 409
+    rather than reporting a create that did not happen; configuration changes
+    go through `update_watched`, which leaves omitted fields alone.
     """
     repo = await upsert_repository(session, repo_url)
     existing = (
@@ -695,11 +707,7 @@ async def watch_repository(
     ).scalars().first()
 
     if existing is not None:
-        existing.active = True
-        existing.webhook_url = webhook_url
-        existing.health_drop_threshold = health_drop_threshold
-        await session.flush()
-        return existing
+        return existing, False
 
     watch = WatchedRepository(
         user_id=user_id,
@@ -709,7 +717,7 @@ async def watch_repository(
     )
     session.add(watch)
     await session.flush()
-    return watch
+    return watch, True
 
 
 async def list_watched(session: AsyncSession, user_id: int) -> list[dict[str, Any]]:

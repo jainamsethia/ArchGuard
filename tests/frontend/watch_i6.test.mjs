@@ -454,3 +454,51 @@ describe('I-6: the unknown state', () => {
     assert.match(status(document), /^Watched\./);
   });
 });
+
+
+describe('POST conflict: the card is stale, not the user wrong', () => {
+  it('re-reads the real state instead of reporting a failure', async () => {
+    // The card only POSTs when it believes nothing is watched, so a 409 means
+    // its picture is out of date -- watched in another tab, or on another
+    // device. "Could not update" would describe our own staleness as the
+    // user's problem.
+    const { mod, document, calls } = await load([
+      { body: { watched: [] } },
+      { ok: false, status: 409, body: { detail: 'already being watched (watch 9)' } },
+      { body: { watched: [watched()] } },
+    ]);
+    await mod.loadWatchState();
+
+    document.getElementById('watch-threshold').value = '3';
+    await mod.toggleWatch();
+
+    assert.ok(
+      !/could not update/i.test(status(document)),
+      `a stale card reported an error: ${status(document)}`,
+    );
+    assert.match(status(document), /already being watched/i);
+    assert.ok(calls.some((c) => c.method === 'POST'), 'nothing was attempted');
+    assert.equal(
+      calls.filter((c) => c.method === 'GET').length,
+      2,
+      'the card did not re-read the state it had wrong',
+    );
+  });
+
+  it('does not overwrite the existing configuration on the way', async () => {
+    // The whole point of the 409: the second POST must not have applied the
+    // threshold sitting in the form.
+    const { mod, document, calls } = await load([
+      { body: { watched: [] } },
+      { ok: false, status: 409, body: { detail: 'already being watched (watch 9)' } },
+      { body: { watched: [watched({ health_drop_threshold: 2.5 })] } },
+    ]);
+    await mod.loadWatchState();
+
+    document.getElementById('watch-threshold').value = '3';
+    await mod.toggleWatch();
+
+    assert.ok(!calls.some((c) => c.method === 'PATCH'), 'the card retried as an update');
+    assert.equal(document.getElementById('watch-threshold').value, '2.5');
+  });
+});

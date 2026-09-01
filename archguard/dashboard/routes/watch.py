@@ -89,7 +89,7 @@ async def create_watch(
     await _check_webhook(body.webhook_url)
 
     async with session_scope() as session:
-        watch = await store.watch_repository(
+        watch, created = await store.watch_repository(
             session,
             user.id,
             body.repo_url,
@@ -98,6 +98,28 @@ async def create_watch(
         )
         await session.flush()
         watch_id = watch.id
+
+        if not created:
+            # 409, not a quiet re-save. This used to reconfigure the existing
+            # watch from the request body, and every field in that body has a
+            # default -- so a POST that mentioned neither the threshold nor the
+            # webhook reset one to 5.0 and cleared the other. Creating
+            # something that already exists is a conflict, and the caller
+            # deserves to be told rather than to have their settings replaced
+            # on their behalf.
+            #
+            # The id is in the message because recovering means PATCHing it,
+            # and a client that has just been refused should not have to go
+            # looking for it.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"This repository is already being watched (watch {watch_id}). "
+                    f"Use PATCH /api/v1/watch/{watch_id} to change its settings, "
+                    "including to resume it if it is paused."
+                ),
+            )
+
         return {"watched": await store.get_watched_summary(session, watch_id, user.id)}
 
 

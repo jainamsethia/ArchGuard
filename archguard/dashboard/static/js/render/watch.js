@@ -191,7 +191,21 @@ export async function toggleWatch() {
                 repo_url: url,
                 health_drop_threshold: threshold,
                 webhook_url: webhook || null,
+            }, {
+                // The card only POSTs when it believes nothing is watched, so a
+                // conflict means its picture is stale -- watched in another tab,
+                // or on another device. Re-reading is the answer; reporting
+                // "Could not update" would be describing our own staleness as
+                // the user's problem.
+                onConflict: async () => {
+                    await loadWatchState();
+                    setStatus(
+                        'This repository is already being watched. '
+                        + 'Showing its current settings.',
+                    );
+                },
             });
+            if (body === CONFLICT) return;
             current = body.watched;
             // Never echo it back into the field: the server does not return it,
             // and leaving it on screen is the only copy still visible.
@@ -320,7 +334,10 @@ function setStatus(text) {
 }
 
 
-async function send(url, method, body) {
+//: Returned by `send` when the caller handled a 409 itself.
+const CONFLICT = Object.freeze({ conflict: true });
+
+async function send(url, method, body, { onConflict } = {}) {
     const res = await fetch(url, {
         method,
         ...(body === undefined
@@ -330,6 +347,10 @@ async function send(url, method, body) {
                 body: JSON.stringify(body),
             }),
     });
+    if (res.status === 409 && onConflict) {
+        await onConflict();
+        return CONFLICT;
+    }
     if (!res.ok) throw new Error(await errorText(res));
     // 204, as DELETE returns, has no body to read.
     if (res.status === 204) return {};
