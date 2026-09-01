@@ -88,7 +88,7 @@ async function load(
   const mod = await import(
     `${pathToFileURL(resolve(JS, 'render/watch.js')).href}?i6=${n++}`
   );
-  return { mod, document: dom.window.document, calls, confirms };
+  return { mod, document: dom.window.document, calls, confirms, state: state.state };
 }
 
 /** A watch as the API returns one, with the fields the card now reads. */
@@ -500,5 +500,95 @@ describe('POST conflict: the card is stale, not the user wrong', () => {
 
     assert.ok(!calls.some((c) => c.method === 'PATCH'), 'the card retried as an update');
     assert.equal(document.getElementById('watch-threshold').value, '2.5');
+  });
+});
+
+
+describe('the card belongs to the run on screen', () => {
+  it('hides and forgets the watch when the page has no repository', async () => {
+    // loadWatchState returned early when the run had no repo_url, leaving the
+    // card visible with the previous repository's status, threshold and
+    // buttons -- a configuration screen for something that is not on screen.
+    const { mod, document, state } = await load([{ body: { watched: [watched()] } }]);
+    await mod.loadWatchState();
+    assert.equal(document.getElementById('watch-card').hidden, false);
+    assert.match(status(document), /^Watched\./);
+
+    state.latestRun = { score: 80 };
+    await mod.loadWatchState();
+
+    assert.equal(document.getElementById('watch-card').hidden, true, 'the card stayed on screen');
+    assert.equal(document.getElementById('watch-threshold').value, '');
+    assert.equal(document.getElementById('watch-unwatch-btn').hidden, true);
+  });
+
+  it('does not leave the old watch behind for the next repository', async () => {
+    // The half a hidden card does not fix: `current` outliving the run means
+    // the next repository briefly inherits it, and a Remove click would delete
+    // the wrong watch.
+    const { mod, document, state, calls } = await load([
+      { body: { watched: [watched()] } },
+      { body: { watched: [] } },
+    ]);
+    await mod.loadWatchState();
+
+    state.latestRun = { score: 80 };
+    await mod.loadWatchState();
+    const before = calls.length;
+    await mod.unwatch();
+
+    assert.equal(calls.length, before, 'a delete was issued for a repository that is not shown');
+  });
+
+  it('does not show one repository state under another repository', async () => {
+    // A -> B. Until B's answer arrives the card must not be describing A.
+    let release;
+    const gate = new Promise((r) => { release = r; });
+
+    const { mod, document, state } = await load([{ body: { watched: [watched()] } }]);
+    await mod.loadWatchState();
+    assert.match(status(document), /^Watched\./);
+
+    globalThis.fetch = async () => {
+      await gate;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ watched: [] }),
+      };
+    };
+
+    state.latestRun = { repo_url: 'https://github.com/x/other' };
+    const loading = mod.loadWatchState();
+
+    assert.ok(
+      !/^Watched\./.test(status(document)),
+      `the previous repository's state was shown for the new one: ${status(document)}`,
+    );
+    assert.equal(document.getElementById('watch-unwatch-btn').hidden, true);
+
+    release();
+    await loading;
+    assert.match(status(document), /not watched/i);
+  });
+
+  it('does not reset the card when the repository has not changed', async () => {
+    // The guard has to be conditional. Clearing on every render would delete
+    // what someone is typing on every thirty-second poll -- the defect this is
+    // next to, not a second copy of it.
+    const { mod, document } = await load([
+      { body: { watched: [watched()] } },
+      { body: { watched: [watched()] } },
+    ]);
+    await mod.loadWatchState();
+
+    const input = document.getElementById('watch-threshold');
+    input.value = '7';
+    input.focus();
+    await mod.loadWatchState();
+
+    assert.equal(input.value, '7');
+    assert.match(status(document), /^Watched\./);
   });
 });

@@ -17,6 +17,69 @@ export const jobQuery = highlightJobId ? `?job_id=${highlightJobId}` : '';
 export const jobQueryAmp = highlightJobId ? `&job_id=${highlightJobId}` : '';
 
 
+//: Returned by `sendJson` when the caller handled a 409 itself.
+export const CONFLICT = Object.freeze({ conflict: true });
+
+
+/**
+ * A write to the dashboard's own API, with the error text a person can read.
+ *
+ * The read path is `safeFetch`; this is the other half, and it throws rather
+ * than returning a fallback because a failed write has no sensible stand-in --
+ * the caller has to say so.
+ *
+ * `onConflict` exists because a 409 is not always a failure. A control that
+ * creates something only when it believes nothing is there is reporting its
+ * own stale picture, and re-reading is a better answer than an error.
+ */
+export async function sendJson(url, method, body, { onConflict } = {}) {
+    const res = await fetch(url, {
+        method,
+        ...(body === undefined
+            ? {}
+            : {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            }),
+    });
+
+    if (res.status === 409 && onConflict) {
+        await onConflict();
+        return CONFLICT;
+    }
+    if (!res.ok) throw new Error(await errorText(res));
+    // 204, as DELETE returns, has no body to read.
+    if (res.status === 204) return {};
+    try {
+        return await res.json();
+    } catch {
+        return {};
+    }
+}
+
+
+/**
+ * The most useful sentence in an error response, and never an object.
+ *
+ * FastAPI reports validation failures as a list of objects, which rendered
+ * verbatim produced "Could not update: [object Object]".
+ */
+export async function errorText(res) {
+    try {
+        const body = await res.json();
+        const detail = body.detail;
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail) && detail.length) {
+            const first = detail[0];
+            if (first && typeof first.msg === 'string') return first.msg;
+        }
+        return `HTTP ${res.status}`;
+    } catch {
+        return `HTTP ${res.status}`;
+    }
+}
+
+
 /**
  * Why a request did not produce data.
  *

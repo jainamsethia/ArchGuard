@@ -21,7 +21,7 @@
  * silently cleared its webhook and reset its threshold to 5.
  */
 
-import { safeFetch } from '../api.js';
+import { CONFLICT, safeFetch, sendJson } from '../api.js';
 import { state } from '../state.js';
 
 /** The watch for the repository this page is showing, or null. */
@@ -29,6 +29,10 @@ let current = null;
 //: The watch state could not be read. Distinct from `current === null`, which
 //: is the answer "this repository is not watched".
 let unknown = false;
+//: The repository `current` describes. Kept because `current` outliving its
+//: repository is how the card comes to show one project's watch under
+//: another's -- or under no project at all.
+let currentUrl = null;
 
 //: Identity-compared, so a failed fetch is distinguishable from a successful
 //: one that happens to return nothing.
@@ -47,10 +51,51 @@ function el(id) {
     return document.getElementById(id);
 }
 
+/**
+ * Forget the watch on screen, because it is not this page's any more.
+ *
+ * Deliberately not called on every render. Clearing unconditionally would wipe
+ * the threshold field on each thirty-second poll, which is the defect this
+ * sits next to rather than a second copy of it.
+ */
+function forget() {
+    current = null;
+    unknown = false;
+    currentUrl = null;
+    const threshold = el('watch-threshold');
+    const webhook = el('watch-webhook');
+    if (threshold) { threshold.value = ''; threshold.disabled = false; }
+    if (webhook) { webhook.value = ''; webhook.disabled = false; }
+    const save = el('watch-save-btn');
+    const remove = el('watch-unwatch-btn');
+    if (save) save.hidden = true;
+    if (remove) remove.hidden = true;
+    setStatus('Loading…');
+}
+
 export async function loadWatchState() {
     const url = repoUrl();
     const card = el('watch-card');
-    if (!card || !url) return;
+    if (!card) return;
+
+    if (!url) {
+        // The page is showing a run that names no repository. Returning here
+        // used to leave the card visible with the previous project's status,
+        // threshold and Remove button -- a configuration screen for something
+        // that is not on screen, whose delete button pointed at a real watch.
+        forget();
+        card.hidden = true;
+        return;
+    }
+
+    if (url !== currentUrl) {
+        // A different repository. Whatever is on the card describes the last
+        // one, and it must not be shown under this one's name while the
+        // request is in flight.
+        forget();
+        currentUrl = url;
+    }
+
     card.hidden = false;
 
     // Through safeFetch rather than a bare fetch, so an expired session raises
@@ -179,7 +224,7 @@ export async function toggleWatch() {
             // PATCH, never POST. POST is an upsert that overwrites the webhook
             // and the threshold with whatever the form holds, so resuming
             // through it wiped both.
-            const body = await send(`/api/v1/watch/${current.id}`, 'PATCH', {
+            const body = await sendJson(`/api/v1/watch/${current.id}`, 'PATCH', {
                 active: !current.active,
             });
             current = body.watched;
@@ -187,7 +232,7 @@ export async function toggleWatch() {
             const threshold = readThreshold();
             if (threshold === null) return;
             const webhook = (el('watch-webhook').value || '').trim();
-            const body = await send('/api/v1/watch', 'POST', {
+            const body = await sendJson('/api/v1/watch', 'POST', {
                 repo_url: url,
                 health_drop_threshold: threshold,
                 webhook_url: webhook || null,
@@ -231,7 +276,7 @@ export async function saveWatchSettings() {
         // pointless and, if that ever changed, destructive.
         if (webhook) patch.webhook_url = webhook;
 
-        const body = await send(`/api/v1/watch/${current.id}`, 'PATCH', patch);
+        const body = await sendJson(`/api/v1/watch/${current.id}`, 'PATCH', patch);
         // Only now. The input showed what the user typed; this is what the
         // server stored, and until it answered they were not the same thing.
         current = body.watched;
@@ -256,7 +301,7 @@ export async function unwatch() {
     await withButtons(async () => {
         // A real request. Clearing `current` without one would show "Not
         // watched" over a row that is still being scanned every night.
-        await send(`/api/v1/watch/${current.id}`, 'DELETE');
+        await sendJson(`/api/v1/watch/${current.id}`, 'DELETE');
         // Only after the server confirmed. 204 carries no body, so there is
         // nothing to re-read -- the transition is the local state going.
         current = null;
@@ -331,50 +376,4 @@ async function withButtons(work) {
 function setStatus(text) {
     const status = el('watch-status');
     if (status) status.textContent = text;
-}
-
-
-//: Returned by `send` when the caller handled a 409 itself.
-const CONFLICT = Object.freeze({ conflict: true });
-
-async function send(url, method, body, { onConflict } = {}) {
-    const res = await fetch(url, {
-        method,
-        ...(body === undefined
-            ? {}
-            : {
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            }),
-    });
-    if (res.status === 409 && onConflict) {
-        await onConflict();
-        return CONFLICT;
-    }
-    if (!res.ok) throw new Error(await errorText(res));
-    // 204, as DELETE returns, has no body to read.
-    if (res.status === 204) return {};
-    try {
-        return await res.json();
-    } catch {
-        return {};
-    }
-}
-
-
-async function errorText(res) {
-    try {
-        const body = await res.json();
-        const detail = body.detail;
-        if (typeof detail === 'string') return detail;
-        // FastAPI reports validation failures as a list of objects. Rendering
-        // that verbatim produced "Could not update: [object Object]".
-        if (Array.isArray(detail) && detail.length) {
-            const first = detail[0];
-            if (first && typeof first.msg === 'string') return first.msg;
-        }
-        return `HTTP ${res.status}`;
-    } catch {
-        return `HTTP ${res.status}`;
-    }
 }
