@@ -288,6 +288,33 @@ jobs:
           print("no ML-gated test skipped")
           PY
 
+      # ArchGuard, analysed by ArchGuard, against the .archguard.yml in this
+      # repository. Two pre-release gates used to do this through the CLI; it
+      # was deleted and nothing replaced it, so the product stopped checking
+      # itself.
+      #
+      # In this job specifically because it is the one with the worker extras
+      # installed and ARCHGUARD_SKIP_ML deliberately unset. Anywhere else, two
+      # of the four layers would report themselves unmeasured and the gate
+      # would be grading half a repository.
+      #
+      # Not advisory. A failure here means the repository breached its own
+      # fail_threshold or a fitness gate its own contract marks critical.
+      - name: Release gate (ArchGuard analyses itself)
+        run: poetry run python -m archguard.release_gate
+
+      - name: Record the release gate result
+        if: always()
+        run: |
+          poetry run python -m archguard.release_gate --json > release-gate.json || true
+          cat release-gate.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-gate
+          path: release-gate.json
+
   migrations:
     name: Alembic round-trip
     runs-on: ubuntu-latest
