@@ -182,18 +182,33 @@
 <div class="glass-card card-section" id="watch-card" hidden>
 <h2 class="text-section-title-flush">Watch this repository</h2>
 <p class="section-note">Rescanned daily. You are told when health drops past your threshold, when a fitness gate starts failing, or when a new critical issue appears &mdash; not on every finding.</p>
-<p class="text-helper" id="watch-status">Loading&hellip;</p>
+<!-- A live region: every state this card reports -- watched, paused, not
+     watched, and "we could not find out" -- arrives here and nowhere else, so
+     without it the whole feature is silent to a screen reader. -->
+<p class="text-helper" id="watch-status" role="status" aria-live="polite">Loading&hellip;</p>
 <div class="row-between margin-bottom">
 <label class="text-label" for="watch-threshold">Alert when health drops by more than</label>
-<input aria-describedby="watch-threshold-help" class="input-field" id="watch-threshold" max="100" min="0.5" step="0.5" type="number" value="5">
+<!-- No `value`. A hardcoded 5 in a card showing a watch configured at 2.0 is
+     a lie about saved state; the value is written from the server's
+     health_drop_threshold when there is one, and left empty with a
+     placeholder when there is not. -->
+<input aria-describedby="watch-threshold-help" class="input-field" id="watch-threshold" max="100" min="0.5" placeholder="5" step="0.5" type="number">
 </div>
-<p class="section-note" id="watch-threshold-help">Health points, out of 100. Lower is more sensitive.</p>
+<p class="section-note" id="watch-threshold-help">Health points, out of 100. Lower is more sensitive. Left blank, 5 is used.</p>
 <div class="row-between margin-bottom">
 <label class="text-label" for="watch-webhook">Webhook URL (optional)</label>
 <input autocomplete="off" class="input-field" id="watch-webhook" placeholder="https://hooks.example.com/&hellip;" type="url">
 </div>
-<p class="section-note">HTTPS only, and public addresses only. Left blank, regressions are recorded here rather than sent anywhere.</p>
+<p class="section-note" id="watch-webhook-note">HTTPS only, and public addresses only. Left blank, regressions are recorded here rather than sent anywhere.</p>
+<div class="watch-actions">
 <button class="btn-action" id="watch-toggle-btn">Watch this repository</button>
+<!-- Saving and removing are separate from pausing, and from each other.
+     Pausing keeps the threshold, the webhook and the alert history; removing
+     deletes the row. Offering one button for both is how someone loses a
+     configuration they meant to suspend. -->
+<button class="btn-secondary-action" id="watch-save-btn" hidden>Save changes</button>
+<button class="btn-danger-quiet" id="watch-unwatch-btn" hidden>Remove watch</button>
+</div>
 </div>
 <div class="glass-card card-section">
 <h2 class="text-section-title">Architecture Fitness</h2>

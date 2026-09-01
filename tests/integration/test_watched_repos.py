@@ -699,3 +699,154 @@ def test_a_watch_with_an_ordinary_webhook_is_still_accepted(auth_client, resolve
 
     assert response.status_code == 201, response.text
     assert response.json()["watched"]["has_webhook"] is True
+
+
+# ------------------------------------------------- the routes a UI drives (I-6)
+
+
+@requires_postgres
+def test_a_watch_can_be_deleted_by_its_owner(auth_client, resolves_only):
+    """DELETE's success path, which nothing exercised.
+
+    The only DELETE anywhere in the suite was a stranger's, asserting 404 --
+    so a route that refused everybody would have passed. The UI never called
+    it either: "Stop watching" issued PATCH {active: false}.
+    """
+    resolves_only("hooks.example.com", "93.184.216.34")
+    created = auth_client.post(
+        "/api/v1/watch",
+        json={
+            "repo_url": "https://github.com/x/deletable",
+            "webhook_url": "https://hooks.example.com/t/xyz",
+        },
+    )
+    assert created.status_code == 201, created.text
+    watch_id = created.json()["watched"]["id"]
+
+    removed = auth_client.delete(f"/api/v1/watch/{watch_id}")
+
+    assert removed.status_code == 204, removed.text
+    assert removed.content == b"", "204 must carry no body for the client to re-read"
+    assert auth_client.get("/api/v1/watch").json()["watched"] == []
+
+
+@requires_postgres
+def test_deleting_a_watch_twice_is_a_404_not_a_500(auth_client):
+    """A double click, or a retry on a flaky connection."""
+    created = auth_client.post(
+        "/api/v1/watch", json={"repo_url": "https://github.com/x/twice"}
+    )
+    watch_id = created.json()["watched"]["id"]
+
+    assert auth_client.delete(f"/api/v1/watch/{watch_id}").status_code == 204
+    assert auth_client.delete(f"/api/v1/watch/{watch_id}").status_code == 404
+
+
+@requires_postgres
+def test_a_watch_id_that_never_existed_is_also_a_404(auth_client):
+    """The other half of the guarantee that 404 is uninformative.
+
+    A stranger's id answering 404 only hides anything if an unknown id answers
+    404 too. That was structurally true and untested.
+    """
+    assert auth_client.delete("/api/v1/watch/999999").status_code == 404
+    assert auth_client.patch(
+        "/api/v1/watch/999999", json={"active": False}
+    ).status_code == 404
+
+
+@requires_postgres
+def test_the_threshold_can_be_changed_and_stays_changed(auth_client):
+    """The edit path the card now drives.
+
+    The API accepted it and nothing ever sent one: the only way the threshold
+    changed in a test was by POSTing the same repository twice, which is the
+    upsert rather than an edit.
+    """
+    created = auth_client.post(
+        "/api/v1/watch",
+        json={"repo_url": "https://github.com/x/threshold", "health_drop_threshold": 5.0},
+    )
+    watch_id = created.json()["watched"]["id"]
+
+    updated = auth_client.patch(
+        f"/api/v1/watch/{watch_id}", json={"health_drop_threshold": 2.5}
+    )
+
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["watched"]["health_drop_threshold"] == 2.5
+    # Read back through a separate request: the response could be echoing the
+    # request rather than reporting what was stored.
+    listed = auth_client.get("/api/v1/watch").json()["watched"]
+    assert listed[0]["health_drop_threshold"] == 2.5
+
+
+@requires_postgres
+def test_pausing_and_resuming_keeps_the_threshold_and_the_webhook(
+    auth_client, resolves_only
+):
+    """The data loss the card used to cause.
+
+    Resuming went through POST, which is an upsert: `watch_repository`
+    overwrites webhook_url and health_drop_threshold unconditionally, so
+    resuming with a blank form cleared the webhook and reset the threshold.
+    PATCH leaves omitted fields alone, which is why the card resumes with one.
+    """
+    resolves_only("hooks.example.com", "93.184.216.34")
+    created = auth_client.post(
+        "/api/v1/watch",
+        json={
+            "repo_url": "https://github.com/x/round-trip",
+            "webhook_url": "https://hooks.example.com/t/secret",
+            "health_drop_threshold": 2.0,
+        },
+    )
+    watch_id = created.json()["watched"]["id"]
+
+    auth_client.patch(f"/api/v1/watch/{watch_id}", json={"active": False})
+    resumed = auth_client.patch(f"/api/v1/watch/{watch_id}", json={"active": True})
+
+    assert resumed.status_code == 200, resumed.text
+    watch = resumed.json()["watched"]
+    assert watch["active"] is True
+    assert watch["health_drop_threshold"] == 2.0, "resuming reset the threshold"
+    assert watch["has_webhook"] is True, "resuming cleared the webhook"
+
+
+@requires_postgres
+def test_a_threshold_outside_the_allowed_range_is_refused(auth_client):
+    """The 422 whose detail is a list, which the card used to render as
+    "[object Object]"."""
+    created = auth_client.post(
+        "/api/v1/watch", json={"repo_url": "https://github.com/x/range"}
+    )
+    watch_id = created.json()["watched"]["id"]
+
+    response = auth_client.patch(
+        f"/api/v1/watch/{watch_id}", json={"health_drop_threshold": 0.1}
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert isinstance(detail, list) and detail, detail
+    assert "msg" in detail[0], detail[0]
+
+
+@requires_postgres
+def test_the_watch_survives_a_new_session(auth_client, live_db):
+    """Configuration is a database row, not a page's memory."""
+    from fastapi.testclient import TestClient
+
+    from archguard.dashboard.app import app
+
+    created = auth_client.post(
+        "/api/v1/watch",
+        json={"repo_url": "https://github.com/x/durable", "health_drop_threshold": 3.5},
+    )
+    assert created.status_code == 201
+
+    fresh = TestClient(app)
+    fresh.cookies.update(auth_client.cookies)
+    listed = fresh.get("/api/v1/watch").json()["watched"]
+
+    assert [w["health_drop_threshold"] for w in listed] == [3.5]

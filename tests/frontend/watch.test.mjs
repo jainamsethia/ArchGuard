@@ -23,24 +23,45 @@ const JS = resolve(
   '../../archguard/dashboard/static/js',
 );
 
+// Hand-written rather than read from the template, and that is a hazard worth
+// naming: watch.js reaching for an id that is not here gets null and throws,
+// taking every test in this file with it. Any element the card gains has to be
+// added here in the same commit.
 const CARD = `<!doctype html><body>
   <div id="watch-card" hidden>
-    <p id="watch-status">Loading</p>
-    <input id="watch-threshold" type="number" value="5">
+    <p id="watch-status" role="status" aria-live="polite">Loading</p>
+    <input id="watch-threshold" type="number" min="0.5" max="100" step="0.5" placeholder="5">
     <input id="watch-webhook" type="url">
-    <button id="watch-toggle-btn">Watch this repository</button>
+    <div class="watch-actions">
+      <button id="watch-toggle-btn">Watch this repository</button>
+      <button id="watch-save-btn" hidden>Save changes</button>
+      <button id="watch-unwatch-btn" hidden>Remove watch</button>
+    </div>
   </div>
 </body>`;
 
 let n = 0;
 
 /** The card in a DOM, with fetch stubbed and the run already loaded. */
-async function load(responses, run = { repo_url: 'https://github.com/x/watched' }) {
+async function load(
+  responses,
+  run = { repo_url: 'https://github.com/x/watched' },
+  { confirm = true } = {},
+) {
   const dom = new JSDOM(CARD, { url: 'http://localhost/dashboard.html' });
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
   globalThis.location = dom.window.location;
   globalThis.HTMLElement = dom.window.HTMLElement;
+  globalThis.CustomEvent = dom.window.CustomEvent;
+
+  // jsdom does not implement confirm(). Recorded rather than merely stubbed,
+  // so a test can assert the user was asked before anything was deleted.
+  const confirms = [];
+  dom.window.confirm = (message) => {
+    confirms.push(String(message));
+    return confirm;
+  };
 
   const calls = [];
   globalThis.fetch = async (url, opts = {}) => {
@@ -49,6 +70,7 @@ async function load(responses, run = { repo_url: 'https://github.com/x/watched' 
     return {
       ok: next.ok !== false,
       status: next.status || (next.ok === false ? 400 : 200),
+      headers: { get: () => null },
       json: async () => next.body,
     };
   };
@@ -62,7 +84,7 @@ async function load(responses, run = { repo_url: 'https://github.com/x/watched' 
   const mod = await import(
     `${pathToFileURL(resolve(JS, 'render/watch.js')).href}?watch=${n++}`
   );
-  return { mod, document: dom.window.document, calls, state };
+  return { mod, document: dom.window.document, calls, state, confirms };
 }
 
 describe('the watch card', () => {
@@ -105,9 +127,16 @@ describe('the watch card', () => {
     await mod.loadWatchState();
 
     const status = document.getElementById('watch-status').textContent;
-    assert.match(status, /watched/i);
+    // Not /watched/i: that also matches "Not watched.", so the watched-state
+    // message could regress to the unwatched one and this would stay green.
+    assert.match(status, /^Watched\./);
     assert.match(status, /Health fell from 90 to 60/);
-    assert.match(document.getElementById('watch-toggle-btn').textContent, /stop watching/i);
+    // "Pause watching", not "Stop watching". The button PATCHes active:false
+    // and keeps the threshold, the webhook and the alert history; there is a
+    // separate Remove control that deletes them. Labelling a pause "stop" was
+    // survivable while it was the only way to turn watching off and is not now
+    // that the other one exists.
+    assert.match(document.getElementById('watch-toggle-btn').textContent, /pause watching/i);
   });
 
   it('matches on repo_url, so another repository\'s watch is not shown here', async () => {

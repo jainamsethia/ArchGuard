@@ -408,3 +408,88 @@ def test_a_watch_never_returns_the_webhook_url(two_users, resolves_only):
     assert "SUPERSECRET" not in created.text
     assert created.json()["watched"]["has_webhook"] is True
     assert "SUPERSECRET" not in client.get("/api/v1/watch").text
+
+
+# --------------------------------------------- the watch routes, both ways (I-6)
+
+
+@requires_postgres
+def test_the_owner_can_change_and_delete_their_own_watch(two_users):
+    """The other half of the cross-user tests, which nothing asserted.
+
+    `_endpoints` omits the watch routes, and the isolation test only checks a
+    stranger's 404 -- so a PATCH or DELETE that returned 404 to *everybody*
+    would have passed the whole suite. That is exactly the one-sided failure
+    this module's docstring says the matrix exists to prevent.
+    """
+    owner = _client(two_users["a"]["cookie"])
+    watch_id = owner.post(
+        "/api/v1/watch",
+        json={"repo_url": two_users["a"]["repo_url"], "health_drop_threshold": 5.0},
+    ).json()["watched"]["id"]
+
+    updated = owner.patch(
+        f"/api/v1/watch/{watch_id}", json={"health_drop_threshold": 2.5}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["watched"]["health_drop_threshold"] == 2.5
+
+    assert owner.delete(f"/api/v1/watch/{watch_id}").status_code == 204
+    assert owner.get("/api/v1/watch").json()["watched"] == []
+
+
+@requires_postgres
+def test_a_strangers_watch_and_a_missing_one_are_indistinguishable(two_users):
+    """404 hides a stranger's watch only if an unknown id answers 404 too.
+
+    Structurally true -- both collapse into `get_watched -> None` -- and
+    untested, so a future change that split them would leak which ids exist.
+    """
+    owner = _client(two_users["a"]["cookie"])
+    watch_id = owner.post(
+        "/api/v1/watch", json={"repo_url": two_users["a"]["repo_url"]}
+    ).json()["watched"]["id"]
+
+    stranger = _client(two_users["b"]["cookie"])
+    theirs = stranger.delete(f"/api/v1/watch/{watch_id}")
+    nobodys = stranger.delete("/api/v1/watch/999999")
+
+    assert theirs.status_code == nobodys.status_code == 404
+    assert theirs.json() == nobodys.json(), (
+        "the two refusals differ, so the response says whether the id exists"
+    )
+
+
+@requires_postgres
+def test_a_stranger_cannot_delete_a_watch_even_though_they_get_404(two_users):
+    """404 is the right answer only if it is also a refusal.
+
+    Asserting the status alone would pass against a route that deleted the row
+    and then reported not-found.
+    """
+    owner = _client(two_users["a"]["cookie"])
+    watch_id = owner.post(
+        "/api/v1/watch", json={"repo_url": two_users["a"]["repo_url"]}
+    ).json()["watched"]["id"]
+
+    _client(two_users["b"]["cookie"]).delete(f"/api/v1/watch/{watch_id}")
+
+    surviving = owner.get("/api/v1/watch").json()["watched"]
+    assert [w["id"] for w in surviving] == [watch_id], "a stranger's 404 still deleted it"
+
+
+@requires_postgres
+def test_changing_and_deleting_a_watch_require_a_session(two_users):
+    """PATCH and DELETE were covered by neither the signed-out test nor the
+    protected-endpoint lists, which issue GET /api/v1/watch only."""
+    owner = _client(two_users["a"]["cookie"])
+    watch_id = owner.post(
+        "/api/v1/watch", json={"repo_url": two_users["a"]["repo_url"]}
+    ).json()["watched"]["id"]
+
+    anonymous = TestClient(app, client=("203.0.113.9", 5555))
+
+    assert anonymous.patch(
+        f"/api/v1/watch/{watch_id}", json={"active": False}
+    ).status_code == 401
+    assert anonymous.delete(f"/api/v1/watch/{watch_id}").status_code == 401

@@ -1633,6 +1633,29 @@ body.page-dashboard {
 .btn-signout:hover  { color: var(--text-primary); background: var(--surface-hover, rgba(128, 128, 128, 0.08)); }
 .btn-signout:active { transform: scale(0.96); transition-duration: var(--dur-instant); }
 
+/* Three actions on the watch card, wrapping rather than overflowing on a
+   phone. Pause and Save sit together; Remove is the destructive one and is
+   drawn with .btn-danger-quiet like the account control, so the two
+   irreversible things in the product look the same. */
+.watch-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+.btn-secondary-action {
+    padding: 0.5rem 1.25rem;
+    min-height: 44px;
+    border-radius: var(--radius-pill, 999px);
+    background: transparent;
+    color: var(--text-primary);
+    border: 1px solid var(--border-color, rgba(128, 128, 128, 0.3));
+    font-size: 0.9375rem;
+    cursor: pointer;
+}
+.btn-secondary-action:hover:not(:disabled) { background: var(--surface-hover, rgba(128, 128, 128, 0.08)); }
+.watch-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* Why the numbers below are not this minute's numbers.
    Colour is not the message: the banner carries a heading and a sentence, so
    it reads the same to someone who cannot distinguish the border from the
