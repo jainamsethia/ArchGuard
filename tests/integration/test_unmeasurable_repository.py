@@ -53,6 +53,22 @@ modules:
   coupling_budget: 2
 """
 
+#: Declares import rules whose module path matches no file. Layer 1's own
+#: instance of the same defect: its existing skip asks whether the contract
+#: declares rules, this contract does, and so it reported a clean 0.00 from a
+#: layer that opened nothing. With Layers 2, 3 and 4 skipped this was the only
+#: layer left counting, and the repository scored 100/PASS on it alone.
+CONTRACT_WITH_STALE_IMPORT_RULES = """version: "3.0"
+fail_threshold: 0.75
+warn_threshold: 0.50
+modules:
+- name: ghost
+  path: ghost/
+  coupling_budget: 2
+  allowed_imports:
+  - json
+"""
+
 
 def _tree(root: Path, contract: str) -> Path:
     (root / "hub").mkdir(parents=True)
@@ -92,6 +108,11 @@ def unmeasurable(tmp_path: Path) -> Path:
 @pytest.fixture()
 def measurable(tmp_path: Path) -> Path:
     return _tree(tmp_path / "real", CONTRACT_MATCHING_THE_CODE)
+
+
+@pytest.fixture()
+def stale_import_rules(tmp_path: Path) -> Path:
+    return _tree(tmp_path / "stale", CONTRACT_WITH_STALE_IMPORT_RULES)
 
 
 @pytest.fixture(autouse=True)
@@ -178,6 +199,104 @@ def test_layer_2_is_the_one_that_used_to_carry_it(unmeasurable, tmp_path, live_d
     layer2 = _layers(run)[2]
     assert layer2["skipped"] is True
     assert "scope" in layer2["skip_reason"].lower()
+
+
+# -------------------------------- Layer 1: rules declared, paths matching nothing
+
+
+@requires_postgres
+def test_stale_import_rules_do_not_carry_the_score(
+    stale_import_rules, tmp_path, live_db
+):
+    """The last instance of the defect, end to end.
+
+    This contract declares `allowed_imports`, so Layer 1's existing skip -- which
+    asks whether any rules are declared -- does not fire. But its path matches
+    no file, so every file resolved to no module and the layer examined nothing
+    while reporting the clean 0.00 it reports for a repository it checked.
+
+    With Layers 2, 3 and 4 all skipped, that left Layer 1 as the only counted
+    layer, and 0.00 debt from one layer is 100/100 and a pass.
+    """
+    uid = make_user(9421, "stale-rules")
+    run = scan_repo(
+        stale_import_rules,
+        tmp_path / "c1",
+        "https://github.com/test/stale-rules.git",
+        uid,
+    )["run"]
+
+    layer1 = _layers(run)[1]
+    assert layer1["skipped"] is True, (
+        "Layer 1 declared itself measured after examining no file against any "
+        "rule, which is the whole defect"
+    )
+    assert "import rules" in layer1["skip_reason"], layer1["skip_reason"]
+    assert _shape(run)["counted"] == [], (
+        f"a layer claimed to have measured this repository: {_shape(run)['counted']}"
+    )
+    assert run["score"] != 100.0
+    assert run["band"] != "PASS"
+
+
+@requires_postgres
+def test_the_two_layer_1_skip_reasons_stay_distinct(
+    stale_import_rules, unmeasurable, tmp_path, live_db
+):
+    """Two different problems deserve two different answers.
+
+    A contract with no import rules is ordinary and not worth acting on; a
+    contract whose rules reach no file is broken. Reporting the first message
+    for the second would send a reader looking for a missing `allowed_imports`
+    that is right there.
+    """
+    stale = scan_repo(
+        stale_import_rules,
+        tmp_path / "c1",
+        "https://github.com/test/stale-reason.git",
+        make_user(9423, "stale-reason"),
+    )["run"]
+    no_rules = scan_repo(
+        unmeasurable,
+        tmp_path / "c2",
+        "https://github.com/test/norules-reason.git",
+        make_user(9424, "norules-reason"),
+    )["run"]
+
+    assert _layers(stale)[1]["skip_reason"] != _layers(no_rules)[1]["skip_reason"]
+    assert "no import rules declared" in _layers(no_rules)[1]["skip_reason"]
+
+
+@requires_postgres
+def test_full_and_incremental_agree_on_stale_import_rules(
+    stale_import_rules, tmp_path, live_db
+):
+    """Case F for this path specifically."""
+    uid = make_user(9426, "stale-inc")
+    url = "https://github.com/test/stale-inc.git"
+
+    first = scan_repo(stale_import_rules, tmp_path / "c1", url, uid)
+
+    path = stale_import_rules / "wide" / "core.py"
+    path.write_text(
+        path.read_text(encoding="utf-8") + "import collections\n", encoding="utf-8"
+    )
+
+    incremental = scan_repo(
+        stale_import_rules,
+        tmp_path / "c2",
+        url,
+        uid,
+        previous=previous_run(stale_import_rules, first),
+    )
+    full = scan_repo(
+        stale_import_rules,
+        tmp_path / "c3",
+        "https://github.com/test/stale-inc-full.git",
+        make_user(9427, "stale-inc-full"),
+    )
+
+    assert _shape(incremental["run"]) == _shape(full["run"])
 
 
 # ---------------------------------------- 2 & 3. a measurable repository still works

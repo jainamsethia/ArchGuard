@@ -109,7 +109,9 @@ def test_drift_computed_once_per_run(tmp_path, monkeypatch):
     with (
         patch(
             "archguard.analysis._layer_runners._run_layer1",
-            return_value=(0.0, []),
+            # Three values: Layer 1 reports whether it examined any file against
+            # a rule. An empty reason means it did.
+            return_value=(0.0, [], ""),
         ),
         patch(
             "archguard.analysis._layer_runners._run_layer2",

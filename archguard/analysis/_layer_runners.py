@@ -19,7 +19,13 @@ def _analyze_file_imports(
     disallowed_map: dict[str, set[str]],
     allowed_map: dict[str, set[str]],
     commit_sha: str,
-) -> tuple[int, int, list[ViolationDetail]]:
+) -> tuple[int, int, list[ViolationDetail], str | None]:
+    """Check one file against its module's import rules.
+
+    The fourth value is the module the file was resolved to, or None. The
+    caller needs it to tell "examined and compliant" from "never opened": both
+    produce no violations, and only one of them is a measurement.
+    """
     total_imports = 0
     violation_count = 0
     violations = []
@@ -38,7 +44,7 @@ def _analyze_file_imports(
                 break
 
         if file_module is None:
-            return 0, 0, []
+            return 0, 0, [], None
 
         for edge in edges:
             if edge.is_stdlib or edge.is_relative or edge.is_third_party:
@@ -93,7 +99,7 @@ def _analyze_file_imports(
 
         raise AnalysisError(f"Layer 1 analysis failed on {fpath}", cause=e) from e
 
-    return total_imports, violation_count, violations
+    return total_imports, violation_count, violations, file_module
 
 
 def _run_layer1(
@@ -103,8 +109,19 @@ def _run_layer1(
     affected: dict[str, list[Path]],
     commit_sha: str,
     parse_failures: list[Any] | None = None,
-) -> tuple[float, list[ViolationDetail]]:
-    """Layer 1: Import boundary violations."""
+) -> tuple[float, list[ViolationDetail], str]:
+    """Layer 1: Import boundary violations.
+
+    Returns ``(score, violations, skip_reason)``. A non-empty reason means the
+    layer examined nothing and its 0.00 is an absence of measurement rather
+    than an absence of violations.
+
+    What counts as examined here is a *file put in front of a rule*, which is
+    deliberately not Layer 2's "was any module in scope". A file in a
+    rule-bearing module that imports only stdlib has been opened, resolved and
+    found compliant -- vacuously, but really -- so counting imports instead
+    would report a genuinely clean repository as unchecked.
+    """
     from archguard.analysis.parser import ImportParser
 
     if parse_failures is None:
@@ -128,9 +145,10 @@ def _run_layer1(
 
     total_imports = 0
     violation_count = 0
+    examined_files = 0
 
     for fpath in py_files:
-        t_imports, v_count, v_list = _analyze_file_imports(
+        t_imports, v_count, v_list, file_module = _analyze_file_imports(
             fpath,
             repo_root,
             parser,
@@ -139,12 +157,41 @@ def _run_layer1(
             allowed_map,
             commit_sha,
         )
+        # Examined means this file belonged to a module that declares rules for
+        # it. A file in an undeclared directory was never opened against
+        # anything, and a file in a module with no rules of its own had nothing
+        # to be checked against.
+        if file_module is not None and (
+            file_module in disallowed_map or file_module in allowed_map
+        ):
+            examined_files += 1
         total_imports += t_imports
         violation_count += v_count
         violations.extend(v_list)
 
     parse_failures.extend(parser.parse_failures)
-    return violation_count / max(total_imports, 1), violations
+
+    # The existing contract-level check catches "this contract declares no
+    # import rules", which is the ordinary state of an auto-generated one. It
+    # cannot catch the case that matters here: rules declared, and not one of
+    # the paths they are attached to matching a file in the repository. Every
+    # file then resolves to no module, every call above returns early, and the
+    # score is 0/max(0,1) -- a clean zero from a layer that opened nothing.
+    #
+    # Kept as a separate message rather than folded into the other one. "No
+    # rules declared" is not worth acting on; "rules declared and none of them
+    # reach a file" is a broken contract, and a reader sent looking for a
+    # missing `allowed_imports` would never find it.
+    skip_reason = (
+        ""
+        if examined_files
+        else (
+            "no file belongs to a module with import rules - "
+            "boundaries not measured"
+        )
+    )
+
+    return violation_count / max(total_imports, 1), violations, skip_reason
 
 
 def _run_layer2(

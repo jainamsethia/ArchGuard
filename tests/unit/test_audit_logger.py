@@ -48,7 +48,8 @@ def test_analysis_orchestrator_logs_parse_failure(tmp_path):
     def mock_l1(*args, **kwargs):
         parse_failures = args[-1]
         parse_failures.append(MockFailure())
-        return 0.0, []
+        # Three values now: Layer 1 reports whether it examined anything.
+        return 0.0, [], ""
 
     with (
         patch("archguard.analysis._layer_runners._run_layer1", side_effect=mock_l1),

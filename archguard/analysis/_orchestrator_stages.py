@@ -35,14 +35,16 @@ def _execute_l1_l2_concurrently(
     emit: EmitFn,
     metrics: Any,
     commit_sha: str,
-) -> tuple[float, list[ViolationDetail], float, list[ViolationDetail], list[Any], str]:
+) -> tuple[
+    float, list[ViolationDetail], float, list[ViolationDetail], list[Any], str, str
+]:
     with ThreadPoolExecutor(max_workers=2) as executor:
         emit("Layer 1: import boundaries, Layer 2: coupling...", phase="layer1")
 
         l1_failures: list[Any] = []
         l2_failures: list[Any] = []
 
-        def run_l1() -> tuple[float, list[ViolationDetail]]:
+        def run_l1() -> tuple[float, list[ViolationDetail], str]:
             with metrics.time_layer("layer1"):
                 from archguard.analysis._layer_runners import _run_layer1
 
@@ -73,8 +75,11 @@ def _execute_l1_l2_concurrently(
         # log line layers 1 and 2 produced was attributed to no job at all.
         f_l1 = executor.submit(copy_context().run, run_l1)
         f_l2 = executor.submit(copy_context().run, run_l2)
-        layer1, l1_viols = f_l1.result()
-        emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
+        layer1, l1_viols, l1_skip_reason = f_l1.result()
+        if l1_skip_reason:
+            emit(f"Layer 1 skipped: {l1_skip_reason}")
+        else:
+            emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
 
         layer2, l2_viols, l2_skip_reason = f_l2.result()
         if l2_skip_reason:
@@ -88,6 +93,7 @@ def _execute_l1_l2_concurrently(
             layer2,
             l2_viols,
             l1_failures + l2_failures,
+            l1_skip_reason,
             l2_skip_reason,
         )
 
@@ -157,6 +163,7 @@ def _run_layer_1_2(
         layer2,
         l2_viols,
         parse_failures,
+        l1_skip_reason,
         l2_skip_reason,
     ) = _execute_l1_l2_concurrently(
         orchestrator, py_files, affected, emit, metrics, commit_sha
@@ -177,6 +184,12 @@ def _run_layer_1_2(
     # every import and can never flag one -- a guaranteed 0.00 that reads as
     # "boundaries checked, all clean". Record that it had no rules to enforce,
     # so it is reported as not-applicable rather than as a clean pass.
+    #
+    # Checked first because it is the more useful of the two messages when both
+    # are true: a contract with no rules anywhere is the ordinary state of a
+    # generated one, and saying "no file belongs to a module with import rules"
+    # about it would send the reader looking for a path problem that is not
+    # there.
     if not any(
         "disallowed_imports" in m or "allowed_imports" in m
         for m in orchestrator.contract.get("modules", [])
@@ -185,6 +198,13 @@ def _run_layer_1_2(
         metrics.extra["layer1_skip_reason"] = (
             "no import rules declared in this contract - no boundaries to enforce"
         )
+    elif l1_skip_reason:
+        # Rules are declared and not one of them reached a file. The contract
+        # names paths that no longer match the repository, so every file
+        # resolved to no module and the layer examined nothing -- while
+        # reporting the same clean 0.00 it reports for a repository it checked.
+        metrics.extra["layer1_skipped"] = True
+        metrics.extra["layer1_skip_reason"] = l1_skip_reason
 
     unique_failures = []
     seen = set()

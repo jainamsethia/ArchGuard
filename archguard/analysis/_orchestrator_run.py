@@ -161,11 +161,18 @@ def _run_orchestrator(
     ]
     if not py_files:
         scores = LayerScores(0.0, 0.0, 0.0, 0.0)
+        # Every layer named as skipped, because none of them ran. Without the
+        # list all four counted as measured zeros, and four measured zeros are
+        # 0.00 debt -- so a run with no Python files in it returned 100/100 and
+        # a passing band while simultaneously reporting itself skipped. The same
+        # defect the four layer runners were fixed for, one level up.
+        all_layers = ["Layer 1", "Layer 2", "Layer 3", "Layer 4"]
         return AnalysisResult(
-            archdebt=compute_archdebt(scores),
+            archdebt=compute_archdebt(scores, skipped=all_layers),
             skipped=True,
             skip_reason="No Python files changed",
             commit_sha=commit_sha,
+            skipped_layers_names=all_layers,
         )
 
     from archguard.analysis._orchestrator_utils import (
