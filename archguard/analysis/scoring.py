@@ -225,7 +225,19 @@ def compute_archdebt(
     active = {k: v for k, v in layer_map.items() if k not in skipped_names}
 
     if not active:
-        raw_score = 0.0
+        # Nothing was measured. An average over no layers is arithmetically
+        # 0.00, and 0.00 debt is 100/100 and a passing band -- so a repository
+        # whose contract matched no file, on which not one check could run, came
+        # back perfect.
+        #
+        # 1.0 rather than 0.0 because those are the only two answers available
+        # and one of them is a claim the run cannot support. This is the same
+        # convention `_skip_payload` already uses for the analogous case ("No
+        # Python files found in repository"): score 0, band FAIL, and a reason
+        # carried alongside. The caller sets `AnalysisResult.skipped` with that
+        # reason, and the dashboard shows it as "not checked" per layer rather
+        # than as a verdict on the code.
+        raw_score = 1.0
     else:
         weight_each = 1.0 / len(active)
         raw_score = sum(weight_each * s for s in active.values())

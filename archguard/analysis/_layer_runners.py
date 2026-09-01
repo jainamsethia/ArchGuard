@@ -153,8 +153,14 @@ def _run_layer2(
     affected: dict[str, list[Path]],
     commit_sha: str,
     parse_failures: list[Any] | None = None,
-) -> tuple[float, list[ViolationDetail]]:
-    """Layer 2: Coupling delta."""
+) -> tuple[float, list[ViolationDetail], str]:
+    """Layer 2: Coupling delta.
+
+    Returns ``(score, violations, skip_reason)``. The third value is new and is
+    what the other three layers already had: a way to say the layer measured
+    nothing, as opposed to measuring everything and finding nothing. Both are a
+    0.00, and the composite averages the second into the score as a clean pass.
+    """
     if parse_failures is None:
         parse_failures = []
     violations: list[ViolationDetail] = []
@@ -174,10 +180,12 @@ def _run_layer2(
     edges = parse_result.edges
     parse_failures.extend(parse_result.failures)
     max_delta = 0.0
+    measured_modules = 0
 
     for mod_name in affected:
         if mod_name not in module_paths:
             continue
+        measured_modules += 1
         fan_out = compute_fan_out(edges, mod_name, module_paths)
         budget = budgets.get(mod_name, 3)
         delta = compute_coupling_delta(fan_out, budget, mod_name)
@@ -198,7 +206,18 @@ def _run_layer2(
 
         max_delta = max(max_delta, delta)
 
-    return max_delta, violations
+    # Same rule as Layers 3 and 4: one measured module means the layer produced
+    # a signal, and only when none did is it reported as not run. Reached when
+    # the scan has no module in scope at all, and when every name in scope is
+    # one the contract does not declare paths for -- a contract whose paths
+    # match nothing in the repository produces both.
+    skip_reason = (
+        ""
+        if measured_modules
+        else "no module was in scope for this scan - coupling not measured"
+    )
+
+    return max_delta, violations, skip_reason
 
 
 def _run_layer3(

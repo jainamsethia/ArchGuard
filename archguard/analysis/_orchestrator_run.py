@@ -63,6 +63,7 @@ def _finalize_result(
         name
         for name, extra_key in (
             ("Layer 1", "layer1_skipped"),
+            ("Layer 2", "layer2_skipped"),
             ("Layer 3", "layer3_skipped"),
             ("Layer 4", "layer4_skipped"),
         )
@@ -77,6 +78,16 @@ def _finalize_result(
         skipped=skipped_names,
     )
 
+    # Every layer skipped means nothing was measured, and a run that measured
+    # nothing is not a healthy run -- it is an unknown one. The composite has no
+    # way to express that: it averages over the layers that ran, an average over
+    # none of them is 0.00 debt, and 0.00 debt is 100/100 and a passing band. So
+    # a repository whose contract matches no file came back perfect.
+    #
+    # Reported through `skipped`/`skip_reason`, which is what the product
+    # already uses for a run it could not perform ("No Python files found") and
+    # what the dashboard renders as a reason rather than as a grade.
+    nothing_measured = len(skipped_names) == 4
     res = AnalysisResult(
         archdebt=archdebt,
         violations=violations,
@@ -88,6 +99,13 @@ def _finalize_result(
         parse_failures=unique_failures,
         partial_analysis=bool(unique_failures),
         skipped_layers_names=skipped_names,
+        skipped=nothing_measured,
+        skip_reason=(
+            "No layer could measure this repository. Its contract declares no "
+            "module that matches a file here, so there was nothing to analyse."
+            if nothing_measured
+            else ""
+        ),
     )
 
     evaluate_fitness(res)

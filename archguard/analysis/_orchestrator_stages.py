@@ -35,7 +35,7 @@ def _execute_l1_l2_concurrently(
     emit: EmitFn,
     metrics: Any,
     commit_sha: str,
-) -> tuple[float, list[ViolationDetail], float, list[ViolationDetail], list[Any]]:
+) -> tuple[float, list[ViolationDetail], float, list[ViolationDetail], list[Any], str]:
     with ThreadPoolExecutor(max_workers=2) as executor:
         emit("Layer 1: import boundaries, Layer 2: coupling...", phase="layer1")
 
@@ -55,7 +55,7 @@ def _execute_l1_l2_concurrently(
                     l1_failures,
                 )
 
-        def run_l2() -> tuple[float, list[ViolationDetail]]:
+        def run_l2() -> tuple[float, list[ViolationDetail], str]:
             with metrics.time_layer("layer2"):
                 from archguard.analysis._layer_runners import _run_layer2
 
@@ -76,10 +76,20 @@ def _execute_l1_l2_concurrently(
         layer1, l1_viols = f_l1.result()
         emit(f"Layer 1 complete: {len(l1_viols)} violation(s).")
 
-        layer2, l2_viols = f_l2.result()
-        emit(f"Layer 2 complete: {len(l2_viols)} violation(s).", phase="layer2")
+        layer2, l2_viols, l2_skip_reason = f_l2.result()
+        if l2_skip_reason:
+            emit(f"Layer 2 skipped: {l2_skip_reason}", phase="layer2")
+        else:
+            emit(f"Layer 2 complete: {len(l2_viols)} violation(s).", phase="layer2")
 
-        return layer1, l1_viols, layer2, l2_viols, l1_failures + l2_failures
+        return (
+            layer1,
+            l1_viols,
+            layer2,
+            l2_viols,
+            l1_failures + l2_failures,
+            l2_skip_reason,
+        )
 
 
 def _handle_l1_l2_fail_fast(
@@ -141,11 +151,26 @@ def _run_layer_1_2(
     rel_files: list[str],
 ) -> tuple[list[ViolationDetail], float, float, list[Any], AnalysisResult | None]:
     fail_threshold = float(orchestrator.contract.get("fail_threshold", 0.75))
-    layer1, l1_viols, layer2, l2_viols, parse_failures = _execute_l1_l2_concurrently(
+    (
+        layer1,
+        l1_viols,
+        layer2,
+        l2_viols,
+        parse_failures,
+        l2_skip_reason,
+    ) = _execute_l1_l2_concurrently(
         orchestrator, py_files, affected, emit, metrics, commit_sha
     )
 
     violations = l1_viols + l2_viols
+
+    # Layer 2 had no skip state at all until now, which made it the only layer
+    # that scored a repository it had not measured. Recorded the same way as the
+    # others, so `_finalize_result` reweights it out of the composite instead of
+    # averaging in a 0.00 nobody computed.
+    if l2_skip_reason:
+        metrics.extra["layer2_skipped"] = True
+        metrics.extra["layer2_skip_reason"] = l2_skip_reason
 
     # Layer 1 only enforces the allowed_imports / disallowed_imports a contract
     # declares. Auto-generated contracts declare neither, so the layer inspects

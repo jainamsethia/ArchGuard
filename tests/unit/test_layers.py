@@ -113,7 +113,9 @@ def test_drift_computed_once_per_run(tmp_path, monkeypatch):
         ),
         patch(
             "archguard.analysis._layer_runners._run_layer2",
-            return_value=(0.0, []),
+            # Three values: Layer 2 reports whether it measured anything now,
+            # like the other three layers. An empty reason means it did.
+            return_value=(0.0, [], ""),
         ),
         patch(
             "archguard.analysis._layer_runners._run_layer4",

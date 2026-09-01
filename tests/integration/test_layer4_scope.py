@@ -184,21 +184,18 @@ def test_a_contract_matching_no_file_does_not_report_clean_duplication(
         f"a layer with nothing in scope was counted as measured: {counted}"
     )
 
-    # Layers 1, 3 and 4 now all decline to score a repository they could not
-    # measure. Layer 2 still does, and this records that rather than asserting
-    # it is right: it has no skip channel at all -- `_finalize_result` only
-    # looks for layer1/3/4 skip keys -- so its loop ran over zero modules,
-    # returned a measured 0.0, and is the only layer left counting. The result
-    # is that this repository scores a perfect 100/PASS with nothing measured.
-    #
-    # That is the last instance of the defect Layers 3 and 4 were fixed for, and
-    # closing it means giving Layer 2 a skip state and teaching the composite
-    # about it -- a change to the scoring path that deserves its own
-    # verification rather than being folded in here. When it is fixed this
-    # assertion will fail, which is the point: it is the reminder.
-    assert counted == ["L2"] and scan["run"].get("score") == 100.0, (
-        "Layer 2's missing skip state appears to have been addressed -- update "
-        "this test to the new, better behaviour rather than restoring the old"
+    # All four layers now decline to score a repository they could not measure.
+    # This assertion was the reminder that Layer 2 did not, and that it left the
+    # repository reporting 100.0/PASS off the back of a layer that had looked at
+    # nothing; it is kept, pointed at the answer, so a regression in any of the
+    # four shows up here as a repository scoring well for having no content in
+    # scope. The whole-run consequence is
+    # tests/integration/test_unmeasurable_repository.py.
+    assert counted == [], (
+        f"a repository with nothing in scope still counted a layer: {counted}"
+    )
+    assert scan["run"].get("score") != 100.0, (
+        "a repository where nothing could be measured was scored as perfect"
     )
 
 

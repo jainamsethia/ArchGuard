@@ -43,7 +43,8 @@ def test_layers_concurrent_violations():
         ) as m1,
         patch(
             "archguard.analysis._layer_runners._run_layer2",
-            return_value=(0.3, l2_violations),
+            # Three values now; the empty reason says the layer measured.
+            return_value=(0.3, l2_violations, ""),
         ) as m2,
         patch(
             "archguard.analysis._layer_runners._run_layer3",

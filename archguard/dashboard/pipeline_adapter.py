@@ -725,7 +725,10 @@ def _run_analysis_sync(
                 score=result.archdebt.health_score,
                 band=audit_band,
                 violations=v_list_out + carried,
-                skipped=False,
+                # From the result rather than hardcoded. It is True when no
+                # layer could measure the repository, and a reader who sees a
+                # score needs to know it describes nothing.
+                skipped=result.skipped,
                 layer_results=[
                     LayerResultPayload(
                         layer=lr.layer,
