@@ -46,15 +46,33 @@ def test_html_is_compressed():
 
 def test_compression_actually_shrinks_the_payload():
     """Asserting the header alone would pass against a middleware that
-    advertised gzip and sent the bytes through unchanged."""
+    advertised gzip and sent the bytes through unchanged.
+
+    This used to read the wire size from `content-length` on the compressed
+    response, which worked only while the file fit in one chunk. `FileResponse`
+    reads in 64 KB chunks and `GZipMiddleware` switches to streaming the moment
+    there is more than one, dropping `content-length` -- so the assertion broke
+    when index.css crossed 64 KB, for a reason that had nothing to do with
+    compression.
+
+    The property is checked two ways instead, neither size-dependent. httpx
+    decodes transparently, so a body that round-trips to the identical bytes is
+    a body that really was valid gzip: a middleware passing the content through
+    while claiming gzip would fail to decode rather than compare equal. And the
+    saving is real, measured on the same bytes the server sent.
+    """
+    import gzip
+
     raw = client.get("/index.css", headers={"Accept-Encoding": "identity"})
-    # httpx transparently decompresses, so compare against the wire length the
-    # server reported rather than the decoded body.
     compressed = client.get("/index.css", headers={"Accept-Encoding": "gzip"})
-    wire = int(compressed.headers.get("content-length", 0))
-    assert wire, "no content-length on the compressed response"
-    assert wire < len(raw.content) / 2, (
-        f"gzip saved almost nothing: {wire} vs {len(raw.content)} bytes"
+
+    assert compressed.headers.get("content-encoding") == "gzip"
+    assert compressed.content == raw.content, (
+        "the gzip response did not decode back to the original asset"
+    )
+    assert len(gzip.compress(raw.content)) < len(raw.content) / 2, (
+        f"gzip saves almost nothing on this asset: "
+        f"{len(gzip.compress(raw.content))} vs {len(raw.content)} bytes"
     )
 
 

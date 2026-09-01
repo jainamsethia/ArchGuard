@@ -101,7 +101,16 @@ export async function scanDependencies() {
     try {
         const res = await fetch(`/api/v1/deps${jobQuery}`);
         if (!res.ok) {
-            statusEl.textContent = `Error ${res.status}: could not scan dependencies.`;
+            // The same three categories the rest of the dashboard uses, rather
+            // than a status code. "Error 401" tells a reader nothing they can
+            // act on; "sign in again" does, and a bare number is the sort of
+            // thing that ends up quoted in a support thread instead of fixed.
+            statusEl.textContent =
+                res.status === 401 || res.status === 403
+                    ? 'Your session has expired. Sign in again to see the dependency scan.'
+                    : res.status === 429
+                        ? 'Too many requests. Try again shortly.'
+                        : "We couldn't load the dependency scan. Try again.";
             scoreEl.textContent = '--';
             tableContainer.style.display = 'none';
             return;

@@ -1633,6 +1633,52 @@ body.page-dashboard {
 .btn-signout:hover  { color: var(--text-primary); background: var(--surface-hover, rgba(128, 128, 128, 0.08)); }
 .btn-signout:active { transform: scale(0.96); transition-duration: var(--dur-instant); }
 
+/* Why the numbers below are not this minute's numbers.
+   Colour is not the message: the banner carries a heading and a sentence, so
+   it reads the same to someone who cannot distinguish the border from the
+   card behind it. */
+.api-status {
+    border: 1px solid var(--color-warn, #b8860b);
+    border-left-width: 4px;
+    border-radius: var(--radius-md, 8px);
+    background: var(--tint-warn-bg, rgba(184, 134, 11, 0.08));
+    padding: 0.875rem 1rem;
+    margin-bottom: 1rem;
+}
+.api-status-title { display: block; margin-bottom: 0.25rem; }
+.api-status-body  { margin: 0 0 0.75rem; font-size: 0.9375rem; }
+
+/* Styled explicitly rather than borrowed. The first version reused
+   `.btn-secondary`, which does not exist in this stylesheet -- so the control
+   fell back to the browser's default button chrome, and axe caught it failing
+   contrast against the banner's tinted background. The pair below is the
+   theme's own foreground and background, which contrast with each other by
+   construction in both light and dark. */
+.api-status-retry {
+    min-height: 44px;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill, 999px);
+    background: var(--text-primary, #1d1d1f);
+    color: var(--bg-color, #ffffff);
+    font-size: 0.9375rem;
+    cursor: pointer;
+}
+.api-status-retry:hover { opacity: 0.88; }
+
+/* Last-known values, still readable, visibly not current. Dimming alone would
+   be a colour-only signal; it is the banner above that says what happened, and
+   this only stops the stale numbers looking freshly measured. */
+[data-stale="true"] .metric-value,
+[data-stale="true"] .chart-container,
+[data-stale="true"] #violations-table-container {
+    opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .api-status { transition: none; }
+}
+
 /* Deleting an account. Deliberately the quietest control in the bar until it
    is deliberately approached: an irreversible action drawn as loudly as the
    ones around it is an irreversible action people press by mistake. It still

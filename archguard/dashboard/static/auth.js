@@ -57,6 +57,37 @@
     });
   }
 
+  /**
+   * Wire the sign-in button. Called on both paths, not just the signed-out
+   * one: a session can expire while the page is open, and the button that
+   * appears at that moment needs a handler that was attached before it.
+   */
+  function wireSignIn(url) {
+    if (!signInBtn || signInBtn.dataset.wired) return;
+    signInBtn.dataset.wired = '1';
+    // A link, not a fetch: the OAuth flow is a full-page redirect to
+    // github.com and back. XHR cannot follow it, and would not carry the
+    // cookies GitHub sets.
+    signInBtn.addEventListener('click', () => {
+      window.location.href = url || '/auth/github';
+    });
+  }
+
+  // The dashboard's data requests report an expired session here rather than
+  // rendering an authentication UI of their own. This overlay is the page's
+  // one way of saying "sign in", and a second one competing with it -- a
+  // banner over a dashboard the visitor can no longer read -- would be worse
+  // than the `--` it replaced.
+  window.addEventListener('archguard:apifailure', (e) => {
+    if (!e.detail || e.detail.kind !== 'auth') return;
+    if (whoami) whoami.hidden = true;
+    if (signOutBtn) signOutBtn.hidden = true;
+    if (deleteBtn) deleteBtn.hidden = true;
+    if (signInBtn) signInBtn.hidden = false;
+    wireSignIn();
+    showOverlay('Your session has expired. Sign in again to continue.');
+  });
+
   let status;
   try {
     const res = await fetch('/api/v1/auth/status');
@@ -99,12 +130,7 @@
 
   if (signInBtn) {
     signInBtn.hidden = false;
-    // A link, not a fetch: the OAuth flow is a full-page redirect to
-    // github.com and back. XHR cannot follow it, and would not carry the
-    // cookies GitHub sets.
-    signInBtn.addEventListener('click', () => {
-      window.location.href = status.sign_in_url || '/auth/github';
-    });
+    wireSignIn(status.sign_in_url);
   }
   showOverlay(
     status.sign_in_available

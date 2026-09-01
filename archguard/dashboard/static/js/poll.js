@@ -1,13 +1,23 @@
 import { state } from './state.js';
-import { highlightJobId, jobQuery, jobQueryAmp, safeFetch } from './api.js';
+import { FAILURE, beginFetchCycle, highlightJobId, jobQuery, jobQueryAmp, lastApiFailure, safeFetch } from './api.js';
 import { sanitize } from './dom.js';
 import { updateModuleChart, updateTrendChart } from './render/charts.js';
 import { populateRecentPicker } from './render/compare.js';
 import { _applyGitEvolutionData, updateEvolutionTrends } from './render/evolution.js';
 import { updateFitnessPanel } from './render/fitness.js';
 import { clearEmptyState, hideRefreshLoader, renderEmptyState, updateLayerStatus, updateMetrics, updateProvenanceBanner, updateThresholdNote, updateViolationCounts } from './render/metrics.js';
+import { clearApiFailure, renderApiFailure } from './render/status.js';
 import { loadWatchState } from './render/watch.js';
 import { updateViolationsTable } from './render/violations.js';
+
+
+//: How long to wait before trying again when the server rate-limited us and
+//: did not say for how long. The server's window is 60s, so this matches it
+//: rather than guessing lower and being refused again.
+const DEFAULT_BACKOFF_SECONDS = 60;
+
+//: The pending backoff, so a second failure does not stack a second timer.
+let backoffTimer = null;
 
 
 // Polling is a handle, not a fire-and-forget interval, so the empty state can
@@ -46,6 +56,50 @@ export function runIsTerminal(run) {
 }
 
 
+/**
+ * React to a request that did not produce data.
+ *
+ * Three different answers, because they need three different things from the
+ * reader. A dead session needs them to sign in and nothing else will help. A
+ * rate limit needs them to wait, and needs us to stop asking -- polling every
+ * thirty seconds into a 429 is what caused it. Everything else needs a way to
+ * try again.
+ */
+function handleFailure(failure) {
+    if (failure.kind === FAILURE.AUTH) {
+        // The session is gone, so there is nothing to poll for and every
+        // further request would be another 401. auth.js raises the sign-in
+        // overlay in response to the event api.js already dispatched -- the
+        // page's one authentication UI, rather than a second one here.
+        stopPolling();
+        return;
+    }
+
+    if (failure.kind === FAILURE.RATE_LIMIT) {
+        // Stop asking. The window is what has to pass, and continuing to poll
+        // through it keeps the budget spent and the dashboard refused.
+        suspendPolling();
+        const wait = (failure.retryAfter ?? DEFAULT_BACKOFF_SECONDS) * 1000;
+        if (backoffTimer === null) {
+            backoffTimer = setTimeout(() => {
+                backoffTimer = null;
+                if (pollingWanted) {
+                    fetchData();
+                    startPolling();
+                }
+            }, wait);
+            // A pending timer keeps Node's event loop alive, so under the test
+            // runner a single rate-limited case would hold the whole suite open
+            // for the length of the backoff. No effect in a browser, where
+            // timers do not keep anything alive.
+            if (typeof backoffTimer === 'object' && backoffTimer?.unref) backoffTimer.unref();
+        }
+    }
+
+    renderApiFailure(failure, { onRetry: fetchData });
+}
+
+
 export async function fetchData() {
     const refreshLoader = document.getElementById('refresh-loader');
     if (refreshLoader) refreshLoader.style.display = 'inline-block';
@@ -57,6 +111,7 @@ export async function fetchData() {
     if (region) region.setAttribute('aria-busy', 'true');
 
     try {
+        beginFetchCycle();
         const [runsData, latestData, modulesData, evolutionData, gitEvoData] = await Promise.all([
             safeFetch(`/api/v1/runs?limit=30${jobQueryAmp}`, { runs: [] }),
             safeFetch(`/api/v1/runs/latest${jobQuery}`, null),
@@ -64,6 +119,19 @@ export async function fetchData() {
             safeFetch(`/api/v1/evolution/trends${jobQuery}`, { trends: [] }),
             safeFetch(`/api/v1/evolution/latest${jobQuery}`, null)
         ]);
+
+        // Before the empty check, and that order is the fix. A failed request
+        // returns its fallback -- an empty list, a null -- which is
+        // indistinguishable from a repository that genuinely has no analyses.
+        // So a signed-out session, a rate limit and a server fault all rendered
+        // "No analyses yet. Analyze a repository." to someone whose analyses
+        // were sitting there behind a 401.
+        const failure = lastApiFailure();
+        if (failure) {
+            handleFailure(failure);
+            return;
+        }
+        clearApiFailure();
 
         if ((!runsData?.runs?.length && !latestData) || (latestData && latestData.empty)) {
             updateProvenanceBanner(null);

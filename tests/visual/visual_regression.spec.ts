@@ -169,7 +169,37 @@ test('dependency scan handles 500 error properly', async ({ page }) => {
   await scanBtn.click();
 
   const statusEl = page.locator('#deps-status');
-  await expect(statusEl).toHaveText('Error 500: could not scan dependencies.');
-  
+  // The panel used to print "Error 500: could not scan dependencies." A status
+  // code is not something a reader can act on, and it made a dead session and
+  // a rate limit -- both of which have an answer -- look like a server fault,
+  // which does not. The categories match the rest of the dashboard now.
+  await expect(statusEl).toHaveText("We couldn't load the dependency scan. Try again.");
+
   await expect(scanBtn).toBeEnabled();
+});
+
+
+test('an expired session on the dependency panel says to sign in', async ({ page }) => {
+  // The distinction the message change exists for: 401 is recoverable by the
+  // reader and 500 is not, and "Error 401" told them neither.
+  await page.route('**/api/v1/deps*', route =>
+    route.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
+  );
+
+  await openDashboardWithData(page);
+  await page.locator('#scan-deps-btn').click();
+
+  await expect(page.locator('#deps-status')).toContainText(/session has expired/i);
+});
+
+
+test('a rate-limited dependency scan says to wait', async ({ page }) => {
+  await page.route('**/api/v1/deps*', route =>
+    route.fulfill({ status: 429, contentType: 'application/json', body: '{}' }),
+  );
+
+  await openDashboardWithData(page);
+  await page.locator('#scan-deps-btn').click();
+
+  await expect(page.locator('#deps-status')).toContainText(/too many requests/i);
 });

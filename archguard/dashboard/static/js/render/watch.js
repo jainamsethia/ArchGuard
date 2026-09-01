@@ -15,6 +15,9 @@ import { sanitize } from '../dom.js';
 
 /** The watch for the repository this page is showing, or null. */
 let current = null;
+//: The watch state could not be read. Distinct from `current === null`, which
+//: is the answer "this repository is not watched".
+let unknown = false;
 
 function repoUrl() {
     return state.latestRun && state.latestRun.repo_url;
@@ -30,14 +33,20 @@ export async function loadWatchState() {
     if (!card || !url) return;
     card.hidden = false;
 
+    unknown = false;
     try {
         const res = await fetch('/api/v1/watch');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         current = (data.watched || []).find(w => w.repo_url === url) || null;
     } catch (e) {
+        // Not `current = null`. That renders as "Not watched", which is a
+        // claim about the account this request just failed to read -- and the
+        // button underneath it offers to start watching something that may
+        // already be watched.
         console.warn('[dashboard] could not load watch state:', e.message);
         current = null;
+        unknown = true;
     }
     renderWatchState();
 }
@@ -46,6 +55,18 @@ function renderWatchState() {
     const status = el('watch-status');
     const button = el('watch-toggle-btn');
     if (!status || !button) return;
+
+    if (unknown) {
+        // Three states, not two: watched, not watched, and we could not find
+        // out. The control is disabled because acting on an unknown state is
+        // how a repository ends up watched twice or unwatched by accident.
+        status.textContent =
+            "We couldn't check whether this repository is being watched. Reload to try again.";
+        button.textContent = 'Watch this repository';
+        button.disabled = true;
+        return;
+    }
+    button.disabled = false;
 
     if (!current || !current.active) {
         status.textContent = current

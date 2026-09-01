@@ -166,3 +166,37 @@ test('the dashboard reports when it is busy refreshing', async ({ page }) => {
   // After the initial load has settled it must be false, not left stuck on.
   await expect(page.locator('#dashboard-main')).toHaveAttribute('aria-busy', 'false');
 });
+
+
+test('the API failure banner has no serious or critical violations', async ({ page }) => {
+  // A state axe had never seen: it only exists once a request fails, so a
+  // scan of the healthy dashboard never reaches it. Contrast on the banner,
+  // the retry button's name, and the live region's role are all things that
+  // would otherwise ship unchecked.
+  await page.route('**/api/v1/{runs,runs/latest,modules,evolution/**}*', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+  );
+  await page.goto('/dashboard.html');
+  await expect(page.locator('#api-status')).toBeVisible();
+
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const found = blocking(results);
+  expect(found, describe(found)).toEqual([]);
+});
+
+
+test('the failure banner does not rely on colour alone', async ({ page }) => {
+  // A coloured border is not a message. Someone who cannot distinguish it from
+  // the card behind it must still be told what happened and what to do.
+  await page.route('**/api/v1/{runs,runs/latest,modules,evolution/**}*', (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+  );
+  await page.goto('/dashboard.html');
+
+  const banner = page.locator('#api-status');
+  await expect(banner).toContainText(/couldn't load/i);
+  await expect(banner.locator('.api-status-title')).not.toBeEmpty();
+  await expect(banner.locator('.api-status-body')).not.toBeEmpty();
+});
