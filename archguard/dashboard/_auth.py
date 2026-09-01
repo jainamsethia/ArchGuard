@@ -161,25 +161,39 @@ def check_token(
 
     Accepts, in order:
 
-    1. ``Authorization: Bearer <ARCHGUARD_DASHBOARD_TOKEN>`` -- operators;
-    2. a valid session cookie -- any signed-in user;
+    1. a valid session cookie -- any signed-in user;
+    2. ``Authorization: Bearer <ARCHGUARD_DASHBOARD_TOKEN>`` -- operators;
     3. a short-lived, job-scoped stream token in ``?token=`` -- EventSource
        cannot set headers, so an SSE URL is the one place a credential may
        legitimately appear in a query string.
 
-    If ARCHGUARD_DASHBOARD_TOKEN is not set, falls back to IP-based allow/deny.
+    If ARCHGUARD_DASHBOARD_TOKEN is not set, falls back to IP-based allow/deny
+    for requests that carry no session.
     """
+    # Path 1: a signed-in session, checked before anything looks at whether an
+    # operator credential exists.
+    #
+    # It used to be checked *inside* the `if token:` branch below, which made a
+    # user's authentication conditional on a setting that has nothing to do
+    # with them. On a developer's machine that is invisible, because the peer is
+    # loopback and the fallback allows everything. Behind a platform proxy the
+    # peer is the proxy, the fallback allows nothing, and a correctly signed-in
+    # user got 401 from every route on an instance that had passed every
+    # startup check -- with a message telling the operator to set a token that
+    # was never the reason the request was refused.
+    #
+    # Whether the deployment has an operator credential is not a fact about
+    # whether this visitor is signed in, so it is no longer allowed to decide.
+    from archguard.dashboard import _sessions
+
+    if _sessions.resolve(request.cookies.get(_sessions.COOKIE_NAME, "")) is not None:
+        return  # authenticated via a real session
+
     token = os.environ.get("ARCHGUARD_DASHBOARD_TOKEN")
     if token:
-        # Path 1: Bearer token (CLI / API clients)
+        # Path 2: Bearer token (CLI / API clients)
         if credentials and hmac.compare_digest(credentials.credentials, token):
             return  # authenticated via Bearer
-
-        # Path 2: Session cookie (browser clients)
-        from archguard.dashboard import _sessions
-
-        if _sessions.resolve(request.cookies.get(_sessions.COOKIE_NAME, "")) is not None:
-            return  # authenticated via a real session
 
         # Path 3: a job-scoped stream token (SSE EventSource clients).
         #
@@ -201,7 +215,12 @@ def check_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # No token configured - fall back to IP-based check.
+    # Nobody is signed in and no operator credential matched, so the only thing
+    # left to judge by is where the request came from. This is what makes a
+    # fresh checkout usable: no OAuth app, no token, and the dashboard works on
+    # localhost. It is not a production path -- a hosted deployment sees its
+    # proxy here, never loopback.
+    #
     # Deliberately the DIRECT peer address, not the X-Forwarded-For-derived one:
     # with a trusted proxy configured (or "*"), a remote client could otherwise
     # send "X-Forwarded-For: 127.0.0.1" and be granted localhost trust.
@@ -220,10 +239,16 @@ def check_token(
     if not allow_remote:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
+            # Names what the caller can actually do about it. This used to say
+            # only "set ARCHGUARD_DASHBOARD_TOKEN", which is advice for the
+            # operator rather than the visitor -- and since a session now
+            # authenticates on its own, setting that token is no longer what
+            # makes an ordinary request work.
             detail=(
-                "Dashboard requires ARCHGUARD_DASHBOARD_TOKEN to be set for "
-                "remote access. Set ARCHGUARD_DASHBOARD_TOKEN in your environment."
+                "Not authenticated. Sign in, or send an operator credential "
+                "in an Authorization: Bearer header."
             ),
+            headers={"WWW-Authenticate": "Bearer"},
         )
     logger.warning(
         "Dashboard accessed from %s (forwarded-for: %s) without token "

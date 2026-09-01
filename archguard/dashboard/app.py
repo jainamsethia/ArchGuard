@@ -159,9 +159,17 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     _verify_llm_models()
 
     if not os.environ.get("ARCHGUARD_DASHBOARD_TOKEN"):
+        # Accurate about what is and is not affected. This used to say
+        # authentication "relies on IP-based allowlisting", which read as
+        # though signed-in users were affected -- they are not, and while
+        # `check_token` really did refuse them without this token, that was the
+        # bug rather than the design. What is genuinely unavailable without it
+        # is operator access with no browser.
         _startup_logger.warning(
-            "ARCHGUARD_DASHBOARD_TOKEN is not set. "
-            "Authentication relies on IP-based allowlisting (localhost only). "
+            "ARCHGUARD_DASHBOARD_TOKEN is not set. Signed-in users are "
+            "unaffected -- their session authenticates them -- but there is no "
+            "operator credential for reaching the API without a browser, and "
+            "unauthenticated requests are accepted from localhost. "
             "Generate one with: python -c \"import secrets; "
             "print(secrets.token_hex(32))\""
         )
