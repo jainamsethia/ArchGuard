@@ -28,9 +28,40 @@ make dev
 `.env` must define:
 
 ```
-DATABASE_URL=postgresql+asyncpg://archguard:<password>@127.0.0.1:5432/archguard_dev
-TEST_DATABASE_URL=postgresql+asyncpg://archguard:<password>@127.0.0.1:5432/archguard_test
+DATABASE_URL=postgresql+asyncpg://archguard:archguard_local_dev@127.0.0.1:5432/archguard_dev
+TEST_DATABASE_URL=postgresql+asyncpg://archguard:archguard_local_dev@127.0.0.1:5432/archguard_test
 REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+`archguard_local_dev` is the password `docker-compose.yml` uses unless you
+override `POSTGRES_PASSWORD`.
+
+**`.env` is read by the application, and by nothing else.** `load_dotenv()` is
+called in `archguard/dashboard/app.py`, so `make dev` picks it up. pytest does
+not, `alembic` does not, and `scripts/dev_services.py` does not — they read the
+process environment. A populated `.env` and a running database therefore still
+produce:
+
+```
+SKIPPED [1] tests/db_fixtures.py: TEST_DATABASE_URL is not set
+```
+
+which is the suite telling the truth about a variable it genuinely cannot see.
+Export them into the shell before running anything but the app:
+
+```bash
+set -a; . ./.env; set +a          # bash/zsh, and Git Bash on Windows
+```
+
+CI does the same thing by declaring them as job-level `env:` rather than by
+loading a file.
+
+**The compose file creates only `archguard_dev`.** `TEST_DATABASE_URL` above
+points at a second database that does not exist until you create it, and
+without it the integration tests fail in `alembic upgrade` rather than skipping:
+
+```bash
+docker compose exec postgres createdb -U archguard archguard_test
 ```
 
 **Write `127.0.0.1`, not `localhost`.** On WSL2 (and anywhere else that
@@ -119,32 +150,102 @@ wsl -d Ubuntu -u root -- sleep infinity &
 
 ## Running the tests
 
-The default run excludes integration tests, so it needs no services:
+Everything below assumes you have exported `.env` into the shell, as above.
+Without that the database tests skip and the run still reports success.
+
+The default run excludes tests marked `integration`:
 
 ```bash
 pytest
 ```
 
-The database tests are marked `integration` and skip themselves when
-`TEST_DATABASE_URL` is unset. To run them:
+It is not, however, service-free: `testpaths` includes `tests/integration`, and
+the files there that carry no `integration` marker do run. Most self-skip
+without a database; a few genuinely execute.
+
+To include the database tests, clear the marker filter — and turn coverage off,
+because `addopts` carries `--cov-fail-under=79` and a partial run cannot reach
+it, so the command exits 1 with every test passing:
 
 ```bash
-pytest tests/integration/ -m "" 
+pytest -m "" --no-cov                       # everything
+pytest tests/integration/ -m "" --no-cov    # just the integration suite
 ```
 
-Frontend tests use jsdom and Node's built-in runner:
+### Layers 3 and 4 need the ML extras
+
+`poetry install --with dev` does not install them, so `faiss` and
+`sentence-transformers` are missing and every Layer 3 and Layer 4 test skips.
+The default `addopts` has no `-rs`, so nothing says so — the run looks clean.
 
 ```bash
-npm test
+poetry install --with dev --extras worker
+pytest -m "" --no-cov -rs                   # -rs prints why anything skipped
 ```
+
+Leave `ARCHGUARD_SKIP_ML` **unset**. Setting it short-circuits both layers
+before their runners, so the tests pass without exercising the code they are
+about. The CI `ml` job exists for exactly this reason: it installs the extras,
+deliberately leaves that variable unset, and then asserts that nothing skipped
+for want of ML. A defect that reached production once already hid in that gap.
+
+### Frontend, browser and smoke suites
+
+```bash
+npm ci                                      # once, per clone
+npx playwright install --with-deps chromium # once, for the browser suites
+npm test                                    # jsdom, Node's built-in runner
+```
+
+The browser suites need the dashboard on port **8765** — not the 8000 that
+`make dev` serves — with three variables the suites depend on. Start it
+yourself and tell Playwright to reuse it:
+
+```bash
+SESSION_SECRET=local-dev-only-0123456789abcdef0123456789abcdef \
+ARCHGUARD_RATE_LIMIT_MAX_REQUESTS=100000 \
+ARCHGUARD_MOCK_LLM=1 \
+  poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 &
+
+PLAYWRIGHT_REUSE_SERVER=1 npx playwright test tests/a11y tests/e2e
+PLAYWRIGHT_REUSE_SERVER=1 npx playwright test tests/visual --grep-invert "@snapshot"
+```
+
+`PLAYWRIGHT_REUSE_SERVER=1` is what makes Playwright use your server instead of
+starting its own — which also means `webServer.env` in `playwright.config.ts`
+does not apply, and those three variables are yours to supply. Without
+`SESSION_SECRET` the session module raises; without the rate-limit bump
+`/api/v1/auth/status` starts answering 429 partway through and the sign-in
+overlay covers the controls under test, which reads as a flaky selector.
+
+Omit `PLAYWRIGHT_REUSE_SERVER` and Playwright starts and configures a server
+itself. That is the simpler path everywhere except Windows, where the managed
+server wedges the runner (see the note in `playwright.config.ts`).
+
+The rate limiter counts per IP in Redis, shared across processes. Running the
+browser suites and then the smoke script inside the same minute makes the
+second one see the first one's budget and fail with 429s that look like real
+failures.
+
+```bash
+poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8000 &
+BASE_URL=http://localhost:8000 bash scripts/smoke_test.sh
+```
+
+### Running what CI runs
+
+| Job | Command |
+|---|---|
+| `test` | `pytest -m "not slow"` |
+| `ml` | `poetry install --extras worker`, then `pytest tests/unit/ tests/integration/ -m "integration or not integration" --no-cov` with `ARCHGUARD_SKIP_ML` unset |
+| `frontend` | `npm ci && npm test` |
+| `migrations` | `alembic upgrade head && alembic check` |
+| `visual-regression` | `npx playwright test tests/visual/ --grep-invert "@snapshot"` |
+| `visual-snapshots` | `npx playwright test tests/visual/ --grep "@snapshot"` — advisory, see below |
+| `accessibility` | `npx playwright test tests/a11y/` and `tests/e2e/` |
+| `lint` / `security` | `ruff check archguard/`, `mypy archguard/ --ignore-missing-imports`, `bandit -r archguard/ -ll` |
 
 ### Visual snapshots
-
-The browser suites run against a server you start yourself:
-
-```bash
-PLAYWRIGHT_REUSE_SERVER=1 npx playwright test tests/a11y tests/e2e tests/visual
-```
 
 Two of the visual tests compare screenshots, and screenshots belong to the
 machine that took them — the same page renders thousands of pixels differently
@@ -240,3 +341,9 @@ make check-services
 `make dev` depends on the check, so it fails fast with a readable message
 rather than serving 500s. Both are no-ops on Linux and macOS, and on any setup
 whose `DATABASE_URL` points somewhere other than loopback.
+
+They are also a no-op when the URLs are only in `.env`, for the same reason the
+tests skip: the script reads the process environment, so with nothing exported
+it finds no services configured, prints `No DATABASE_URL or REDIS_URL
+configured; nothing to check` and exits 0. Export `.env` first or the check
+passes by having nothing to check.

@@ -35,8 +35,25 @@
                     findings.
                 </li>
                 <li>
-                    A session, so you stay signed in. It expires, and signing
-                    out ends it immediately.
+                    A session, so you stay signed in. It lasts 24 hours by
+                    default, and signing out ends it immediately.
+                </li>
+                <li>
+                    For a watched repository: the alert threshold you chose, the
+                    webhook URL you supplied if any, when it was last checked,
+                    and a short description of the last result. The webhook URL
+                    is stored as you gave it and is never shown back to you or
+                    returned by the API, because it commonly carries a token in
+                    its path.
+                </li>
+                <li>
+                    Findings you have suppressed, so they stay hidden from your
+                    view of that repository and nobody else's.
+                </li>
+                <li>
+                    Content hashes of the files in a repository you analysed,
+                    which is how a re-scan reuses work it has already done. A
+                    hash of a file is not the file.
                 </li>
             </ul>
 
@@ -44,8 +61,12 @@
             <ul>
                 <li>
                     Your repository's source code. It is cloned to a temporary
-                    directory, analysed, and the clone is deleted. What is kept
-                    is the measurements — including file paths and the lines a
+                    directory outside the database and deleted automatically:
+                    the clone is kept briefly after the analysis so the
+                    dashboard can read from it, then removed by a sweep about an
+                    hour later, or sooner when the disk budget is reached.
+                    Nothing copies it anywhere else. What is kept permanently is
+                    the measurements — including file paths and the lines a
                     finding points at, but not the file contents.
                 </li>
                 <li>
@@ -60,7 +81,21 @@
                 signed-in account, and another account asking for your results
                 is told they do not exist. If AI features are enabled on this
                 instance, the findings selected for an explanation are sent to
-                the configured model provider; nothing else is.
+                the configured model provider.
+            </p>
+            <p>
+                One thing does leave on your instruction: if you give a watched
+                repository a webhook URL, ArchGuard makes an outbound HTTPS
+                request to it whenever that repository regresses, carrying the
+                repository name and a description of what changed. The address
+                is checked before it is called and again on every send — HTTPS
+                only, public addresses only, no redirects — so it cannot be
+                pointed at something inside our network.
+            </p>
+            <p>
+                Watching a repository also means ArchGuard re-clones and
+                re-analyses it on a schedule, without you asking each time,
+                until you pause or remove the watch.
             </p>
 
             <h2 class="section-heading">Deleting it</h2>

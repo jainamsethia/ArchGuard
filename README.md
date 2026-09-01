@@ -19,7 +19,7 @@ healthcheck config.
 - `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
 - `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
 - `ENVIRONMENT` — set to `production` for secure session cookies (already set in `railway.toml`'s `[env]` section)
-- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set via the Railway dashboard or CLI).
+- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set in the Railway dashboard).
 
 ### Deploy to Render
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jainamsethia/ArchGuard)
@@ -40,8 +40,8 @@ docker compose up
 ```mermaid
 flowchart TB
 subgraph Input["📥 Input"]
-GH[GitHub PR]
-CLI[Local CLI]
+GH[GitHub repository URL]
+WEB[Web dashboard]
 end
 subgraph Pipeline["🔍 Analysis Pipeline"]
 direction TB
@@ -92,17 +92,9 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 
 ## Screenshots
 
-<!-- Demo GIF: run `vhs docs/demo.tape` to generate docs/demo.gif -->
-> 📹 **Demo:** Clone the repo and run `vhs docs/demo.tape` to generate the demo GIF.
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Rich terminal output of archguard analyze with score table and violations.*
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Automated PR comment detailing ArchDebt score and architectural regressions.*
-
-<!-- Screenshot coming — run `archguard analyze --repo .` to see live output -->
-*Interactive HTML dashboard charting structural health trends.*
+None yet. The three placeholders that used to sit here described terminal
+output and an automated PR comment from the removed CLI, so they promised a
+product that no longer exists rather than a screenshot that had not been taken.
 
 ## Technical Highlights
 - **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
@@ -115,256 +107,201 @@ Results posted as a PR comment with an ArchDebt score and LLM-generated explanat
 
 ArchGuard integrates multiple intelligent components to actively evaluate and guide architectural evolution:
 
-### Architecture Fitness Functions
-Define architectural rules in `.archguard.yml` and enforce them automatically during CI. ArchGuard evaluates functions strictly and exits with non-zero status on critical rule failures. Supported natively via the CLI.
+### Architecture fitness functions
+Rules declared in `.archguard.yml` — no cycles between named modules, a module
+that must not grow past a size, a dependency direction that must hold. They are
+evaluated on every analysis and a failing critical gate caps the grade, so a
+repository cannot present an A while carrying a cycle.
 
 ### AI Advisor
-An interactive, LLM-driven AI Advisor (accessible via `archguard.llm.advisor` and the local dashboard API) providing dynamic insights based on architectural metrics, drift analysis, and known constraints. Streams responses via the Gemini API (requires `GEMINI_API_KEY`).
+An LLM-backed panel that answers questions about the analysis it is looking at,
+streaming through the Gemini API. Needs `GEMINI_API_KEY`; without one it
+reports itself unavailable rather than failing quietly.
 
-### Architecture Evolution Tracking
-Parse historical analysis logs over time. Provides detailed tracking of health scores and trend analysis (e.g. tracking point degradation/improvements across commit boundaries) natively via the `history` CLI command.
+### Architecture evolution
+Walks a repository's git history, analysing selected commits in worktrees, and
+charts how health moved across them. Bounded by `ARCHGUARD_EVOLUTION_TIMEOUT`,
+because each commit examined is a full four-layer analysis.
 
-### AI Remediation Plans
-A dedicated remediation engine (`archguard.llm.remediation`) capable of analyzing layer-specific violation thresholds and automatically synthesizing step-by-step refactoring recommendations. 
+### AI remediation plans
+Turns a specific violation into ordered refactoring steps. Also Gemini-backed
+and also optional.
 
-### PR Risk Analysis
-The `PRRiskAnalyzer` automatically computes contextual risk scores for inbound code changes by traversing dependencies directly affected by modified files and highlighting downstream risks.
+### Compare runs
+Two runs of the same repository side by side: what was fixed, what appeared,
+and how each module's score moved.
+
+### Watched repositories
+Re-analysed on a schedule. When health drops past a threshold you set, a
+fitness gate starts failing, or a new critical issue appears, it is recorded
+and — if you configured a webhook — sent to it. Outbound URLs are checked
+against an SSRF guard that resolves the hostname once and connects to the
+address it approved.
+
+### Incremental re-analysis
+A rescan reuses what has not changed, keyed on content hashes stored per
+repository. The reuse is invisible: an incremental result is required to be
+identical to a full one for the same repository state, and the test suite
+compares them.
 
 ### Dependency Health Score
 Native integration with `pip-audit` to evaluate real-time third-party vulnerability awareness, merging software supply chain health into overall project architectural scoring.
 
-## CLI Commands
+## Using it
 
-The core commands include:
-```bash
-archguard init                  # Auto-detect architecture and create .archguard.yml
-archguard analyze               # 4-layer analysis of files changed since HEAD~1
-archguard analyze --full        # ...of every Python file in the repo
-archguard fitness check         # Evaluate configured fitness functions
-archguard fitness check --json  # Return fitness results as JSON
-archguard history --format json # Output history trend as JSON
-archguard report --slim         # Output minimalist CDN-ready HTML report
-```
+ArchGuard is a website. There is no command-line tool: `pip install archguard`
+installs an importable library and no executable, and the analysis engine is
+driven by the web app and its worker rather than by a shell.
 
-## Installation
-### Full Install (recommended)
-```bash
-pip install -e ".[all]"
-```
-### Minimal Install (no ML layers)
-```bash
-pip install -e .
-# Note: Layer 3 (Semantic Drift) and Layer 4 (Duplication) require `pip install -e ".[ml]"`
-```
+To analyse a repository:
 
-## Quick Start
-```bash
-cd your-python-project/
-archguard init           # Auto-detect architecture
-archguard analyze --full # Check the whole repository for violations
-```
+1. Sign in with GitHub at `/`.
+2. Paste a public GitHub URL and submit.
+3. Watch the four layers report progress live, then read the result on the
+   dashboard.
 
-> **Note:** `archguard analyze` is a *delta* command by default: it analyses the
-> files changed between `HEAD~1` and your working tree, which is what you want
-> in CI on a pull request. On a clean checkout that set is empty and the run is
-> a no-op. Pass `--full` to analyse every Python file in the repository — that
-> is what you want for a first look, a baseline, or a scheduled scan.
->
-> `--incremental` is a further optimisation on top of the delta: it consults the
-> content-hash cache and re-uses the previous run's findings for files whose
-> contents are unchanged.
+The repository is cloned anonymously over public HTTPS — ArchGuard never acts
+on your behalf and asks GitHub only for `read:user`. If the repository has no
+`.archguard.yml`, one is generated for it from its own co-change history.
 
-## Sample Output
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│ ArchGuard Analysis — health score: 87.5 (Grade: B)                  │
-├────────────────┬──────────┬──────────┬───────────────────────────────┤
-│ File           │ Type     │ Severity │ Violation                     │
-├────────────────┼──────────┼──────────┼───────────────────────────────┤
-│ api/service.py │ layer    │ CRITICAL │ api imports from db directly  │
-│ utils/parse.py │ coupling │ HIGH     │ instability: 0.92 (max: 0.80) │
-└────────────────┴──────────┴──────────┴───────────────────────────────┘
-```
+Everything else is on the dashboard: per-module scores, the violation list,
+dependency vulnerabilities, evolution over time, Compare Runs, and watching a
+repository so a regression finds you instead of the other way round.
 
-## Tracking Architecture Health Over Time
+### Running your own instance
 
-You can visualize your project's historical architectural health using the `history` command, which parses the local audit log:
+`docs/DEVELOPMENT.md` covers local setup; `docs/DEPLOYMENT.md` covers a real
+deployment. The short version is above under **Deploy**.
 
-```bash
-archguard history --format trend
-```
+## What a result looks like
+
+Every analysis produces a health score out of 100, a letter grade, a band
+(PASS / WARN / FAIL) and a list of violations, each attributed to a module with
+a severity. The dashboard shows them per layer, and says explicitly when a
+layer could not be measured rather than scoring it as clean:
 
 ```text
-┌─────────────────────┬───────┬───────┬────────────┐
-│ Timestamp           │ Score │ Grade │ Violations │
-├─────────────────────┼───────┼───────┼────────────┤
-│ 2024-01-15 10:30    │  87.5 │ B     │          3 │
-│ 2024-01-14 09:15    │  82.0 │ B-    │          5 │
-│ 2024-01-13 14:00    │  79.5 │ C+    │          7 │
-└─────────────────────┴───────┴───────┴────────────┘
-Trend: ↑ +8.0 points over 3 runs (improving)
-Score history: ▃▄▄▅▆▇█
+Layer 1 — import boundaries: not checked (no import rules declared in this
+          contract - no boundaries to enforce). Excluded from the score.
+Layer 2 — coupling: checked, 1 finding.
+Layer 3 — semantic drift: not checked (no prior baseline - semantic drift is
+          not available on a first scan of a repository). Excluded from the score.
+Layer 4 — duplication: checked, no findings.
 ```
 
-*Tip: Use `archguard history --format json` to export this data to a headless dashboard!*
+The score is an average over the layers that produced a signal, reweighted
+around the ones that did not. A repository nothing could be measured on does
+not come back healthy — it comes back as not measured.
 
-## Dashboard Workflow
+## Tracking health over time
 
-ArchGuard provides a local web dashboard to analyze repositories dynamically. The user flow is as follows:
-1. Navigate to `index.html` and submit a GitHub URL for analysis.
-2. An SSE (Server-Sent Events) stream provides real-time progress updates.
-3. Upon completion, you are redirected to `dashboard.html?job_id=...` where the new run is highlighted.
+Every run is stored, so the dashboard draws the trend for a repository and
+**Compare Runs** puts two of them side by side: what was fixed, what appeared,
+and how each module moved. Nothing is parsed from a local file; the history is
+whatever the database holds for your account.
 
-**First-time Users:** If you navigate directly to `dashboard.html` without any prior runs, you will be greeted with an empty state and a Call-To-Action (CTA) guiding you back to `index.html` to start your first analysis.
+**Watched repositories** turn that from something you check into something that
+finds you. A watched repository is re-analysed on a schedule, and when its
+health drops past a threshold you choose, a fitness gate starts failing, or a
+new critical issue appears, ArchGuard records it — and calls your webhook if
+you configured one.
 
-## Interactive HTML Reports
+## Dashboard workflow
 
-You can generate a self-contained, interactive HTML dashboard to visualize your project's architectural integrity:
+1. Submit a GitHub URL at `/`.
+2. A Server-Sent Events stream reports progress as each layer runs.
+3. On completion you land on `dashboard.html?job_id=...` with the new run shown.
 
-```bash
-archguard report --output dashboard.html --open
-```
+Arriving at the dashboard with no runs yet gives you an empty state pointing
+back to the submit page — distinct from a failed load, which says what went
+wrong and offers a retry.
 
-The report operates entirely offline and includes:
-- **Summary Cards**: At-a-glance grades and scores.
-- **Dependency Graph**: An interactive network mapping module relationships (powered by vis.js).
-- **Health Trends**: A historical line chart mapping point degradation/improvements (powered by Chart.js).
-- **Violations**: A sortable grid of specific module breaches.
+## Configuration profiles
 
-## Configuration Profiles
+A repository that ships an `.archguard.yml` is analysed against it. One that
+does not gets a contract generated per scan, with thresholds from a fixed
+preset — `ci` by default (coupling fan-out ≤ 10), configurable per deployment
+through `ARCHGUARD_DASHBOARD_PROFILE`. It is a deployment setting rather than a
+per-analysis choice: the contract is generated and graded in the same pass, and
+a baseline derived from the repository's own measurements would mean no
+repository could ever fail its first scan.
 
-ArchGuard includes preset configuration profiles (`strict`, `lenient`, `ci`) out-of-the-box to make it easier to adopt architectural enforcement in different environments:
+## Using it from CI
 
-```bash
-# Apply a strict profile over your current codebase
-archguard analyze --profile strict
-```
+There is no ArchGuard GitHub Action and no CLI to invoke from one. Earlier
+versions shipped both; they were removed with the CLI, and nothing has replaced
+them.
 
-You can view all available presets via:
-```bash
-archguard profiles list
-```
+What a CI job can do today is talk to a running instance over its HTTP API:
+submit a repository, poll the job, and read the result. The endpoints are the
+same ones the dashboard uses, they require a signed-in session or the operator
+credential, and they are not yet a stable published contract — treat them as
+internal until they are versioned as something other than `/api/v1` by
+convention alone.
 
-### Which profile do I want?
-- **strict**: Use this for mature codebases where you want production-grade enforcement as a hard CI gate. It demands high cohesion and low coupling.
-- **lenient**: Use this for local development, exploratory testing, greenfield projects, or legacy codebases where you want minimal enforcement.
-- **ci**: Use this for balanced enforcement in most standard CI pipelines, providing reasonable defaults without being overly restrictive.
+## Environment variables
 
-You can also specify a profile globally by answering the interactive prompt during `archguard init` or manually placing it at the root of your `.archguard.yml` file:
-```yaml
-version: "3.0"
-profile: "ci"
-modules:
-...
-```
+`.env.example` is the reference: every variable the code reads appears there
+with what it does, whether it is required, and whether it applies only to
+development or only to tests. It is checked against the source by
+`tests/unit/test_env_documentation.py`, so it cannot drift silently.
 
-## CI/CD Integration
+The seven that stop a **production** deployment from starting if they are
+missing or wrong:
 
-We recommend executing ArchGuard via GitHub Actions on every pull request.
+| Variable | Why it stops the boot |
+|---|---|
+| `SESSION_SECRET` | Signs session cookies. Refused under 32 characters, or if it equals `ARCHGUARD_DASHBOARD_TOKEN`. |
+| `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | Without an OAuth app nobody can sign in, and the loopback development fallback is enabled instead. |
+| `DATABASE_URL` | Users, jobs, runs, findings, suppressions and watches live in PostgreSQL. |
+| `REDIS_URL` | Sessions, rate limits, job progress and the analysis queue. |
+| `ALLOWED_ORIGINS` | Credentialed CORS. `*` is refused outright. |
+| `ARCHGUARD_TRUSTED_PROXY_IPS` | Without it every request is attributed to the proxy and all users share one rate-limit bucket. |
 
-```mermaid
-sequenceDiagram
-participant GH as GitHub
-participant Action as Action Runner
-participant AG as ArchGuard CLI
-participant Cache as SQLite Cache
-participant LLM as Gemini API
-GH->>Action: PR opened/updated
-Action->>AG: archguard analyze --pr-number N
-AG->>Cache: Load cached embeddings
-AG->>AG: Layer 1: Parse imports (tree-sitter)
-AG->>AG: Layer 2: Compute coupling (NetworkX)
-AG->>AG: Layer 3: Embed changed files (MiniLM)
-AG->>LLM: Explain violations (async)
+`ENVIRONMENT=production` is what arms that gate, the Secure cookie flag and
+HSTS. `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` is not a discouraged option in
+production — it is a boot failure.
 
-LLM-->>AG: Explanations
-AG->>Cache: Store new embeddings
-AG->>GH: Post PR comment with ArchDebt score
-AG-->>Action: Exit 1 if score > fail_threshold
-```
-
-```yaml
-- name: Pull ArchGuard cache from S3
-  run: archguard sync pull --bucket my-archguard-cache
-  env:
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-- name: Run ArchGuard
-  uses: jainamsethia/ArchGuard/action@v1
-  with:
-    pr-number: ${{ github.event.pull_request.number }}
-    skip-explanation: 'false'   # Set 'true' to skip LLM calls (faster, free)
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # Optional: omit to skip AI explanations
-- name: Push updated cache to S3
-  run: archguard sync push --bucket my-archguard-cache
-  env:
-    AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-```
-
-**Exit codes:**
-- `0` - Success, no violations above threshold
-- `1` - Violations detected
-- `2` - Configuration error (missing or invalid `.archguard.yml`)
-- `3` - Analysis error
-- `4` - Authentication error
-
-**JSON Output for headless tools:**
-
-```bash
-archguard analyze --json | jq '.summary'
-```
-
-## Environment Variables
-
-See `.env.example` for a copy-pasteable template. Full reference:
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `GEMINI_API_KEY` | _(none)_ | Gemini API key. Powers **every** AI feature: L4 violation explanations, the AI Advisor panel, AI fix suggestions, and `archguard init --llm-init`. Omit to disable them all. |
-| `GEMINI_MODEL` | `gemini-3.6-flash` | Default model for one-shot calls (remediation, advisor recommendations). |
-| `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Override for a proxy or a different API version. |
-| `ARCHGUARD_PRIMARY_MODEL` | `gemini-3.6-flash` | Primary model for L4 explanations and contract inference. |
-| `ARCHGUARD_FALLBACK_MODEL` | `gemini-3.5-flash-lite` | Cheaper/faster model used when the primary is rate-limited or unreachable. |
-| `OPENAI_API_KEY` | _(none)_ | **Deprecated alias** for `GEMINI_API_KEY`, read only if the latter is unset so existing deployments keep working. It must hold a *Gemini* key — an OpenAI key will not work. Warns on use. |
-| `ARCHGUARD_DASHBOARD_TOKEN` | _(none)_ | Bearer token for dashboard API auth. Required for non-localhost access. When `ARCHGUARD_DASHBOARD_TOKEN` is set, visiting the dashboard URL in a browser displays a one-time token-entry form. After entering the token, a 24-hour session cookie is issued and the dashboard is fully functional. The session TTL is configurable via `ARCHGUARD_SESSION_COOKIE_TTL` (seconds; default 86400). API and CLI clients continue to use `Authorization: Bearer <token>` as before. |
-| `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` | `false` | Explicit opt-in for unauthenticated remote dashboard access. Not recommended. |
-| `ARCHGUARD_TRUSTED_PROXY_IPS` | _(none)_ | IP ranges of trusted proxies. Required if running the dashboard behind a load balancer to ensure auth restrictions work. `*` trusts any peer's `X-Forwarded-For` and is only safe when the app is reachable solely through your platform's proxy. |
-| `ARCHGUARD_TRUSTED_PROXY_HOPS` | `1` | Number of trusted proxies in front of the app. The client IP is taken as the Nth `X-Forwarded-For` entry from the **right**, since entries further left are attacker-controlled. Raise it if you add a CDN in front of your platform proxy. |
-| `ARCHGUARD_AUDIT_SECRET` | _(auto-generated)_ | HMAC key for the tamper-evident audit log. See "Audit Log Security" below. |
-| `ARCHGUARD_AUDIT_STRICT` | `false` | Require a secure secret to be present; refuse to auto-generate one. |
-| `GITHUB_TOKEN` | _(none)_ | Required for `archguard github-sync` and PR comment posting. |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | _(none)_ | Required for `archguard sync push/pull` (S3 cache backend). |
-| `ARCHGUARD_SKIP_ML` | `false` | Skip Layer 3/4 even if ML extras are installed. |
-| `ARCHGUARD_SKIP_LLM` | `false` | Skip LLM explanations even if `GEMINI_API_KEY` is set. |
-| `ARCHGUARD_MOCK_LLM` | `false` | Use a fixed mock response across all LLM features (Analysis, AI Advisor, Remediation) instead of calling the LLM — used in CI/tests. |
-| `ARCHGUARD_TEST_MODE` | `false` | Set by the test suite and CI; **currently read nowhere in `archguard/` source** — has no effect today. |
-| `ARCHGUARD_CLONE_TIMEOUT` | `120` | Maximum time in seconds to wait for a git clone to complete. |
-| `ARCHGUARD_ANALYSIS_TIMEOUT` | `600` | Maximum time in seconds to wait for the analysis pipeline to complete. |
+`ARCHGUARD_DASHBOARD_TOKEN` is optional: it is an operator credential for
+reaching the API without a browser, and signed-in users are unaffected by its
+absence.
 
 ## Testing
-### Unit Tests
-poetry run pytest tests/unit/ -v
-### Integration Tests
-poetry run pytest tests/integration/ -v
-### Docker Smoke Test
-make smoke-test
+
+`docs/DEVELOPMENT.md` has the full setup, including the two ways a run can look
+clean while testing nothing: `.env` is not read by pytest, and Layers 3 and 4
+skip without the `worker` extras.
+
+```bash
+set -a; . ./.env; set +a
+poetry install --with dev --extras worker
+pytest -m "" --no-cov -rs      # everything, with skip reasons shown
+npm ci && npm test             # frontend
+```
 
 ## FAQ
 
 **How do I use a local LLM instead of Gemini?**
-You can't. Gemini is the only LLM backend ArchGuard supports. An unwired Ollama backend used to ship in `archguard.llm.local`; it was never reachable from any command, so it has been removed rather than left as a feature the docs implied existed. `ARCHGUARD_LLM_PROVIDER` is not read anywhere. To run with no LLM at all, use `archguard analyze --no-llm` (or set `ARCHGUARD_SKIP_LLM=1`).
+You can't. Gemini is the only LLM backend. An unwired Ollama backend used to
+ship in `archguard.llm.local`; it was never reachable, so it was removed rather
+than left as a feature the docs implied existed. To run with no LLM at all,
+leave `GEMINI_API_KEY` unset — the four analysis layers do not use it, and the
+AI Advisor and remediation panels report themselves unavailable.
 
 **How do I suppress a false positive?**
-Run `archguard suppress add <violation-message>` to explicitly whitelist specific violations.
-Alternatively, you can suppress violations via a PR comment using the syntax:
-`/archguard suppress <module> <layer> <message>`
-Example: `/archguard suppress api 1 "Imports from db directly"`
+On the dashboard, from the violation itself. Suppressions are per account: they
+change your view of a repository and nobody else's.
 
 **What does the health score mean?**
-The health score (0-100) measures your project's architectural integrity against the baseline contract. A grade below your configured fail threshold will exit non-zero and fail CI.
+0–100, measured against the contract — either the one the repository ships or
+the one generated for it. It is an average over the layers that produced a
+signal, reweighted around any that could not run, so it never presents an
+unmeasured layer as a clean one.
+
+**Can I run it against a private repository?**
+No. Repositories are cloned anonymously over public HTTPS, and the OAuth app
+asks only for `read:user`, so ArchGuard has no credential that could reach a
+private repository.
 
 ## Known Limitations
 

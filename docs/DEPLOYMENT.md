@@ -179,7 +179,7 @@ readiness signal.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | For all AI features (explanations, Advisor, fix suggestions) | (optional) |
-| `ARCHGUARD_PRIMARY_MODEL` | Primary LLM model | `claude-sonnet-4-20250514` |
+| `ARCHGUARD_PRIMARY_MODEL` | Verified at boot and reported by `/api/v1/capabilities`; does **not** select the model for a call — `GEMINI_MODEL` does | `gemini-3.6-flash` |
 | `ARCHGUARD_MOCK_LLM` | Set to `1` to mock LLM responses (CI/testing) | (unset) |
 
 ### Session
@@ -198,8 +198,10 @@ readiness signal.
 - [ ] Coverage ≥ 76%: `pytest --cov=archguard --cov-fail-under=76`
 - [ ] Ruff linter passes: `ruff check archguard/`
 - [ ] Mypy passes: `mypy archguard/ --ignore-missing-imports`
-- [ ] Self-analysis passes: `archguard analyze --repo . --no-llm`
-- [ ] Fitness functions pass: `archguard fitness check --repo .`
+- [ ] Self-analysis: **no longer available.** It ran through the CLI, which was
+      removed, and nothing replaced it. Releases currently ship without a
+      self-analysis or fitness gate; the engine is exercised only by the test
+      suite's fixtures. Tracked as an open gap rather than quietly dropped.
 - [ ] Security scan completes: `pip-audit --format=json && bandit -r archguard/ -ll`
 - [ ] Smoke test passes: `BASE_URL=http://localhost:8000 ./scripts/smoke_test.sh`
 - [ ] CHANGELOG.md updated with release notes
@@ -218,7 +220,9 @@ readiness signal.
 - [ ] Database/file permissions correct (`/app/.archguard-cache` writable)
 - [ ] `ALLOWED_ORIGINS` configured for production frontend domain
 - [ ] Reverse proxy (if any): pass `X-Forwarded-For` from trusted proxy IPs
-- [ ] Health check configured: `GET /health`
+- [ ] Health check configured: `GET /ready` — this is what `render.yaml` and
+      `railway.toml` use. `/health` is liveness only and answers 200 whether or
+      not the process can reach PostgreSQL or Redis; `/ready` checks them.
 
 ### Post-deploy
 
@@ -254,9 +258,16 @@ curl http://localhost:8000/health
 
 During rollback:
 - **Audit logs** (`/app/.archguard-cache/audit.jsonl`) are persisted on a Docker volume — not affected by rollback.
-- **In-memory state** (sessions, rate limits, active jobs) is lost on restart — users must re-login.
-- **Analysis workspaces** in `/tmp` are ephemeral; stale ones are cleaned up on next startup.
-- **No database migrations** — ArchGuard does not use a relational database.
+- **Sessions and rate limits** live in Redis with a TTL, so they survive a
+  restart and are shared across replicas. Users are not signed out by a deploy.
+- **Analysis workspaces** in `/tmp` are ephemeral; stale ones are swept on the
+  next startup and by a periodic sweep.
+- **Database migrations are the part that does not roll back.** Users, jobs,
+  runs, findings, suppressions and watches are in PostgreSQL under Alembic.
+  `docker-entrypoint.sh` runs `alembic upgrade head` before the web process
+  starts, so redeploying an older image leaves the newer schema in place.
+  Check whether the migrations between the two revisions are backward
+  compatible before rolling back, and downgrade deliberately if they are not.
 
 ### Rollback Criteria
 
@@ -383,10 +394,10 @@ Alert on any log line containing:
 |---------|-------------|------------|
 | `{"detail":"Invalid or missing token"}` | An `Authorization: Bearer` header that does not match `ARCHGUARD_DASHBOARD_TOKEN` | Check the env var, or drop the header and sign in instead |
 | `{"detail":"Not authenticated. Sign in..."}` | No session and no operator credential on a request from a non-loopback address | Sign in through the browser, or send a Bearer header |
-| Analysis returns `EXIT_CONFIG_ERROR` | Missing or invalid `.archguard.yml` | Run `archguard init` in the target repo |
+| Analysis refuses with "no analysable module" | The repository has no directory the contract generator will treat as a module | Nothing to run: the generator declined deliberately rather than scoring a repository whose contract covers no files |
 | Health check fails | Port mismatch or app not started | Check `PORT` env var; verify uvicorn starts |
 | `ModuleNotFoundError: No module named 'sentence_transformers'` | ML dependencies not installed | Install with `pip install archguard[ml]` or set `ARCHGUARD_SKIP_ML=1` |
 | `pip-audit not found in PATH` | pip-audit not installed | `pip install pip-audit` |
-| Dashboard shows empty data | No analyses have been run yet | Run `archguard analyze --repo .` or submit a job via the UI |
+| Dashboard shows the empty state | No analyses for this account yet | Submit a repository at `/`. A *failed* load looks different: it says what went wrong and offers a retry |
 | Rate limit errors | Too many requests from one IP | Check `X-RateLimit-Remaining` header; wait before retrying |
 | Session expires frequently | `ARCHGUARD_SESSION_COOKIE_TTL` too low | Increase to `86400` (24h) or higher |
