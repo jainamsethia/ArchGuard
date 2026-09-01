@@ -24,7 +24,11 @@
 
 - **Python 3.11+** (runtime) or **Docker** (containerized)
 - **Git** (required for analysis and clone operations)
-- **ARCHGUARD_DASHBOARD_TOKEN** (required for any Internet-facing deployment)
+- **GITHUB_OAUTH_CLIENT_ID / SECRET, SESSION_SECRET, REDIS_URL** (a production
+  instance refuses to start without them -- see the production gate below)
+- **ARCHGUARD_DASHBOARD_TOKEN** (optional: an operator credential for reaching
+  the API without a browser. Users sign in with GitHub and are authenticated by
+  their session, so this is not needed for the product to work.)
 
 ### Optional Dependencies
 
@@ -149,7 +153,7 @@ readiness signal.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ARCHGUARD_DASHBOARD_TOKEN` | Auth token for dashboard API. Generate with `secrets.token_hex(32)` | (none — required for remote access) |
+| `ARCHGUARD_DASHBOARD_TOKEN` | Operator credential for reaching the API with no browser, and the signing key for SSE stream tokens. Generate with `secrets.token_hex(32)` | (none — optional; signed-in users are unaffected by its absence) |
 
 ### Security
 
@@ -366,7 +370,10 @@ Alert on any log line containing:
 
 1. **Full data loss**: Restore the Docker volume from backup, restart the service, re-login.
 2. **Corrupted audit log**: Delete `audit.jsonl` — a new one is created on the next analysis run (historical trend data is lost).
-3. **Lost `ARCHGUARD_DASHBOARD_TOKEN`**: Generate a new one (all existing sessions are invalidated — users must re-login).
+3. **Lost `ARCHGUARD_DASHBOARD_TOKEN`**: Generate a new one. User sessions are
+   signed with `SESSION_SECRET` and are unaffected; what is invalidated is any
+   in-flight SSE stream token, so a browser watching a running analysis falls
+   back to polling until the page is reloaded.
 
 ---
 
@@ -374,7 +381,8 @@ Alert on any log line containing:
 
 | Symptom | Likely Cause | Resolution |
 |---------|-------------|------------|
-| `{"detail":"Invalid or missing token"}` | Missing or wrong `ARCHGUARD_DASHBOARD_TOKEN` | Check env var; restart with correct value |
+| `{"detail":"Invalid or missing token"}` | An `Authorization: Bearer` header that does not match `ARCHGUARD_DASHBOARD_TOKEN` | Check the env var, or drop the header and sign in instead |
+| `{"detail":"Not authenticated. Sign in..."}` | No session and no operator credential on a request from a non-loopback address | Sign in through the browser, or send a Bearer header |
 | Analysis returns `EXIT_CONFIG_ERROR` | Missing or invalid `.archguard.yml` | Run `archguard init` in the target repo |
 | Health check fails | Port mismatch or app not started | Check `PORT` env var; verify uvicorn starts |
 | `ModuleNotFoundError: No module named 'sentence_transformers'` | ML dependencies not installed | Install with `pip install archguard[ml]` or set `ARCHGUARD_SKIP_ML=1` |
