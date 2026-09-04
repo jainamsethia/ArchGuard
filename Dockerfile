@@ -11,6 +11,15 @@
 # asserted in CI, because both regress silently: an extra in the wrong list
 # looks like nothing until the image is built.
 
+# Declared here, before the first FROM, because that is the only scope a FROM
+# instruction can read. It was declared next to the `default` stage that uses
+# it, which put it inside the preceding build stage instead of the global one,
+# so `${ARCHGUARD_IMAGE}` expanded to nothing and *every* build of this file
+# failed with "base name should not be blank" -- including the plain
+# `docker build .` that Render performs. Nothing caught it because the job that
+# builds the images needs the test job, and the test job was red.
+ARG ARCHGUARD_IMAGE=web
+
 # --- Shared dependency-resolution stage -----------------------------------
 FROM python:3.12-slim AS deps
 WORKDIR /build
@@ -128,5 +137,6 @@ CMD ["arq", "archguard.worker.main.WorkerSettings"]
 #   docker build .                                     -> web
 #   docker build --target worker .                     -> worker
 #   docker build --build-arg ARCHGUARD_IMAGE=worker .  -> worker
-ARG ARCHGUARD_IMAGE=web
+#
+# The ARG itself is at the top of the file; see the note there.
 FROM ${ARCHGUARD_IMAGE} AS default
