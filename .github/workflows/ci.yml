@@ -55,6 +55,15 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install dependencies (with dev, all extras — so scans see every requirement)
         run: pip install "poetry==2.4.1" && poetry install --with dev --all-extras
+
+      # pip-audit reports on every distribution in the environment, and pip is
+      # one of them: 26.1.1 carries PYSEC-2026-3721. Upgraded rather than
+      # ignored, because an ignore entry for the tool's own installer would sit
+      # there long after the advisory stopped mattering. Inside `poetry run`,
+      # because that is the environment being audited.
+      - name: Upgrade pip in the audited environment
+        run: poetry run python -m pip install --upgrade pip
+
       - name: Security audit
         run: |
           poetry run pip-audit --ignore-vuln PYSEC-2026-196 --format=json --output=audit-results.json

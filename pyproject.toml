@@ -32,6 +32,9 @@ pydantic = ">=2.0,<3.0"
 numpy = {version = ">=1.24,<2.0.0", optional = true}
 scipy = {version = ">=1.10", optional = true}
 sentence-transformers = {version = ">=2.2", optional = true}
+# Transitive via sentence-transformers, which floors it far below this. 5.9.0
+# carries CVE-2026-9856, fixed in 5.10.0, and pip-audit hard-fails CI on it.
+transformers = {version = ">=5.10.0", optional = true}
 # Transitive via sentence-transformers. 2.12.1 carries PYSEC-2025-194 and also
 # caps setuptools<82, which holds setuptools on a version with PYSEC-2026-3447.
 torch = {version = ">=2.13.0", optional = true}
@@ -55,7 +58,7 @@ arq = ">=0.26"
 # Layers 3 and 4 only. These belong to the analysis worker image, never the web
 # image: torch alone is larger than everything else combined, and the web
 # process never loads a model. See the worker split in the deployment plan.
-worker = ["numpy", "scipy", "sentence-transformers", "faiss-cpu", "torch", "setuptools"]
+worker = ["numpy", "scipy", "sentence-transformers", "transformers", "faiss-cpu", "torch", "setuptools"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
