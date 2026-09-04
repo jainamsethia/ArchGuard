@@ -35,7 +35,19 @@
 name: Regenerate visual baselines
 
 on:
+  # From the Actions tab, once this file reaches the default branch. GitHub
+  # registers workflow_dispatch from there and nowhere else, so until then the
+  # button does not exist and the REST dispatch answers 404 -- which made a
+  # workflow whose whole purpose is to be run by hand impossible to run.
   workflow_dispatch:
+  # The way to run it before then, and from a fork: push a branch named
+  # `baseline/<whatever>`. Deliberately its own prefix rather than a branch
+  # anyone works on -- regenerating baselines is a claim that the new rendering
+  # is correct, and a trigger that fired on ordinary pushes would accept every
+  # visual regression the moment it was introduced. This still only uploads an
+  # artifact; committing the files remains a human step.
+  push:
+    branches: ['baseline/**']
 
 # Mirrors ci.yml's top-level env, so the interpreter is pinned in one obvious
 # place in each file rather than inline where a drift would be invisible.
