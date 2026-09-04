@@ -15,9 +15,7 @@ import pytest
 
 from archguard.llm.gemini import (
     DEFAULT_BASE_URL,
-    DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
-    DEFAULT_PRIMARY_MODEL,
     NON_RETRYABLE_ERRORS,
     RETRYABLE_ERRORS,
     GeminiAuthError,
@@ -27,8 +25,6 @@ from archguard.llm.gemini import (
     GeminiResponseError,
     GeminiServerError,
     _delta_text,
-    fallback_model,
-    primary_model,
     resolve_api_key,
     resolve_base_url,
     resolve_model,
@@ -88,17 +84,16 @@ def test_missing_key_resolves_to_empty_not_an_error():
 
 
 def test_defaults(monkeypatch):
+    """One model, because there is one.
+
+    `primary_model()` and `fallback_model()` were removed with the settings
+    behind them: nothing ever called either, and no code fell back to anything.
+    """
     assert resolve_model() == DEFAULT_MODEL
     assert resolve_base_url() == DEFAULT_BASE_URL
-    assert primary_model() == DEFAULT_PRIMARY_MODEL
-    assert fallback_model() == DEFAULT_FALLBACK_MODEL
 
     monkeypatch.setenv("GEMINI_MODEL", "custom-model")
-    monkeypatch.setenv("ARCHGUARD_PRIMARY_MODEL", "custom-primary")
-    monkeypatch.setenv("ARCHGUARD_FALLBACK_MODEL", "custom-fallback")
     assert resolve_model() == "custom-model"
-    assert primary_model() == "custom-primary"
-    assert fallback_model() == "custom-fallback"
 
 
 def test_base_url_trailing_slash_is_normalised(monkeypatch):
@@ -106,9 +101,27 @@ def test_base_url_trailing_slash_is_normalised(monkeypatch):
     assert resolve_base_url() == "https://example.test/v1"
 
 
-def test_primary_and_fallback_are_different_tiers():
-    """The resilience pattern is pointless if both tiers are the same model."""
-    assert DEFAULT_PRIMARY_MODEL != DEFAULT_FALLBACK_MODEL
+def test_there_is_no_fallback_model_to_configure():
+    """A test for a resilience pattern that never existed.
+
+    This used to assert the two tiers were different models, on the reasoning
+    that "the resilience pattern is pointless if both tiers are the same" --
+    which was true, and which nobody noticed also applied to a pattern with no
+    retry in it at all. Nothing ever called the fallback, and no code path
+    retried a failed request against anything.
+
+    Removing the settings rather than implementing a retry was the decision: an
+    AI call that fails already degrades to the panel reporting itself
+    unavailable, and adding a second request on the failure path would double
+    the latency and the spend of exactly the case that is already going badly.
+    If a fallback is ever wanted, it should arrive with a bounded retry and
+    tests for it, not as a variable that is only advertised.
+    """
+    from archguard.llm import gemini
+
+    assert not hasattr(gemini, "primary_model")
+    assert not hasattr(gemini, "fallback_model")
+    assert not hasattr(gemini, "DEFAULT_FALLBACK_MODEL")
 
 
 # ---------------------------------------------------------------------------

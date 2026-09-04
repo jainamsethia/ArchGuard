@@ -36,6 +36,39 @@ async def startup(ctx: dict[str, Any]) -> None:
     from archguard.observability.errors import configure_error_reporting
 
     configure_error_reporting()
+
+    # The same gate the web process runs before it serves traffic. It had only
+    # one caller, so a worker with ENVIRONMENT=production and no DATABASE_URL
+    # started happily, drained the queue and failed every job before it could
+    # write a row -- with no HTTP surface and no health check, nothing noticed.
+    # The worker is also the process that performs the analyses the audit log
+    # records, so the writable-data-directory probe matters more here than it
+    # does there.
+    from archguard.dashboard._config_check import validate_configuration
+
+    validate_configuration()
+
+    # Whatever was mid-analysis belonged to a process that is gone. arq cancels
+    # running tasks on SIGTERM and `CancelledError` escapes the task's own
+    # `except Exception`, so those rows were never written again: retention
+    # never touches an unfinished job, and the browser watching the progress
+    # stream waited on a status nothing would update.
+    #
+    # Bounded by more than the job timeout so a job legitimately running under
+    # a second worker is never reaped.
+    try:
+        from archguard.db.session import session_scope
+        from archguard.db.store import fail_stalled_jobs
+
+        async with session_scope() as session:
+            await fail_stalled_jobs(
+                session, older_than_seconds=int(WorkerSettings.job_timeout) + 60
+            )
+    except Exception:
+        # Never fatal: a worker that cannot reconcile old rows can still run
+        # new jobs, and refusing to start would turn a stale row into an outage.
+        logger.exception("Could not reconcile abandoned jobs at startup")
+
     logger.info("Analysis worker starting up")
 
 

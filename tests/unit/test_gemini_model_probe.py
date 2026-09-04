@@ -96,11 +96,9 @@ def test_a_network_error_is_reported_not_raised(monkeypatch):
 # --------------------------------------------------------------- verification
 
 
-def test_reports_both_models_present(monkeypatch):
+def test_reports_the_model_present(monkeypatch):
     def handler(request):
-        return _models_response(
-            [gemini.primary_model(), gemini.fallback_model(), "something-else"]
-        )
+        return _models_response([gemini.resolve_model(), "something-else"])
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     result = gemini.verify_configured_models(transport=_transport(handler))
@@ -113,17 +111,42 @@ def test_reports_both_models_present(monkeypatch):
 def test_names_the_model_that_is_missing(monkeypatch):
     """The whole point: say which id is wrong, not merely that something is."""
     def handler(request):
-        return _models_response([gemini.fallback_model()])
+        return _models_response(["some-other-model"])
 
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     result = gemini.verify_configured_models(transport=_transport(handler))
 
     assert result.ok is False
-    assert result.missing == [gemini.primary_model()]
-    assert gemini.primary_model() in result.detail
+    assert result.missing == [gemini.resolve_model()]
+    assert gemini.resolve_model() in result.detail
 
 
-def test_reports_both_missing(monkeypatch):
+def test_it_checks_the_model_requests_actually_use(monkeypatch):
+    """The defect this replaced.
+
+    The probe used to verify ARCHGUARD_PRIMARY_MODEL and
+    ARCHGUARD_FALLBACK_MODEL, neither of which ever reached a request --
+    `GeminiClient` resolves its model from GEMINI_MODEL. Their defaults equalled
+    DEFAULT_MODEL, so the check passed by coincidence on a default deployment
+    and verified the wrong thing on any other: an operator could set a typo in
+    GEMINI_MODEL, turn the probe on, be told the models were fine, and have
+    every AI call fail with what reads like a bad credential.
+    """
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-typo-not-a-real-id")
+
+    def handler(request):
+        # The API offers the defaults, and not the one configured here.
+        return _models_response([gemini.DEFAULT_MODEL])
+
+    result = gemini.verify_configured_models(transport=_transport(handler))
+
+    assert result.ok is False, "the probe passed a model that does not exist"
+    assert result.missing == ["gemini-typo-not-a-real-id"]
+
+
+def test_reports_the_configured_model_missing(monkeypatch):
+    """One model, because there is one to check."""
     def handler(request):
         return _models_response(["gemini-1.0-pro"])
 
@@ -131,7 +154,7 @@ def test_reports_both_missing(monkeypatch):
     result = gemini.verify_configured_models(transport=_transport(handler))
 
     assert result.ok is False
-    assert set(result.missing) == {gemini.primary_model(), gemini.fallback_model()}
+    assert set(result.missing) == {gemini.resolve_model()}
 
 
 def test_an_unreachable_api_is_not_a_wrong_model(monkeypatch):
@@ -169,10 +192,10 @@ def test_an_overridden_model_id_is_what_gets_checked(monkeypatch):
     """Operators can point at a different model; the probe must follow them
     rather than check the defaults."""
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setenv("ARCHGUARD_PRIMARY_MODEL", "my-custom-model")
+    monkeypatch.setenv("GEMINI_MODEL", "my-custom-model")
 
     def handler(request):
-        return _models_response(["my-custom-model", gemini.fallback_model()])
+        return _models_response(["my-custom-model"])
 
     result = gemini.verify_configured_models(transport=_transport(handler))
     assert result.ok is True

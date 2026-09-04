@@ -87,11 +87,30 @@ def resolve_audit_secret(log_dir: Path, create: bool = False) -> str | None:
     return secret
 
 
+def _default_log_path() -> Path:
+    """Where the audit log goes, honouring ARCHGUARD_DATA_DIR.
+
+    It did not before, and the consequence was worse than an ignored setting.
+    `_config_check` probe-writes ARCHGUARD_DATA_DIR at startup precisely
+    because this logger swallows its own write failures by design -- so with
+    the variable pointing anywhere but the default, the gate reported a
+    writable directory the application never touched, and the one defence
+    against a permanently silent audit log was validating the wrong path.
+
+    It worked only by the coincidence that the default matches the container's
+    WORKDIR and Render's mountPath.
+    """
+    directory = os.environ.get("ARCHGUARD_DATA_DIR", "").strip()
+    if not directory:
+        return Path(AUDIT_LOG_FILENAME)
+    return Path(directory) / Path(AUDIT_LOG_FILENAME).name
+
+
 class AuditLogger:
     """Append-only JSONL audit logger with automatic rotation."""
 
     def __init__(self, log_path: Path | None = None) -> None:
-        self._log_path: Path = log_path or Path(AUDIT_LOG_FILENAME)
+        self._log_path: Path = log_path or _default_log_path()
 
     def log(self, event: str, **kwargs: Any) -> None:
         """Append a JSON line to the audit log.

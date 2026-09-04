@@ -40,6 +40,21 @@ def run_migrations_offline() -> None:
         compare_server_default=True,
     )
     with context.begin_transaction():
+        # Serialise concurrent migrators. Both containers run the entrypoint,
+        # which runs `alembic upgrade head`, and on a first deploy against an
+        # empty database they compute the same plan at the same time -- the
+        # loser then fails with "relation already exists" and exits non-zero,
+        # which is a failed release on Render and a restart loop on Railway.
+        #
+        # Alembic takes no such lock itself, despite the entrypoint's comment
+        # saying it does. A transaction-scoped advisory lock is released when
+        # this transaction ends, however it ends, so a crashed migrator cannot
+        # leave the next deploy blocked. The constant is arbitrary but must be
+        # stable: it is the identity of "the ArchGuard schema".
+        if context.get_bind().dialect.name == "postgresql":
+            context.get_bind().exec_driver_sql(
+                "SELECT pg_advisory_xact_lock(6845127001)"
+            )
         context.run_migrations()
 
 
@@ -53,6 +68,21 @@ def do_run_migrations(connection: Connection) -> None:
         compare_server_default=True,
     )
     with context.begin_transaction():
+        # Serialise concurrent migrators. Both containers run the entrypoint,
+        # which runs `alembic upgrade head`, and on a first deploy against an
+        # empty database they compute the same plan at the same time -- the
+        # loser then fails with "relation already exists" and exits non-zero,
+        # which is a failed release on Render and a restart loop on Railway.
+        #
+        # Alembic takes no such lock itself, despite the entrypoint's comment
+        # saying it does. A transaction-scoped advisory lock is released when
+        # this transaction ends, however it ends, so a crashed migrator cannot
+        # leave the next deploy blocked. The constant is arbitrary but must be
+        # stable: it is the identity of "the ArchGuard schema".
+        if context.get_bind().dialect.name == "postgresql":
+            context.get_bind().exec_driver_sql(
+                "SELECT pg_advisory_xact_lock(6845127001)"
+            )
         context.run_migrations()
 
 

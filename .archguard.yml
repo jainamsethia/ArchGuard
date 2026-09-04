@@ -9,7 +9,19 @@ modules:
                                # analysis engine — see _layer_runners.py L1 skip logic.
     disallowed_imports: []
   - name: tests
-    path: "tests/"
+    # The test suite, and deliberately not tests/fixtures/. Those files are
+    # planted violations used as test data: a module importing a, b, c and d to
+    # breach a coupling budget, a forbidden `db` import, a file whose name is a
+    # fake credential, one that does not parse at all. Counting them made seven
+    # of the twenty-one imports attributed to this module come from the data the
+    # suite feeds the analyser rather than from the suite itself.
+    # pyproject.toml force-excludes the same directory from ruff, for the same
+    # reason.
+    path:
+      - "tests/unit/"
+      - "tests/integration/"
+      - "tests/conftest.py"
+      - "tests/db_fixtures.py"
     coupling_budget: 20
     allowed_imports: ["archguard"]
     disallowed_imports: []
@@ -51,17 +63,20 @@ fitness_functions:
     severity: warn
     rationale: "Module coupling must stay manageable to preserve independent deployability."
 
-  # Current duplication_score = 0.0 → debt = 0.0. Allow up to 0.15.
-  - name: layer3_duplication_ceiling
+  # Layer 3 is semantic drift and Layer 4 is duplication. The two names were
+  # the wrong way round: the rules always targeted the right layer numbers, but
+  # a failure printed "layer3_duplication_ceiling" and sent the reader looking
+  # at duplication when the drift had moved. The release gate prints these
+  # names, so the confusion is now in front of whoever is blocked by it.
+  - name: layer3_semantic_ceiling
     rule: "layer[3].debt <= 0.15"
     severity: warn
-    rationale: "Duplicated code should be kept near zero; any growth signals missed abstractions."
+    rationale: "Semantic drift should remain minimal to keep modules cohesive."
 
-  # Current semantic_score ≈ 0.0 → debt ≈ 0.0. Allow up to 0.15.
-  - name: layer4_semantic_ceiling
+  - name: layer4_duplication_ceiling
     rule: "layer[4].debt <= 0.15"
     severity: warn
-    rationale: "Semantic drift should remain minimal to keep modules cohesive."
+    rationale: "Duplicated code should be kept near zero; any growth signals missed abstractions."
 
   # ── Aggregate Gates ──────────────────────────────────────────────────
   - name: violation_sanity

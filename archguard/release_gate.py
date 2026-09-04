@@ -44,6 +44,19 @@ _EXCLUDED_DIRS = frozenset(
     {".venv", "venv", "node_modules", "test_venv_all", "test_venv_ml", "build", "dist"}
 )
 
+#: Test *data*, not source. `tests/fixtures/` holds deliberately planted
+#: violations that the suite asserts the analyser finds: a module importing a,
+#: b, c and d to breach a coupling budget, a forbidden `db` import, a file whose
+#: name is a fake credential, and one that does not parse at all.
+#:
+#: Feeding them to the gate measured the test data as this repository's
+#: architecture -- seven of the twenty-one imports attributed to `tests` came
+#: from there, which is most of the distance to its coupling budget. Excluded
+#: rather than the budget raised: the budget was not wrong, the input was.
+#: `pyproject.toml` force-excludes the same directory from ruff, for the same
+#: reason.
+_EXCLUDED_PREFIXES = ("tests/fixtures/",)
+
 
 class GateConfigurationError(RuntimeError):
     """The check could not be performed. Distinct from the check failing."""
@@ -93,6 +106,8 @@ def _python_files(root: Path) -> list[Path]:
         if _EXCLUDED_DIRS.intersection(relative.parts):
             continue
         if any(part.startswith(".") for part in relative.parts):
+            continue
+        if relative.as_posix().startswith(_EXCLUDED_PREFIXES):
             continue
         if is_vendored(path, root):
             continue

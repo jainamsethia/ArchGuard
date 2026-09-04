@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from archguard.llm.gemini import ModelCheck, fallback_model, primary_model
+from archguard.llm.gemini import ModelCheck, resolve_model
 
 
 class _State:
@@ -78,6 +78,7 @@ def ai_status() -> dict[str, Any]:
     return {
         "available": True,
         "reason": "",
-        "primary_model": primary_model(),
-        "fallback_model": fallback_model(),
+        # One model, because there is one. Reporting a "fallback" that
+        # nothing falls back to described a retry path the code does not have.
+        "model": resolve_model(),
     }

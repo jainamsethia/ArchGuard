@@ -43,8 +43,6 @@ DEFAULT_MODEL = "gemini-3.6-flash"
 # https://ai.google.dev/gemini-api/docs/models. The 2.x IDs used previously are
 # still listed there but returned 404 for at least one newly issued API key, so
 # they are not a safe default for new projects.
-DEFAULT_PRIMARY_MODEL = "gemini-3.6-flash"
-DEFAULT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
 DEFAULT_TIMEOUT = 60.0
 # Gemini 3.x are thinking models: reasoning tokens are drawn from this same
@@ -160,7 +158,15 @@ def verify_configured_models(
             detail="Could not reach the model listing endpoint.",
         )
 
-    wanted = [primary_model(), fallback_model()]
+    # The model that requests actually use. This used to check
+    # ARCHGUARD_PRIMARY_MODEL and ARCHGUARD_FALLBACK_MODEL, neither of
+    # which ever reached a request: `GeminiClient` resolves its model from
+    # GEMINI_MODEL. Their defaults happened to equal DEFAULT_MODEL, so the
+    # check passed by coincidence on a default deployment and verified the
+    # wrong thing on any other -- an operator could set GEMINI_MODEL to a
+    # typo, turn this probe on, be told the models were fine, and have
+    # every AI call fail with what reads like a bad credential.
+    wanted = [resolve_model()]
     missing = [m for m in wanted if m not in available]
     if not missing:
         return ModelCheck(
@@ -172,7 +178,7 @@ def verify_configured_models(
         missing=missing,
         detail=(
             f"The API does not offer {', '.join(missing)}. "
-            f"Set ARCHGUARD_PRIMARY_MODEL / ARCHGUARD_FALLBACK_MODEL to ids it "
+            f"Set GEMINI_MODEL to an id it "
             f"does serve; it offered {len(available)}."
         ),
     )
@@ -243,12 +249,6 @@ def resolve_model(explicit: str | None = None) -> str:
     return explicit or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
 
-def primary_model() -> str:
-    return os.environ.get("ARCHGUARD_PRIMARY_MODEL") or DEFAULT_PRIMARY_MODEL
-
-
-def fallback_model() -> str:
-    return os.environ.get("ARCHGUARD_FALLBACK_MODEL") or DEFAULT_FALLBACK_MODEL
 
 
 def _raise_for_status(response: httpx.Response) -> None:

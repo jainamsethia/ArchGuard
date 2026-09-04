@@ -107,7 +107,7 @@ def _verify_llm_models() -> None:
         _startup_logger.info("LLM model check skipped: %s", result.detail)
     elif result.ok:
         _startup_logger.info(
-            "LLM models verified: %s, %s", gemini.primary_model(), gemini.fallback_model()
+            "LLM model verified: %s", gemini.resolve_model()
         )
     else:
         _startup_logger.warning(

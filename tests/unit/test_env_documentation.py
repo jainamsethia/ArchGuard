@@ -44,6 +44,10 @@ KNOWN_DEAD = {
     "ARCHGUARD_LLM_PROVIDER",
     "ARCHGUARD_S3_BUCKET",
     "ARCHGUARD_TEST_MODE",
+    # Removed in the launch audit: verified at boot and advertised by
+    # /api/v1/capabilities, never used to choose a model for a request.
+    "ARCHGUARD_PRIMARY_MODEL",
+    "ARCHGUARD_FALLBACK_MODEL",
 }
 
 
@@ -121,6 +125,21 @@ def _documented() -> set[str]:
     )
 
 
+def _offered() -> set[str]:
+    """Variables the file offers as a setting: `NAME=` or `# NAME=`.
+
+    Narrower than `_documented`, and the difference matters in both
+    directions. A variable explained in prose without an assignment line is
+    documented (`ARCHGUARD_DB_ECHO` is). A variable named only in a sentence
+    explaining why it was *removed* is not being offered, and must not be
+    reported as dead documentation -- that sentence is the thing an operator
+    with an old runbook needs to find.
+    """
+    return set(
+        re.findall(r"^#?\s*([A-Z][A-Z0-9_]{2,})\s*=", EXAMPLE.read_text(encoding="utf-8"), re.M)
+    )
+
+
 def test_every_variable_the_code_reads_is_documented():
     """An undocumented variable is one an operator cannot know to set.
 
@@ -142,7 +161,7 @@ def test_every_variable_the_code_reads_is_documented():
 def test_nothing_documented_is_dead():
     """A variable in the template is a promise that setting it does something."""
     read = set(_variables_read())
-    dead = sorted(_documented() - read - NON_APPLICATION)
+    dead = sorted(_offered() - read - NON_APPLICATION)
 
     assert not dead, (
         "documented in .env.example but read nowhere in archguard/: "
@@ -159,8 +178,15 @@ def test_a_variable_removed_with_the_cli_has_not_come_back(name: str):
     `ARCHGUARD_SKIP_LLM` in particular reads like the way to run without an LLM,
     and the way to do that is to leave `GEMINI_API_KEY` unset.
     """
-    assert name not in EXAMPLE.read_text(encoding="utf-8"), (
-        f"{name} is documented again; nothing reads it."
+    # Offered as a setting, not merely mentioned. Prose explaining why a
+    # variable was removed is worth keeping -- an operator who finds it in an
+    # old runbook should be able to learn what happened to it. What must not
+    # come back is a line they could uncomment and expect to work.
+    text = EXAMPLE.read_text(encoding="utf-8")
+    offered = re.search(rf"^#?\s*{re.escape(name)}\s*=", text, re.M)
+
+    assert not offered, (
+        f"{name} is offered as a setting again; nothing reads it."
     )
 
 

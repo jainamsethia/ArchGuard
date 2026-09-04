@@ -908,6 +908,55 @@ async def load_file_hashes(session: AsyncSession, repository_id: int) -> dict[st
     return {row.path: row.sha256 for row in rows}
 
 
+async def fail_stalled_jobs(session: AsyncSession, *, older_than_seconds: int) -> int:
+    """Mark jobs abandoned mid-analysis as failed. Returns how many.
+
+    arq cancels running tasks on SIGTERM, and `CancelledError` is a
+    `BaseException`, so it escapes the `except Exception` that records a failed
+    job. Every deploy therefore left each in-flight analysis at `cloning` or
+    `analysing` for ever: retention deliberately never touches an unfinished
+    job, so nothing reaped them, and the progress stream only stops when the
+    *stored* status is terminal -- so the browser watching one waited on a row
+    nothing was going to write again.
+
+    Called once at worker startup, which is the moment those rows are known to
+    be dead: whatever was running belonged to a process that is gone.
+
+    *older_than_seconds* must exceed the job timeout, because a second worker
+    may legitimately be running a job right now and a sweep with a shorter
+    bound would kill it. Anything older than the timeout cannot still be
+    running under any worker without having already breached it.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+    stalled = (
+        await session.execute(
+            select(Job).where(
+                Job.completed_at.is_(None),
+                Job.status.notin_(["complete", "failed"]),
+                Job.created_at < cutoff,
+            )
+        )
+    ).scalars().all()
+
+    for job in stalled:
+        job.status = "failed"
+        job.error = (
+            "The worker running this analysis stopped before it finished, most "
+            "likely a restart or a deploy. Submit the repository again."
+        )
+        job.completed_at = datetime.now(UTC)
+
+    if stalled:
+        logger.warning(
+            "Marked %d job(s) failed: abandoned mid-analysis by a worker that "
+            "is no longer running",
+            len(stalled),
+        )
+    return len(stalled)
+
+
 async def purge_expired_runs(
     session: AsyncSession,
     *,

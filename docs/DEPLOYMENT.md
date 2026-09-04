@@ -179,7 +179,7 @@ readiness signal.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GEMINI_API_KEY` | For all AI features (explanations, Advisor, fix suggestions) | (optional) |
-| `ARCHGUARD_PRIMARY_MODEL` | Verified at boot and reported by `/api/v1/capabilities`; does **not** select the model for a call — `GEMINI_MODEL` does | `gemini-3.6-flash` |
+| `GEMINI_MODEL` | The model every AI call uses, and the one `ARCHGUARD_VERIFY_LLM_ON_BOOT` checks. `ARCHGUARD_PRIMARY_MODEL` and `ARCHGUARD_FALLBACK_MODEL` were removed: nothing ever called them | `gemini-3.6-flash` |
 | `ARCHGUARD_MOCK_LLM` | Set to `1` to mock LLM responses (CI/testing) | (unset) |
 
 ### Session

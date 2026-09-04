@@ -15,7 +15,10 @@
     <meta property="og:title" content="ArchGuard — see your Python codebase's architecture">
     <meta property="og:description" content="A measured architectural health report for any public Python repository. Import boundaries, coupling, drift and duplication.">
     <meta property="og:url" content="https://archguard.dev/">
-    <meta name="twitter:card" content="summary_large_image">
+    <!-- `summary`, not `summary_large_image`: there is no og:image to show, and
+         a card that promises a large image and supplies none renders blank.
+         Switch this back the moment an image exists. -->
+    <meta name="twitter:card" content="summary">
     <meta name="twitter:title" content="ArchGuard — see your Python codebase's architecture">
     <meta name="twitter:description" content="A measured architectural health report for any public Python repository.">
     
