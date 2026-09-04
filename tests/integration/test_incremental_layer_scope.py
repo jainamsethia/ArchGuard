@@ -38,7 +38,12 @@ from pathlib import Path
 import pytest
 
 from tests.db_fixtures import requires_postgres
-from tests.integration._pipeline_scan import make_user, previous_run, scan_repo
+from tests.integration._pipeline_scan import (
+    make_user,
+    previous_run,
+    requires_ml,
+    scan_repo,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -266,6 +271,7 @@ def test_incremental_agrees_with_full(
 
 
 @requires_postgres
+@requires_ml
 def test_layer_4_is_still_recomputed_when_a_module_changed(
     repo, tmp_path, live_db, monkeypatch
 ):

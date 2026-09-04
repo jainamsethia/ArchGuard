@@ -20,7 +20,6 @@ real corpus contains the real vectors of the real unchanged files.
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
@@ -31,34 +30,12 @@ from tests.integration._pipeline_scan import (
     identity,
     make_user,
     previous_run,
+    requires_ml,
     scan_repo,
     violations_of,
 )
 
 pytestmark = pytest.mark.integration
-
-
-def _ml_available() -> bool:
-    """ML extras importable AND not explicitly suppressed.
-
-    Both conditions, matching ``test_fixture_correctness.py``: a run may set
-    ``ARCHGUARD_SKIP_ML`` to keep the slow layers out of the way, and in that
-    case Layer 4 never executes however well the extras are installed.
-    """
-    if os.environ.get("ARCHGUARD_SKIP_ML") == "1":
-        return False
-    try:
-        import faiss  # noqa: F401
-        import sentence_transformers  # noqa: F401
-    except Exception:
-        return False
-    return True
-
-
-requires_ml = pytest.mark.skipif(
-    not _ml_available(),
-    reason="requires the worker/ML extras (sentence-transformers + faiss)",
-)
 
 #: The fixture ships a contract declaring one ``misc`` module covering ``./``,
 #: which puts both files in the same module -- and Layer 4 reports cross-module

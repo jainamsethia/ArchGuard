@@ -26,7 +26,12 @@ from pathlib import Path
 import pytest
 
 from tests.db_fixtures import requires_postgres
-from tests.integration._pipeline_scan import make_user, previous_run, scan_repo
+from tests.integration._pipeline_scan import (
+    make_user,
+    previous_run,
+    requires_ml,
+    scan_repo,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -203,10 +208,15 @@ def test_a_contract_matching_no_file_does_not_report_clean_duplication(
 
 
 @requires_postgres
+@requires_ml
 def test_a_module_with_content_is_measured_and_counted(repo, tmp_path, live_db):
     """The other direction: a searched module must still count.
 
     Without this, marking more things skipped would look like a fix.
+
+    `requires_ml` because "did not skip" is only a statement about this code
+    where Layer 4 *can* run. With no extras installed it skips for that reason
+    alone, and the assertion becomes a report on the installation.
     """
     uid = make_user(9903, "l4-real")
     scan = scan_repo(repo, tmp_path / "c1", "https://github.com/test/l4-real.git", uid)
@@ -278,6 +288,7 @@ def test_a_changed_module_still_recomputes_layer_4_repository_wide(
 
 
 @requires_postgres
+@requires_ml
 def test_an_edit_outside_every_module_agrees_too(repo, tmp_path, live_db):
     """The Layer 3 case, checked for Layer 4.
 

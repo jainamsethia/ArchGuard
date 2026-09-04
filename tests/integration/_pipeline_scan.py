@@ -14,9 +14,43 @@ would step over exactly what is being tested.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 from pathlib import Path
 from typing import Any
+
+import pytest
+
+
+def _ml_available() -> bool:
+    """ML extras importable AND not explicitly suppressed.
+
+    Both conditions, matching ``test_fixture_correctness.py``: a run may set
+    ``ARCHGUARD_SKIP_ML`` to keep the slow layers out of the way, and in that
+    case Layer 4 never executes however well the extras are installed.
+    """
+    if os.environ.get("ARCHGUARD_SKIP_ML") == "1":
+        return False
+    try:
+        import faiss  # noqa: F401
+        import sentence_transformers  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+#: For assertions that Layer 3 or 4 *measured* something. Layer 4 is the
+#: embedding index; with no extras installed it skips, correctly and by design,
+#: and an assertion that it did not skip is then a statement about the
+#: installation rather than about the code under test.
+#:
+#: Here rather than in one of the suites because three of them need it, and the
+#: `ml` CI job fails on any test that skips with this reason -- that job
+#: installs the extras precisely so these run, so a skip there is a bug.
+requires_ml = pytest.mark.skipif(
+    not _ml_available(),
+    reason="requires the worker/ML extras (sentence-transformers + faiss)",
+)
 
 
 def make_user(github_id: int, login: str) -> int:
