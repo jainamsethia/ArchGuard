@@ -504,6 +504,34 @@ jobs:
     # `continue-on-error: true` was here with a TODO. It made the only browser
     # test of the website incapable of failing the build, which is the same as
     # not having one.
+
+    # Same reason as the accessibility job below: this server serves pages that
+    # resolve an identity out of `users` before they render, so without a
+    # database every test here would assert against the sign-in overlay. This
+    # job never reached that point -- it needs `docker`, which needs `test` --
+    # so the defect was latent rather than absent.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: archguard
+          POSTGRES_PASSWORD: ci_local_only
+          POSTGRES_DB: archguard_browser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U archguard -d archguard_browser"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_browser
+      REDIS_URL: redis://127.0.0.1:6379/0
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -515,6 +543,10 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
+
+      - name: Create the schema
+        run: poetry run alembic upgrade head
+
       - name: Start the dashboard
         run: |
           poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 --log-level warning &
@@ -604,6 +636,38 @@ jobs:
   accessibility:
     name: Browser journeys (axe-core + end-to-end)
     runs-on: ubuntu-latest
+
+    # The dashboard reads PostgreSQL on the first request of every page: the
+    # local-development identity is a row in `users`, resolved before anything
+    # renders. Started without a database it answered the auth probe with a
+    # 500, auth.js raised the sign-in overlay it owns for exactly that case,
+    # and every assertion past it addressed a page that was never reached --
+    # the tablist was behind the overlay, and the API failure banner stayed
+    # hidden because status.js deliberately leaves AUTH failures to the
+    # overlay. Four tests failed describing a missing database as an
+    # accessibility defect.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: archguard
+          POSTGRES_PASSWORD: ci_local_only
+          POSTGRES_DB: archguard_browser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U archguard -d archguard_browser"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_browser
+      REDIS_URL: redis://127.0.0.1:6379/0
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -615,6 +679,11 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
+
+      # An empty database is not enough: the identity lookup needs the tables.
+      - name: Create the schema
+        run: poetry run alembic upgrade head
+
       - name: Start the dashboard
         run: |
           poetry run uvicorn archguard.dashboard.app:app --host 127.0.0.1 --port 8765 --log-level warning &
