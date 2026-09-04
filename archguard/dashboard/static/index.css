@@ -925,6 +925,15 @@ tbody tr:hover { background-color: var(--fill-quaternary); }
 body.page-index {
     padding: 1.5rem 0;
     display: flex;
+    /* Column, and this is load-bearing. These rules were written when
+       `.container` was the page's only child, so a row centred it. The account
+       bar was added later as a *sibling*, which made two items share one row --
+       and `.account-bar` carries `margin: 0 auto`, which in a flex row absorbs
+       all the free space rather than centring anything. The hero was pushed to
+       the right edge: half the viewport empty at 1280px, and at 320px the two
+       items could not fit at all, so the heading ran off the side and the lede
+       was cut mid-word. */
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     /* Apple backgrounds are flat: one grey, no gradient wash. */
@@ -1584,6 +1593,12 @@ body.page-dashboard {
     align-items: center;
     justify-content: flex-end;
     gap: 12px;
+    /* Explicit, because on index.html this is a flex item of a column body and
+       would otherwise shrink to its content -- which is nothing at all while
+       the visitor is signed out, and a "Sign out" button hugging the centre
+       once they are not. As a block on the dashboard it is already the full
+       width, so this changes nothing there. */
+    width: 100%;
     max-width: 56rem;
     margin: 0 auto;
     padding: 12px var(--page-pad, 16px) 0;
