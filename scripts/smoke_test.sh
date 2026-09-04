@@ -8,6 +8,31 @@ BASE_URL="${BASE_URL:-http://localhost:8000}"
 PASS=0
 FAIL=0
 
+# Whether the caller reaching $BASE_URL can be anybody.
+#
+# The user-scoped endpoints resolve an account before they look at a request
+# body, so what they answer depends on who is asking. A developer's server on
+# loopback with no OAuth app configured falls back to the local development
+# account and reaches the validation this script is checking. A deployed
+# instance driven by a browser has a session and does the same.
+#
+# A bare container reached over a mapped port is neither: there is no session,
+# and the direct peer is Docker's bridge gateway rather than loopback, which
+# `dev_login_permitted` refuses by design -- a forwarded or bridged request did
+# not originate locally, and honouring it would hand one account's rows to an
+# unauthenticated stranger. 401 is the specified answer there, so that is what
+# is asserted; expecting 200 would be asserting the hole.
+UNAUTHENTICATED="${SMOKE_UNAUTHENTICATED:-0}"
+if [[ "$UNAUTHENTICATED" == "1" ]]; then
+    EXPECT_SUBMIT="401"
+    EXPECT_ADVISOR="401"
+    EXPECT_RUNS="401"
+else
+    EXPECT_SUBMIT="422"
+    EXPECT_ADVISOR="422"
+    EXPECT_RUNS="200"
+fi
+
 check() {
     local name="$1"
     local actual="$2"
@@ -145,17 +170,17 @@ for directive in "object-src 'none'" "base-uri 'self'" "frame-ancestors 'none'" 
     fi
 done
 
-# [6] Submit job — invalid URL returns 422
+# [6] Submit job — invalid URL returns 422 (401 when nobody is asking)
 check_post "POST /api/v1/jobs — invalid URL rejected" \
     "$BASE_URL/api/v1/jobs" \
     '{"github_url":"not-a-url"}' \
-    "422"
+    "$EXPECT_SUBMIT"
 
 # [7] Submit job — path traversal URL rejected (CRIT-001 fix)
 check_post "POST /api/v1/jobs — path traversal URL rejected" \
     "$BASE_URL/api/v1/jobs" \
     '{"github_url":"https://github.com/owner/repo/../../../etc/passwd"}' \
-    "422"
+    "$EXPECT_SUBMIT"
 
 # [8] Advisor ask — payload too large rejected (MED-004 fix)
 # printf rather than python3: this script runs from CI, from a container and
@@ -164,7 +189,7 @@ LONG_QUESTION=$(printf 'A%.0s' $(seq 2001))
 check_post "POST /api/v1/advisor/ask — oversized question rejected" \
     "$BASE_URL/api/v1/advisor/ask" \
     "{\"question\":\"${LONG_QUESTION}\",\"context\":\"\"}" \
-    "422"
+    "$EXPECT_ADVISOR"
 
 # [9] There was a "GET /api/jobs/validate — valid URL" check here expecting 200.
 # The route is POST-only, so it got 404 and had been failing for as long as it
@@ -182,7 +207,7 @@ check_post "Validate endpoint (invalid POST)" \
   "422"
 
 # Runs endpoint
-check_status "Runs endpoint" "$BASE_URL/api/v1/runs" "200"
+check_status "Runs endpoint" "$BASE_URL/api/v1/runs" "$EXPECT_RUNS"
 
 echo "────────────────────────────────────────"
 echo "Results: $PASS passed, $FAIL failed"

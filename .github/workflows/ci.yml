@@ -441,8 +441,16 @@ jobs:
             sleep 1
           done
           curl -sf http://localhost:8000/health | python3 -m json.tool
+      # This container has no database, no Redis and no OAuth app, and it is
+      # reached over a mapped port -- so the direct peer is Docker's bridge
+      # gateway, not loopback. The user-scoped endpoints must therefore refuse,
+      # and the flag says so. Without it the script asserted the validation
+      # behaviour those endpoints show a caller they have identified, which
+      # nothing here is: three 422s and a 200 that were really four 401s.
       - name: Smoke test the running image
         run: BASE_URL=http://localhost:8000 ./scripts/smoke_test.sh
+        env:
+          SMOKE_UNAUTHENTICATED: '1'
       # The container has no database or Redis, so readiness must say so. A
       # /ready that returns 200 here would mean it is checking nothing.
       - name: /ready must report 503 with no backing services
