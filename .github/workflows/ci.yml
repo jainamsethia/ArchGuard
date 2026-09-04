@@ -630,15 +630,22 @@ jobs:
     # which is not a regression. The diff artifact is the point: a reviewer
     # looks at it and either accepts the change or does not.
     #
-    # The committed -linux baselines are currently stale by design: they
-    # predate the determinate progress bar, the sign-in overlay, the account
-    # bar and the delete-account control. Refresh them by running the
-    # "Regenerate visual baselines" workflow (visual-baselines.yml) from the
-    # Actions tab and committing the artifact it produces -- they can only be
-    # produced on a Linux runner with this Chromium build, which is why they
-    # went stale in the first place. Keep the steps there in step with the
-    # steps here; images generated under a different setup are not comparable
-    # against this job.
+    # The committed -linux baselines were stale for a long time -- they
+    # predated the determinate progress bar, the sign-in overlay, the account
+    # bar and the delete-account control -- because nothing could regenerate
+    # them. They have now been regenerated on this runner and show the current
+    # UI: the account bar, and the empty state a freshly migrated CI database
+    # produces.
+    #
+    # Refresh them with the "Regenerate visual baselines" workflow
+    # (visual-baselines.yml): push a `baseline/**` branch, or use the Actions
+    # tab once that file reaches the default branch. Commit the artifact it
+    # produces. Keep the steps there in step with the steps here; images
+    # generated under a different setup are not comparable against this job.
+    #
+    # Still advisory, and for the original reason rather than that one: a
+    # deliberate UI change moves these pixels, and that is not a regression to
+    # block a merge on. The diff artifact is what a reviewer looks at.
     continue-on-error: true
 
     # Postgres and Redis for the same reason the two jobs above have them:
