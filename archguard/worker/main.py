@@ -21,6 +21,7 @@ from arq import cron
 
 from archguard.observability.logger import configure_logging
 from archguard.worker.cron import sweep_watched
+from archguard.worker.retention import purge_expired_data
 from archguard.worker.settings import redis_settings
 from archguard.worker.tasks import analyse_repository
 
@@ -58,8 +59,12 @@ class WorkerSettings:
     #:
     #: 03:00 UTC: outside the working day in most of the world, so the queue is
     #: free for the interactive scans people are waiting on.
+    #: 04:00, an hour after the watch sweep: the sweep enqueues scans, and
+    #: deleting history while those are being written would be picking a fight
+    #: with the work that just started.
     cron_jobs: ClassVar[list[Any]] = [
-        cron(sweep_watched, hour={3}, minute={0}, run_at_startup=False)
+        cron(sweep_watched, hour={3}, minute={0}, run_at_startup=False),
+        cron(purge_expired_data, hour={4}, minute={0}, run_at_startup=False),
     ]
     on_startup = startup
     on_shutdown = shutdown

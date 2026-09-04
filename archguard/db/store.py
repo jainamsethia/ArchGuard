@@ -908,6 +908,100 @@ async def load_file_hashes(session: AsyncSession, repository_id: int) -> dict[st
     return {row.path: row.sha256 for row in rows}
 
 
+async def purge_expired_runs(
+    session: AsyncSession,
+    *,
+    retain_days: int,
+    limit: int = 500,
+) -> dict[str, int]:
+    """Delete analysis history older than *retain_days*. Returns what it removed.
+
+    Selects on age and nothing else, so it either expires a row for everybody
+    or for nobody -- there is no account in the query, which is what makes it
+    safe to run as the system.
+
+    Three rules, and the exclusions matter more than the deletions:
+
+    * A run older than the window goes, and its findings and artifacts go with
+      it through the schema's own cascades.
+    * A job goes only once it has finished *and* has no runs left. An
+      unfinished job is never touched however old it is: a job stuck in
+      `analysing` since a worker died is exactly the row an operator needs in
+      order to find out why, and age alone would delete it.
+    * File hashes go only when their repository has no runs at all. They are
+      the incremental cache, they are keyed by repository rather than by
+      account, and dropping them early costs the next scan its reuse.
+
+    Watched repositories and suppressions are absent on purpose. They are
+    configuration rather than history: expiring a watch because nothing
+    regressed for three months would stop the monitoring at the moment it had
+    been quietly working.
+
+    Bounded by *limit* so one transaction cannot try to delete a year at once,
+    and idempotent -- a second call finds nothing left to do, which is what a
+    cron that retries needs.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(days=retain_days)
+    removed = {"runs": 0, "jobs": 0, "file_hashes": 0}
+
+    # Runs whose job has finished. `Job.completed_at` is set by set_job_status
+    # for terminal states only, so this is the same question as "did it stop".
+    expired = (
+        await session.execute(
+            select(Run.id)
+            .join(Job, Job.id == Run.job_id)
+            .where(Run.created_at < cutoff, Job.completed_at.is_not(None))
+            .order_by(Run.created_at)
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    if expired:
+        await session.execute(delete(Run).where(Run.id.in_(expired)))
+        removed["runs"] = len(expired)
+        await session.flush()
+
+    # Finished jobs past the window with nothing left hanging off them.
+    orphaned = (
+        await session.execute(
+            select(Job.id)
+            .where(
+                Job.created_at < cutoff,
+                Job.completed_at.is_not(None),
+                ~select(Run.id).where(Run.job_id == Job.id).exists(),
+            )
+            .limit(limit)
+        )
+    ).scalars().all()
+    if orphaned:
+        await session.execute(delete(Job).where(Job.id.in_(orphaned)))
+        removed["jobs"] = len(orphaned)
+        await session.flush()
+
+    # The cache, once nothing refers to the repository it belongs to.
+    stale = (
+        await session.execute(
+            select(FileHash.repository_id)
+            .where(~select(Run.id).where(Run.repository_id == FileHash.repository_id).exists())
+            .distinct()
+            .limit(limit)
+        )
+    ).scalars().all()
+    if stale:
+        # Cast as elsewhere in this module: `execute` is typed as returning
+        # `Result`, which has no `rowcount`; a DML statement always returns a
+        # `CursorResult`, which does.
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(delete(FileHash).where(FileHash.repository_id.in_(stale))),
+        )
+        removed["file_hashes"] = result.rowcount or 0
+
+    return removed
+
+
 async def save_file_hashes(
     session: AsyncSession, repository_id: int, records: dict[str, str]
 ) -> None:

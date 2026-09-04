@@ -75,6 +75,28 @@
                 </li>
             </ul>
 
+            <h2 class="section-heading">How long it is kept</h2>
+            <p>
+                A completed analysis and its findings are kept for 90 days, and
+                then deleted by a nightly sweep along with the job that produced
+                them and the content hashes for any repository nothing refers to
+                any more. Long enough for the trend chart and the run comparison
+                to be worth having, and bounded rather than forever.
+            </p>
+            <p>
+                Two things deliberately do not expire, because they are settings
+                rather than history: a watched repository — its threshold, its
+                webhook and whether it is paused — and the findings you have
+                chosen to suppress. A watch that vanished because nothing had
+                regressed for three months would stop monitoring at the moment
+                it had been quietly working. Both go when you remove them, and
+                when you delete your account.
+            </p>
+            <p>
+                An analysis that never finished is never swept, at any age. If a
+                job is stuck, the record of it is what makes that findable.
+            </p>
+
             <h2 class="section-heading">Who can see it</h2>
             <p>
                 You. Every endpoint that returns analysis data filters on the
