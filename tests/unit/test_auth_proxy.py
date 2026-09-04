@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from archguard.dashboard.app import app
+from tests.db_fixtures import requires_postgres
 
 
 @pytest.fixture()
@@ -15,14 +16,22 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+@requires_postgres
 def test_trusted_proxy_forwards_real_client_ip_and_blocks_remote(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+    live_db: str, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """
     Regression test for CRIT-003.
     Verifies: a request whose direct connection IP is NOT in the trusted
     proxy list, but which sets X-Forwarded-For claiming to be localhost,
     is NOT granted localhost trust (no token, no ALLOW_REMOTE set).
+
+    `live_db` because the assertion is 200, and reaching 200 means getting past
+    authorisation *and* resolving the local-development identity, which reads
+    the `users` table. Without it this passed only where some earlier test had
+    already migrated the database: on a fresh one it failed with `relation
+    "users" does not exist`, an undeclared dependency wearing the costume of an
+    auth regression.
     """
     # Arrange
     monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
