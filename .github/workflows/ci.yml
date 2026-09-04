@@ -640,6 +640,36 @@ jobs:
     # steps here; images generated under a different setup are not comparable
     # against this job.
     continue-on-error: true
+
+    # Postgres and Redis for the same reason the two jobs above have them:
+    # /dashboard.html resolves an identity before it renders, so without a
+    # database the snapshot is a near-black page carrying "Could not reach the
+    # authentication service" in red. Comparing against that, or worse
+    # baselining it, would make an outage the reference rendering.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: archguard
+          POSTGRES_PASSWORD: ci_local_only
+          POSTGRES_DB: archguard_browser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U archguard -d archguard_browser"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_browser
+      REDIS_URL: redis://127.0.0.1:6379/0
+      SESSION_SECRET: ci-session-secret-not-used-anywhere-real-0123456789
+      ARCHGUARD_RATE_LIMIT_MAX_REQUESTS: '100000'
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -656,6 +686,12 @@ jobs:
       # test failures rather than one missing download.
       - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
+      # Playwright starts the server itself here, and it inherits this job's
+      # environment -- but an empty database still has no `users` to resolve an
+      # identity from.
+      - name: Create the schema
+        run: poetry run alembic upgrade head
+
       - name: Run snapshot comparisons
         run: npx playwright test tests/visual/ --grep "@snapshot"
         env:

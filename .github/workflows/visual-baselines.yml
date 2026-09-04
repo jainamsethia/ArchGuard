@@ -46,6 +46,36 @@ jobs:
   regenerate:
     name: Regenerate Linux snapshots
     runs-on: ubuntu-latest
+
+    # Matching visual-snapshots, as the header insists. Without a database
+    # /dashboard.html resolves no identity and renders a near-black page
+    # carrying "Could not reach the authentication service" in red, so a run
+    # without these would bake an outage in as the reference image -- the one
+    # thing a baseline must never be.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: archguard
+          POSTGRES_PASSWORD: ci_local_only
+          POSTGRES_DB: archguard_browser
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U archguard -d archguard_browser"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://archguard:ci_local_only@127.0.0.1:5432/archguard_browser
+      REDIS_URL: redis://127.0.0.1:6379/0
+      SESSION_SECRET: ci-session-secret-not-used-anywhere-real-0123456789
+      ARCHGUARD_RATE_LIMIT_MAX_REQUESTS: '100000'
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -59,6 +89,9 @@ jobs:
       # produces: the `mobile` project runs on webkit.
       - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
+
+      - name: Create the schema
+        run: poetry run alembic upgrade head
 
       # --update-snapshots rewrites the baseline for every @snapshot test
       # rather than comparing. Playwright exits 0 whether or not anything
