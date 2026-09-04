@@ -556,7 +556,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # webkit as well as chromium: the `mobile` project is devices['iPhone SE'],
+      # whose defaultBrowserType is webkit. Installing only chromium left every
+      # mobile test failing to launch a browser, so the whole project has never
+      # run here -- ten of the nineteen accessibility tests, reported as ten
+      # test failures rather than one missing download.
+      - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
 
       - name: Create the schema
@@ -636,7 +641,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # webkit as well as chromium: the `mobile` project is devices['iPhone SE'],
+      # whose defaultBrowserType is webkit. Installing only chromium left every
+      # mobile test failing to launch a browser, so the whole project has never
+      # run here -- ten of the nineteen accessibility tests, reported as ten
+      # test failures rather than one missing download.
+      - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
       - name: Run snapshot comparisons
         run: npx playwright test tests/visual/ --grep "@snapshot"
@@ -692,7 +702,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # webkit as well as chromium: the `mobile` project is devices['iPhone SE'],
+      # whose defaultBrowserType is webkit. Installing only chromium left every
+      # mobile test failing to launch a browser, so the whole project has never
+      # run here -- ten of the nineteen accessibility tests, reported as ten
+      # test failures rather than one missing download.
+      - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
 
       # An empty database is not enough: the identity lookup needs the tables.

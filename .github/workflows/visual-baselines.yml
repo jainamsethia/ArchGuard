@@ -55,7 +55,9 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      # Both engines, matching the visual-snapshots job whose baselines this
+      # produces: the `mobile` project runs on webkit.
+      - run: npx playwright install --with-deps chromium webkit
       - run: pip install "poetry==2.4.1" && poetry config virtualenvs.in-project true && poetry install --with dev
 
       # --update-snapshots rewrites the baseline for every @snapshot test
