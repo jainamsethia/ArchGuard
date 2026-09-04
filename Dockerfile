@@ -47,12 +47,23 @@ RUN pip install --no-cache-dir --no-deps --target /deps .
 
 # --- Worker dependencies ---------------------------------------------------
 FROM deps AS build-worker
-RUN pip install --no-cache-dir --target /deps -r requirements-worker.txt && \
-    # pip-audit is a runtime dependency of the worker, not a dev tool (C2). It
-    # was in the dev group and the image never had it, so "Scan Dependencies"
-    # answered "pip-audit not found in PATH" in every deployed environment --
-    # a shipped feature that had never once worked in production.
-    pip install --no-cache-dir --target /deps "pip-audit>=2.7"
+# pip-audit is a runtime dependency of the worker, not a dev tool (C2). It was
+# in the dev group and the image never had it, so "Scan Dependencies" answered
+# "pip-audit not found in PATH" in every deployed environment -- a shipped
+# feature that had never once worked in production.
+#
+# One pip invocation, not two, and that is the whole point. `--target` installs
+# console scripts into <target>/bin, and on a second invocation pip finds that
+# directory already there and skips it wholesale: "Target directory /deps/bin
+# already exists. Specify --upgrade to force replacement." pip-audit's modules
+# were copied, so the install reported success and the package imported, while
+# the executable it exists for was silently dropped -- the same symptom the
+# comment above describes, arrived at a second way.
+#
+# Not `--upgrade`: that replaces the directory rather than merging it, which
+# would take `alembic` with it, and the entrypoint runs `alembic upgrade head`
+# before the worker starts.
+RUN pip install --no-cache-dir --target /deps -r requirements-worker.txt "pip-audit>=2.7"
 COPY archguard/ ./archguard/
 RUN pip install --no-cache-dir --no-deps --target /deps ".[worker]"
 
