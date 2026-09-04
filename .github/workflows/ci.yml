@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    # `claude/**` so a branch can be validated on its own merits. A
+    # `pull_request` run checks out `refs/pull/N/merge`, the test merge of head
+    # into base -- so a PR that conflicts with its base has no such ref and
+    # never queues a run at all. Waiting on the PR therefore reports nothing,
+    # not a failure, which is the most misleading of the two.
+    branches: [main, develop, "claude/**"]
   pull_request:
     branches: [main]
 
