@@ -170,3 +170,79 @@ def test_migrations_run_from_the_entrypoint_not_from_both_processes():
     entrypoint = _read("docker-entrypoint.sh")
     assert "alembic upgrade head" in entrypoint
     assert "exec \"$@\"" in entrypoint, "the entrypoint does not hand off to the command"
+
+
+# ------------------------------------------- secrets belong where they are used
+
+
+#: Read only under archguard/dashboard/ -- the session-cookie HMAC and the
+#: operator API credential. The worker executes neither path, so a manifest
+#: that asks for them is teaching an operator to copy credentials into a
+#: process that cannot use them. They were there because the worker used to run
+#: the web process's configuration gate; that gate takes a role now.
+WEB_ONLY_SECRETS = ("SESSION_SECRET", "ARCHGUARD_DASHBOARD_TOKEN")
+
+
+def test_the_render_worker_asks_for_no_web_only_secrets():
+    render = yaml.safe_load(_read("render.yaml"))
+    worker = next(s for s in render["services"] if s.get("type") == "worker")
+    keys = {e.get("key") for e in (worker.get("envVars") or [])}
+    for secret in WEB_ONLY_SECRETS:
+        assert secret not in keys, (
+            f"the Render worker declares {secret}, which nothing it runs reads"
+        )
+
+
+def test_the_railway_worker_asks_for_no_web_only_secrets():
+    config = tomllib.loads(_read("railway.worker.toml"))
+    keys = set(config.get("env", {}))
+    for secret in WEB_ONLY_SECRETS:
+        assert secret not in keys, (
+            f"the Railway worker declares {secret}, which nothing it runs reads"
+        )
+
+
+def test_the_web_service_still_has_its_own_secrets():
+    """Splitting the roles must not have taken anything off the web service."""
+    render = yaml.safe_load(_read("render.yaml"))
+    web = next(s for s in render["services"] if s.get("type") == "web")
+    keys = {e.get("key") for e in (web.get("envVars") or [])}
+    for required in (
+        *WEB_ONLY_SECRETS,
+        "ALLOWED_ORIGINS",
+        "GITHUB_OAUTH_CLIENT_ID",
+        "GITHUB_OAUTH_CLIENT_SECRET",
+        "ARCHGUARD_TRUSTED_PROXY_IPS",
+    ):
+        assert required in keys, f"the Render web service no longer declares {required}"
+
+
+# --------------------------------------------------------- the queue must last
+
+
+def test_the_render_queue_is_not_a_free_instance():
+    """Free Key Value instances do not persist: Render restarts them at its own
+    discretion and the data is gone. What is in there is the arq queue and
+    every signed-in session, neither of which is regenerable."""
+    render = yaml.safe_load(_read("render.yaml"))
+    stores = [
+        s for s in render["services"] if s.get("type") in ("redis", "keyvalue")
+    ]
+    assert stores, "render.yaml declares no Redis/Key Value instance"
+    for store in stores:
+        assert store.get("plan") != "free", (
+            f"{store.get('name')} is on the free plan, which does not persist: "
+            "a restart drops queued analyses and signs out every user"
+        )
+
+
+def test_the_render_queue_does_not_evict_under_pressure():
+    """The blueprint default is allkeys-lru, which is right for a cache and
+    wrong for a queue -- it would evict queued jobs to make room."""
+    render = yaml.safe_load(_read("render.yaml"))
+    for store in [
+        s for s in render["services"] if s.get("type") in ("redis", "keyvalue")
+    ]:
+        assert store.get("maxmemoryPolicy") == "noeviction", (
+            f"{store.get('name')} may evict queued jobs and live sessions"
+        )

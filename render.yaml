@@ -96,27 +96,60 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      # The worker signs the audit trail with the same key as the web process,
-      # or the two write entries that cannot be verified against each other.
-      - key: SESSION_SECRET
-        sync: false
-      - key: ARCHGUARD_DASHBOARD_TOKEN
-        sync: false
+      # SESSION_SECRET and ARCHGUARD_DASHBOARD_TOKEN are deliberately absent.
+      # They were here because the worker ran the web process's configuration
+      # gate, which demanded them -- and the note that used to sit here said
+      # the worker "signs the audit trail" with them, which was not true. The
+      # audit log is signed with ARCHGUARD_AUDIT_SECRET; SESSION_SECRET is the
+      # session-cookie HMAC and ARCHGUARD_DASHBOARD_TOKEN authenticates
+      # operator API calls, and neither is read anywhere this process
+      # executes. The gate is role-aware now, so the worker asks for what it
+      # uses and nothing else: two fewer copies of a credential.
     disk:
-      # The embedding cache and the audit trail, written by whichever process
-      # runs the analysis -- which, now that there is a worker, is this one.
+      # The audit trail, written by whichever process runs the analysis --
+      # which, now that there is a worker, is this one. Not the embedding
+      # cache: that resolves under the cloned repository in /tmp, not here.
+      #
+      # Optional. Nothing reads this file back -- every dashboard read is a
+      # PostgreSQL query -- so the disk buys durability for a write-only trail
+      # across deploys, and losing it costs no feature. Keep it if you want the
+      # trail to survive a restart; drop it and the path stays writable in the
+      # image, which is all /ready probes for.
       name: archguard-worker-cache
       mountPath: /app/.archguard-cache
       sizeGB: 1
+
+  # In `services`, not `databases`. `databases` is PostgreSQL only; a Key Value
+  # instance is a service, and declaring it there meant the blueprint promised
+  # a Redis it would not create -- leaving both `fromService` references above
+  # pointing at nothing.
+  - type: redis
+    name: archguard-redis
+    # NOT `free`, and this is a data-durability decision rather than a
+    # performance one. Free Key Value instances do not persist to disk: Render
+    # restarts them at its discretion and all data is lost when it does.
+    #
+    # What lives in here is not all regenerable. Rate-limit counters and the
+    # evolution cache are. The arq job queue and every signed-in session are
+    # not: a restart drops queued analyses on the floor and signs out every
+    # user. Queued jobs do eventually reconcile -- `fail_stalled_jobs` marks
+    # any non-terminal job older than the timeout as failed the next time a
+    # worker starts -- but "eventually failed" is not "ran".
+    #
+    # `256mb` is the smallest plan that persists -- the same one Render's own
+    # Sidekiq blueprint picks, and for the same reason. Development and CI use
+    # a throwaway Redis container and want none of this; see
+    # docs/DEPLOYMENT.md.
+    plan: 256mb
+    # Render's own recommendation for a queue workload. The blueprint default
+    # is `allkeys-lru`, which is right for a cache and wrong here: under memory
+    # pressure it would evict queued jobs and live sessions to make room.
+    maxmemoryPolicy: noeviction
+    # Sessions, rate-limit counters and job progress. No inbound public access.
+    ipAllowList: []
 
 databases:
   - name: archguard-db
     databaseName: archguard
     user: archguard
     plan: basic-256mb
-
-  - type: redis
-    name: archguard-redis
-    plan: free
-    # Sessions, rate-limit counters and job progress. No inbound public access.
-    ipAllowList: []

@@ -25,14 +25,26 @@ ARCHGUARD_IMAGE = "worker"
 # DATABASE_URL and REDIS_URL must be set on this service too, referencing the
 # same plugins the web service uses: ${{Postgres.DATABASE_URL}} and
 # ${{Redis.REDIS_URL}}. A worker without Redis has no queue to read; one
-# without PostgreSQL cannot record the analysis it performed. SESSION_SECRET
-# and ARCHGUARD_DASHBOARD_TOKEN must match the web service -- the audit trail
-# is signed with them, and two processes signing with different keys write
-# entries that cannot be verified against each other. GITHUB_TOKEN and
+# without PostgreSQL cannot record the analysis it performed. GITHUB_TOKEN and
 # GEMINI_API_KEY are used by the analysis itself.
 #
 # They are set in the Railway dashboard rather than here: this file is
 # committed and they are credentials.
+#
+# SESSION_SECRET and ARCHGUARD_DASHBOARD_TOKEN are deliberately NOT required
+# here. This used to say they had to match the web service because "the audit
+# trail is signed with them". That was wrong: the audit log is signed with
+# ARCHGUARD_AUDIT_SECRET. SESSION_SECRET is the session-cookie HMAC and
+# ARCHGUARD_DASHBOARD_TOKEN authenticates operator API calls, and neither is
+# read anywhere this process executes. They were needed only because the
+# worker used to run the web process's configuration gate; that gate is
+# role-aware now. Setting them here copies credentials somewhere that cannot
+# use them.
+#
+# Railway gives this service no volume, which is correct: the only thing
+# written to the data directory is the audit log, nothing reads it back, and
+# every dashboard read is a PostgreSQL query. It is lost on redeploy, and that
+# costs no feature.
 
 [deploy]
 # Migrations run in the entrypoint, exactly as they do for the web service.
