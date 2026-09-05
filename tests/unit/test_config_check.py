@@ -13,7 +13,10 @@ from __future__ import annotations
 import pytest
 
 from archguard.dashboard._config_check import (
+    SHARED_CHECKS,
     ConfigurationError,
+    Role,
+    checks_for,
     validate_configuration,
 )
 
@@ -223,3 +226,135 @@ def test_the_message_says_what_to_do(production):
     with pytest.raises(ConfigurationError) as exc:
         validate_configuration()
     assert "secrets.token_hex(32)" in str(exc.value)
+
+
+# --------------------------------------------------- roles: web vs worker
+
+
+"""The worker is not a small web process.
+
+Four of these checks describe HTTP behaviour. The worker serves no port, so
+applying them there refused to start a correctly configured worker until an
+operator copied a CORS origin list and an OAuth client secret onto a process
+that reads neither -- which is not defence in depth, it is credentials in one
+more place.
+"""
+
+WORKER_REQUIRED = {
+    "ENVIRONMENT": "production",
+    "DATABASE_URL": "postgresql+asyncpg://u:p@127.0.0.1:5432/db",
+    "REDIS_URL": "redis://127.0.0.1:6379/0",
+}
+
+
+@pytest.fixture
+def worker_production(monkeypatch, tmp_path):
+    """A worker with everything it genuinely needs and nothing it does not."""
+    for key in GOOD:
+        monkeypatch.delenv(key, raising=False)
+    for key, value in WORKER_REQUIRED.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", raising=False)
+    monkeypatch.setenv("ARCHGUARD_DATA_DIR", str(tmp_path / "data"))
+    return monkeypatch
+
+
+def test_a_production_web_process_still_fails_without_its_web_settings(production):
+    """The point of splitting the roles is not to let the web off anything."""
+    production.delenv("ALLOWED_ORIGINS", raising=False)
+    production.delenv("GITHUB_OAUTH_CLIENT_ID", raising=False)
+    production.delenv("GITHUB_OAUTH_CLIENT_SECRET", raising=False)
+    production.delenv("ARCHGUARD_TRUSTED_PROXY_IPS", raising=False)
+
+    with pytest.raises(ConfigurationError) as exc:
+        validate_configuration(Role.WEB)
+
+    message = str(exc.value)
+    assert "ALLOWED_ORIGINS" in message
+    assert "GITHUB_OAUTH_CLIENT_ID" in message
+    assert "ARCHGUARD_TRUSTED_PROXY_IPS" in message
+
+
+def test_a_worker_starts_without_the_web_only_settings(worker_production):
+    """A database, a queue and a writable directory is the whole worker
+    contract. It has no origin to allow and no visitor to sign in."""
+    validate_configuration(Role.WORKER)
+
+
+def test_a_worker_needs_no_session_secret_or_operator_token(worker_production):
+    """Traced, not assumed: SESSION_SECRET is the session-cookie HMAC and
+    ARCHGUARD_DASHBOARD_TOKEN authenticates operator API calls. Neither is read
+    anywhere the worker executes, so neither belongs in its manifest."""
+    worker_production.delenv("SESSION_SECRET", raising=False)
+    worker_production.delenv("ARCHGUARD_DASHBOARD_TOKEN", raising=False)
+    validate_configuration(Role.WORKER)
+
+
+@pytest.mark.parametrize("missing", ["DATABASE_URL", "REDIS_URL"])
+def test_a_worker_still_fails_without_what_it_genuinely_needs(
+    worker_production, missing
+):
+    """Without Redis it has no queue to read; without PostgreSQL it cannot
+    record the analysis it just performed."""
+    worker_production.delenv(missing, raising=False)
+    with pytest.raises(ConfigurationError) as exc:
+        validate_configuration(Role.WORKER)
+    assert missing in str(exc.value)
+
+
+def test_a_worker_still_fails_on_an_unwritable_data_directory(
+    worker_production, tmp_path
+):
+    """The worker is the process that writes the audit log."""
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+    worker_production.setenv("ARCHGUARD_DATA_DIR", str(blocker / "under-a-file"))
+
+    with pytest.raises(ConfigurationError) as exc:
+        validate_configuration(Role.WORKER)
+    assert "not writable" in str(exc.value)
+
+
+def test_the_remote_access_override_is_refused_in_every_role(worker_production):
+    """Shared on purpose. It only changes the HTTP auth path, so on a worker it
+    does nothing -- but a production environment carrying it at all is
+    misconfigured, and whichever process starts first should say so."""
+    worker_production.setenv("ARCHGUARD_DASHBOARD_ALLOW_REMOTE", "1")
+    with pytest.raises(ConfigurationError) as exc:
+        validate_configuration(Role.WORKER)
+    assert "ARCHGUARD_DASHBOARD_ALLOW_REMOTE" in str(exc.value)
+
+
+# ------------------------------------------- the role cannot become a bypass
+
+
+def test_every_role_runs_every_shared_check():
+    """A role adds checks. It must not be able to subtract one."""
+    for role in Role:
+        assert set(SHARED_CHECKS).issubset(set(checks_for(role))), role
+
+
+def test_an_unknown_role_is_refused_rather_than_treated_as_empty(production):
+    """A typo resolving to "no checks" would turn the parameter that describes
+    a process into a way of switching the gate off."""
+    for bogus in ("web", "worker", "", None, "WEB"):
+        with pytest.raises(ConfigurationError) as exc:
+            validate_configuration(bogus)  # type: ignore[arg-type]
+        assert "Unknown process role" in str(exc.value)
+
+
+def test_an_unknown_role_is_refused_even_outside_production(monkeypatch):
+    """Otherwise the typo is found in production, which is the worst place."""
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    with pytest.raises(ConfigurationError):
+        validate_configuration("worker")  # type: ignore[arg-type]
+
+
+def test_the_default_role_is_the_stricter_one(production):
+    """A caller that forgets to say which process it is must get more checks,
+    not fewer: the failure mode is a false refusal, never a silent pass."""
+    production.delenv("ALLOWED_ORIGINS", raising=False)
+    with pytest.raises(ConfigurationError) as exc:
+        validate_configuration()
+    assert "ALLOWED_ORIGINS" in str(exc.value)
+    assert set(checks_for(Role.WEB)) >= set(checks_for(Role.WORKER))

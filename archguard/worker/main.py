@@ -37,16 +37,22 @@ async def startup(ctx: dict[str, Any]) -> None:
 
     configure_error_reporting()
 
-    # The same gate the web process runs before it serves traffic. It had only
-    # one caller, so a worker with ENVIRONMENT=production and no DATABASE_URL
-    # started happily, drained the queue and failed every job before it could
-    # write a row -- with no HTTP surface and no health check, nothing noticed.
-    # The worker is also the process that performs the analyses the audit log
-    # records, so the writable-data-directory probe matters more here than it
-    # does there.
-    from archguard.dashboard._config_check import validate_configuration
+    # The same gate the web process runs, minus the four checks that describe
+    # HTTP behaviour. It had only one caller once, so a worker with
+    # ENVIRONMENT=production and no DATABASE_URL started happily, drained the
+    # queue and failed every job before it could write a row -- with no HTTP
+    # surface and no health check, nothing noticed. The worker is also the
+    # process that performs the analyses the audit log records, so the
+    # writable-data-directory probe matters more here than it does there.
+    #
+    # WORKER, not WEB: this process has no origin to allow, no visitor to sign
+    # in, no proxy in front of it and no session cookie to key. Running the web
+    # role here demanded a CORS list and an OAuth client secret before it would
+    # start, which is not a safer worker -- it is the same credentials in one
+    # more place that cannot use them.
+    from archguard.dashboard._config_check import Role, validate_configuration
 
-    validate_configuration()
+    validate_configuration(Role.WORKER)
 
     # Whatever was mid-analysis belonged to a process that is gone. arq cancels
     # running tasks on SIGTERM and `CancelledError` escapes the task's own

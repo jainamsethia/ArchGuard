@@ -8,6 +8,20 @@ setting nobody reads is indistinguishable from no warning at all.
 The gate runs only when ``ENVIRONMENT=production``. Development is expected to
 be missing most of this, and a check that made ``make dev`` fail would be
 turned off within a week.
+
+Two processes run it, and they are not the same shape. The web process serves
+HTTP; the worker consumes a queue and serves no port. Four of these checks
+describe HTTP behaviour -- who may call across origins, how a visitor signs in,
+which peer address to trust, and the keys that sign session cookies and
+authenticate operators -- and a worker has none of that. Applying them there
+made the worker refuse to start until an operator copied OAuth client secrets
+and a CORS origin list onto a process that cannot use either, which is not
+defence in depth; it is spreading credentials to where they have no purpose.
+
+So the role is a parameter, not a guess. It defaults to the *stricter* role, so
+a caller that forgets to say which it is gets more checks rather than fewer,
+and the shared set runs for every role -- a role can add checks, never remove
+them.
 """
 
 from __future__ import annotations
@@ -15,9 +29,24 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class Role(str, Enum):
+    """Which process is asking.
+
+    ``WEB`` serves HTTP: sessions, CORS, sign-in, client addresses.
+    ``WORKER`` drains the arq queue and runs analyses. It has no HTTP surface,
+    no session, no visitor and no proxy in front of it.
+    """
+
+    WEB = "web"
+    WORKER = "worker"
+
 
 #: Shannon-ish floor rather than a real strength estimate. 32 bytes is what
 #: `secrets.token_hex(32)` produces as 64 hex characters, and anything much
@@ -167,24 +196,76 @@ def _check_allow_remote(problems: list[str]) -> None:
         )
 
 
-CHECKS = (
-    _check_cors,
-    _check_secrets,
-    _check_oauth,
+#: Run for every role, and the reasons are not HTTP-shaped.
+#:
+#: Both processes read PostgreSQL and Redis -- the worker has no queue to
+#: consume and nowhere to record the analysis it just performed without them.
+#: Both need a writable data directory: the worker is the process that writes
+#: the audit log, and the web process probe-writes the same path in ``/ready``.
+#: ``ARCHGUARD_DASHBOARD_ALLOW_REMOTE`` is here rather than under the web role
+#: on purpose. It only changes behaviour in the HTTP auth path, so on a worker
+#: it does nothing -- but a production environment with it set at all is
+#: misconfigured, and catching that on whichever process starts first is
+#: strictly safer than catching it on one of them.
+SHARED_CHECKS = (
     _check_backing_services,
-    _check_proxy_configuration,
     _check_data_directory,
     _check_allow_remote,
 )
 
+#: Only meaningful to a process that answers HTTP requests.
+#:
+#: ``_check_secrets`` belongs here despite looking general: ``SESSION_SECRET``
+#: is the HMAC key for session cookies (``_sessions``) and
+#: ``ARCHGUARD_DASHBOARD_TOKEN`` authenticates operator API calls (``_auth``,
+#: ``_cookie_auth``). Neither is read anywhere the worker executes -- traced,
+#: not assumed -- so requiring them there only teaches operators to copy
+#: secrets into processes that never use them.
+WEB_ONLY_CHECKS = (
+    _check_cors,
+    _check_secrets,
+    _check_oauth,
+    _check_proxy_configuration,
+)
 
-def validate_configuration() -> None:
-    """Raise if this process must not serve production traffic.
+#: A role adds checks. It cannot subtract from SHARED_CHECKS.
+ROLE_CHECKS: dict[Role, tuple[Any, ...]] = {
+    Role.WEB: WEB_ONLY_CHECKS,
+    Role.WORKER: (),
+}
+
+
+def checks_for(role: Role) -> tuple[Any, ...]:
+    """The checks *role* must pass, shared ones always included.
+
+    Raises on anything that is not a known role. A typo must not resolve to an
+    empty check list and report a pass -- that would turn the argument meant to
+    describe a process into a way of switching the gate off.
+    """
+    if not isinstance(role, Role):
+        raise ConfigurationError(
+            f"Unknown process role {role!r}. Expected one of: "
+            f"{', '.join(r.value for r in Role)}."
+        )
+    return SHARED_CHECKS + ROLE_CHECKS[role]
+
+
+def validate_configuration(role: Role = Role.WEB) -> None:
+    """Raise if this process must not run in production.
+
+    *role* defaults to the stricter of the two. A caller that forgets to say
+    what it is gets every check rather than none, so the failure mode of the
+    parameter is a false refusal to start, not a silent pass.
 
     Every problem is collected before raising rather than failing on the first.
     Fixing a deployment one restart at a time, five minutes apart, is how a
     ten-minute configuration job becomes an afternoon.
     """
+    # Before the production short-circuit: an invalid role is a programming
+    # error, and reporting it only in production would surface it exactly where
+    # it is most expensive to find.
+    checks = checks_for(role)
+
     if not is_production():
         logger.info(
             "ENVIRONMENT is not 'production'; skipping the production "
@@ -193,7 +274,7 @@ def validate_configuration() -> None:
         return
 
     problems: list[str] = []
-    for check in CHECKS:
+    for check in checks:
         check(problems)
 
     if problems:

@@ -139,9 +139,9 @@ async def _lifespan(app_instance: FastAPI) -> Any:
     # visible. Raising here fails the deploy, which is the point: every problem
     # it catches is one that otherwise produces no error at all, only quietly
     # weaker behaviour.
-    from archguard.dashboard._config_check import validate_configuration
+    from archguard.dashboard._config_check import Role, validate_configuration
 
-    validate_configuration()
+    validate_configuration(Role.WEB)
 
     recommended = {
         # Names only what the key actually powers. It used to lead with "L4 LLM
