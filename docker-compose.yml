@@ -93,8 +93,10 @@ services:
       - DATABASE_URL=postgresql+asyncpg://archguard:${POSTGRES_PASSWORD:-archguard_local_dev}@postgres:5432/archguard_dev
       - REDIS_URL=redis://redis:6379/0
     volumes:
-      # The same cache the web service mounts: the embeddings database and the
-      # audit trail are written by whichever process runs the analysis.
+      # The audit trail, written by whichever process runs the analysis. Not
+      # the embeddings database, despite the name: that resolves under the
+      # cloned repository, so it lives in the tmpfs below and dies with the
+      # clone.
       - archguard-cache:/app/.archguard-cache
     tmpfs:
       # Clones live here. The worker is the only process that makes them now,

@@ -11,12 +11,14 @@
 1. [Prerequisites](#prerequisites)
 2. [Deployment Options](#deployment-options)
 3. [Environment Configuration](#environment-configuration)
-4. [Release Checklist](#release-checklist)
-5. [Rollback Procedure](#rollback-procedure)
-6. [Operational Runbook](#operational-runbook)
-7. [Monitoring Recommendations](#monitoring-recommendations)
-8. [Backup and Recovery](#backup-and-recovery)
-9. [Troubleshooting](#troubleshooting)
+4. [Redis: development versus production](#redis-development-versus-production)
+5. [Audit log and its secret](#audit-log-and-its-secret)
+6. [Release Checklist](#release-checklist)
+7. [Rollback Procedure](#rollback-procedure)
+8. [Operational Runbook](#operational-runbook)
+9. [Monitoring Recommendations](#monitoring-recommendations)
+10. [Backup and Recovery](#backup-and-recovery)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -90,28 +92,43 @@ whichever your platform supports.
 Redis. Fork the repository, then Render Dashboard → New → Blueprint → connect
 your fork.
 
-Set these as secrets on **both** services: `SESSION_SECRET`,
-`ARCHGUARD_DASHBOARD_TOKEN`, `GITHUB_TOKEN`, `GEMINI_API_KEY`. The first two
-must be *identical* across the services — the audit trail is signed with them,
-and two processes signing with different keys write entries that cannot be
-verified against each other. `DATABASE_URL` and `REDIS_URL` are wired by
-reference in the blueprint and need no manual entry. The web service also takes
-`ALLOWED_ORIGINS`.
+Set on the **web** service: `SESSION_SECRET`, `ARCHGUARD_DASHBOARD_TOKEN`,
+`ALLOWED_ORIGINS`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`, and
+optionally `GITHUB_TOKEN` and `GEMINI_API_KEY`. Set on the **worker**: only
+`GITHUB_TOKEN` and `GEMINI_API_KEY`, both optional — the analysis uses them.
+`DATABASE_URL` and `REDIS_URL` are wired by reference in the blueprint and need
+no manual entry on either.
+
+> An earlier version of this guide said `SESSION_SECRET` and
+> `ARCHGUARD_DASHBOARD_TOKEN` had to be *identical* across both services
+> because "the audit trail is signed with them". That was wrong on both counts.
+> The audit log is signed with `ARCHGUARD_AUDIT_SECRET` — see
+> [Audit log and its secret](#audit-log-and-its-secret) — while `SESSION_SECRET`
+> is the HMAC key for session cookies and `ARCHGUARD_DASHBOARD_TOKEN`
+> authenticates operator API calls. Neither is read anywhere the worker
+> executes. They were listed for the worker only because it used to run the web
+> process's configuration gate; that gate is role-aware now, so the worker asks
+> for what it uses. Do not copy them onto it.
 
 The health check is `/ready`, not `/health`: a check that returns 200 whenever
 the process is alive reports a service as healthy while its database is
 unreachable and every request is failing, which stops the platform rolling
 back. The worker has no health check because it serves no port.
 
-> **Needs verification on the provider.** Render builds a Dockerfile path
-> without naming a build stage, so the worker service selects its image through
-> the `ARCHGUARD_IMAGE=worker` build variable in `render.yaml`. That the
-> blueprint is well-formed and names the right command is checked by
-> `tests/unit/test_deployment_config.py`; that Render passes the variable to
-> the build has not been confirmed against a live deploy. Check the worker's
-> first build log for `--extras "worker"` before relying on Layers 3 and 4. If
-> it built the slim image, deploy the worker from a pre-built image instead
-> (`runtime: image`) — CI already builds both.
+**How the worker gets the right image.** Render cannot name a build stage in a
+Blueprint — it builds through to the *final* stage — which is why the Dockerfile
+ends with `FROM ${ARCHGUARD_IMAGE} AS default` and a global `ARG
+ARCHGUARD_IMAGE=web`. Render documents that a Docker service's environment
+variables are automatically translated into build arguments, so
+`ARCHGUARD_IMAGE: worker` in the worker's `envVars` selects the worker stage
+and the web service, leaving it unset, gets the slim image. Only
+`ARCHGUARD_IMAGE` is referenced in the Dockerfile, so no secret is baked into a
+layer — Render warns specifically against referencing sensitive build args.
+
+> Still confirm on the first deploy: check the worker's build log for
+> `--extras "worker"`. If it built the slim image, Layers 3 and 4 will skip and
+> dependency scanning will fail; deploy the worker from a pre-built image
+> instead (`runtime: image`) — CI already builds both.
 
 ### Option C: Railway
 
@@ -120,9 +137,19 @@ the same repository: the web service uses `railway.toml`, the worker uses
 `railway.worker.toml` (Service → Settings → Config-as-code).
 
 Add the Postgres and Redis plugins, then set `DATABASE_URL` and `REDIS_URL` on
-both services as `${{Postgres.DATABASE_URL}}` and `${{Redis.REDIS_URL}}`, plus
-the same secrets listed under Render. Railway sets `PORT` for the web service
-automatically.
+both services as `${{Postgres.DATABASE_URL}}` and `${{Redis.REDIS_URL}}`.
+Secrets split the same way they do on Render: the web service takes
+`SESSION_SECRET`, `ARCHGUARD_DASHBOARD_TOKEN`, `ALLOWED_ORIGINS` and the OAuth
+pair; the worker takes only the optional `GITHUB_TOKEN` and `GEMINI_API_KEY`.
+Railway sets `PORT` for the web service automatically, and passes service
+variables to the Docker build, which is how `ARCHGUARD_IMAGE = "worker"` in
+`railway.worker.toml` selects the worker image.
+
+Railway gives neither service a volume, which is correct here — see
+[Audit log and its secret](#audit-log-and-its-secret). Use a Redis plugin
+configuration that persists; the reasoning in
+[Redis: development versus production](#redis-development-versus-production)
+is provider-independent.
 
 ### Option D: Bare Metal / VPS
 
@@ -187,6 +214,72 @@ readiness signal.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ARCHGUARD_SESSION_COOKIE_TTL` | Login session duration (seconds) | `86400` (24h) |
+
+---
+
+## Redis: development versus production
+
+Redis is not a cache here. It holds three things, and only one of them is
+regenerable:
+
+| What | Survives a Redis restart? |
+|------|---------------------------|
+| The arq job queue | **Must.** A lost queue drops analyses users are waiting on. |
+| Signed-in sessions | **Must.** Losing them signs out every user. |
+| Rate-limit counters, evolution cache | Regenerable — losing them is harmless. |
+
+So production needs an instance that persists to disk and does not evict:
+
+- **Persistence on.** On Render, free Key Value instances do not persist at
+  all; Render restarts them at its own discretion and the data is gone when it
+  does. `render.yaml` therefore asks for the `256mb` plan, the smallest one
+  with persistence.
+- **`maxmemoryPolicy: noeviction`.** The blueprint default is `allkeys-lru`,
+  which is right for a cache and wrong for a queue: under memory pressure it
+  would evict queued jobs and live sessions to make room. `noeviction` refuses
+  new writes instead of silently dropping work.
+
+Queued jobs do eventually reconcile if Redis is lost — `fail_stalled_jobs`
+marks any non-terminal job older than the job timeout as failed the next time a
+worker starts, so nothing hangs at "queued" for ever. But "eventually reported
+as failed" is not "ran", and that reconciliation is a safety net, not a plan.
+
+Development and CI are the opposite case. `docker-compose.yml` and the CI jobs
+run a throwaway `redis:8-alpine` with no persistence on purpose: the data is
+meant to vanish between runs. Do not carry that configuration into production,
+and do not use the free Key Value plan there.
+
+---
+
+## Audit log and its secret
+
+`ARCHGUARD_AUDIT_SECRET` is the HMAC key for `audit.jsonl`, and the only
+variable that signs it. `SESSION_SECRET` signs session cookies;
+`ARCHGUARD_DASHBOARD_TOKEN` authenticates operator API calls. Neither has
+anything to do with the audit trail, and neither is read anywhere the worker
+executes.
+
+What the audit log currently is, traced rather than assumed:
+
+- **Written by one place** — `analysis/duplication.py`, a `DUPLICATION_SKIPPED`
+  event when a Layer 4 centroid cache is stale. Analysis runs only in the
+  worker, so the worker is the only process that writes it.
+- **Read by nothing.** Every dashboard read — run history, trends, modules, the
+  dependency graph — is a PostgreSQL query. They used to tail-scan this file;
+  they do not any more.
+- **Therefore instance-local, and that is fine.** Web and worker do *not* need
+  to share it, so separate disks are not a problem, and a deployment with no
+  volume at all loses nothing but the file.
+
+`ARCHGUARD_AUDIT_SECRET` is optional. Left unset, the logger generates an
+`audit.key` beside the log on first write, which is sufficient because nothing
+verifies the signatures today. Set it explicitly if you want entries to stay
+verifiable across a disk replacement, and set it to the same value in more than
+one place only if you later add something that verifies them.
+
+> If audit logging is meant to be a real security trail, the fix is to record
+> meaningful events into PostgreSQL alongside every other read — not to give
+> this file a shared disk. That is a product decision, not a deployment one.
 
 ---
 
@@ -380,7 +473,7 @@ Alert on any log line containing:
 ### Recovery Procedure
 
 1. **Full data loss**: Restore the Docker volume from backup, restart the service, re-login.
-2. **Corrupted audit log**: Delete `audit.jsonl` — a new one is created on the next analysis run (historical trend data is lost).
+2. **Corrupted audit log**: Delete `audit.jsonl` — a new one is created on the next analysis run. Nothing else is affected: run history, trends and every dashboard read are PostgreSQL queries, not scans of this file.
 3. **Lost `ARCHGUARD_DASHBOARD_TOKEN`**: Generate a new one. User sessions are
    signed with `SESSION_SECRET` and are unaffected; what is invalidated is any
    in-flight SSE stream token, so a browser watching a running analysis falls
