@@ -1,327 +1,554 @@
 # ArchGuard
-> **Architectural drift detection for Python CI pipelines**
-> Catches import boundary violations, coupling degradation, and semantic drift before they reach main.
 
-[![CI](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml) [![PyPI](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/) [![Python](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/) [![License](https://img.shields.io/github/license/jainamsethia/ArchGuard)](LICENSE) [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://hub.docker.com/)
+**Architectural drift detection for Python repositories, as a web application.**
 
-**[📸 Screenshots](#screenshots) · [📖 Docs](#architecture) · [🚀 Quick Start](#quick-start)**
+[![CI](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml/badge.svg)](https://github.com/jainamsethia/ArchGuard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](pyproject.toml)
 
-## Deploy
+Paste a public Python repository on GitHub. ArchGuard clones it, reads its
+import graph, and reports an architectural health score, the modules carrying
+the most risk, and what it found — with a sentence of plain English for every
+finding.
 
-### One-click deploy to Railway
-Create a new Railway project from this repo (Railway dashboard → **New Project** →
-**Deploy from GitHub repo**); `railway.toml` in the repo root supplies the build and
-healthcheck config.
+The thing it refuses to do is guess. When a layer cannot run — no import rules
+declared, no baseline to compare against, ML extras absent — the report says so
+and that layer is excluded from the composite, rather than scored zero and
+folded into your grade. A missing measurement and a clean one are not the same
+thing, and this codebase is built around not conflating them.
 
-**Required environment variables to set in Railway dashboard:**
-- `GEMINI_API_KEY` — for L4 LLM explanations and all other AI features (optional but recommended)
-- `GITHUB_TOKEN` — for GitHub API access (optional; 60 req/hr without)
-- `ARCHGUARD_DASHBOARD_TOKEN` — secures the dashboard API with Bearer auth
-- `ALLOWED_ORIGINS` — comma-separated frontend domains (e.g. `https://your-app.vercel.app`)
-- `ENVIRONMENT` — set to `production` for secure session cookies (already set in `railway.toml`'s `[env]` section)
-- `ARCHGUARD_TRUSTED_PROXY_IPS` — must be set to the hosting platform's actual proxy range for per-user rate limiting to function correctly (set in the Railway dashboard).
+---
 
-### Deploy to Render
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/jainamsethia/ArchGuard)
+## The problem
 
-Set the same environment variables in the Render dashboard under **Environment**. Note that `ARCHGUARD_TRUSTED_PROXY_IPS` is already configured directly in `render.yaml` with the appropriate CIDR range.
+Architecture decays in increments that no individual code review catches. A
+module starts importing something it was meant not to know about. Two services
+grow a third copy of the same logic. A package that was cohesive drifts into a
+grab-bag. Every one of those changes is defensible on its own; the aggregate is
+a codebase nobody wants to touch.
 
-### Run locally with Docker Compose
-```bash
-cp .env.example .env
-# Edit .env to add your API keys
-docker compose up
-# Open http://localhost:8000
+Linters do not see this — they operate on files, and architecture is a property
+of the *relationships between* files. The signal only exists at the level of the
+import graph, the module boundaries, and how both change over time.
+
+ArchGuard measures that, gives it a number, and tracks the number across commits.
+
+---
+
+## Key features
+
+| Feature | What it actually gives you |
+|---|---|
+| **Four-layer analysis** | Import-boundary violations, coupling deltas, semantic drift and cross-module duplication — each scored separately, so a single bad number is traceable to a cause |
+| **Honest skip reporting** | Any layer that could not measure reports *why*, and is excluded from the composite rather than scored 0.00 |
+| **Architecture fitness functions** | Contract-declared assertions (`graph.cycles == 0`, `layer[2].debt <= 0.60`, `health_score >= 80`) evaluated per run, with `critical` gates capping the grade |
+| **Auto-generated contracts** | Repositories with no `.archguard.yml` get one synthesised from their actual package layout, so first-time analysis works without setup |
+| **Incremental re-analysis** | File-hash cache in PostgreSQL; unchanged files are skipped, so a re-scan does materially less work than the first |
+| **Dependency scanning** | `pip-audit` against pinned requirement files, surfacing CVEs per package |
+| **Architecture evolution** | Commit-history analysis via PyDriller, with Louvain community detection to show how module clustering shifted |
+| **Watched repositories** | Scheduled re-scans with webhook alerts when health regresses past a threshold |
+| **AI Advisor & remediation plans** | Optional Gemini-backed explanation and fix-planning over the findings — degrades cleanly to disabled controls without a key |
+| **Suppressions** | Per-user, per-finding suppressions stored in PostgreSQL, so a known-and-accepted violation stops re-appearing |
+
+---
+
+## How it works
+
 ```
+GitHub URL → validate → clone → parse → 4 layers → score → persist → dashboard
+```
+
+1. **Validate.** The URL is parsed and resolved. The IP it resolves to is checked
+   against private ranges, and the outbound request is pinned to that address.
+2. **Queue.** The web process enqueues a job in Redis and returns a job id. It
+   does no analysis itself.
+3. **Clone.** A worker clones the repository into a temporary workspace under a
+   size budget.
+4. **Contract.** `.archguard.yml` is loaded, or synthesised from the repository's
+   package structure if absent.
+5. **Analyse.** Four layers run over the changed files (or all of them on a first
+   scan). Each returns a score, its violations, and a skip reason if it measured
+   nothing.
+6. **Score.** Layer scores combine into a composite ArchDebt value; fitness
+   functions are evaluated; a health score and grade fall out.
+7. **Persist.** Run, violations and file hashes are written to PostgreSQL.
+8. **Stream.** Progress is pushed to the browser over Server-Sent Events while
+   the job runs; the dashboard renders the completed run.
+
+### The four layers
+
+| Layer | Measures | Method | Needs ML extras |
+|---|---|---|---|
+| **1 — Import Boundary Violations** | Imports that breach declared module rules | AST import extraction, resolved against contract `allowed`/`disallowed` | No |
+| **2 — Coupling Delta** | Modules growing more entangled than their budget | Import-graph edge counting per module | No |
+| **3 — Semantic Drift** | A module's code drifting from what it used to be about | `all-MiniLM-L6-v2` embeddings, centroid cosine distance against a stored baseline | **Yes** |
+| **4 — Duplication** | Near-identical logic across module boundaries | FAISS `IndexFlatL2` similarity search over 384-dim embeddings | **Yes** |
+
+Layers 3 and 4 require the `worker` extra (torch, sentence-transformers,
+faiss-cpu). Without it they skip with an explicit reason and are excluded from
+the composite — the score you get is over the layers that actually ran.
+
+### Scoring
+
+Composite ArchDebt is the weighted mean of the layers that ran (equal weights by
+default, `0.25` each), on a 0–1 scale where **higher is worse**. Health score is
+its inverse: `(1 − composite) × 100`.
+
+Bands are set relative to the contract's own thresholds, not hardcoded:
+
+| Band | Condition |
+|---|---|
+| `Healthy` | composite < `warn_threshold / 2` |
+| `Watch` | `warn_threshold / 2` ≤ composite < `warn_threshold` |
+| `Critical` | composite ≥ `fail_threshold` |
+
+A failing `critical` fitness function caps the grade at **C** regardless of the
+numeric score — a repository with cycles in its module graph does not get an A.
+
+---
+
 ## Architecture
 
-![Architecture](docs/architecture.png)
+Two processes, one codebase, two different container images. The split is
+deliberate: the web process never loads an embedding model, and torch alone
+outweighs everything else combined.
 
 ```mermaid
-flowchart TB
-subgraph Input["📥 Input"]
-GH[GitHub repository URL]
-WEB[Web dashboard]
-end
-subgraph Pipeline["🔍 Analysis Pipeline"]
-direction TB
-L1["Layer 1: Import Boundaries\n(tree-sitter AST)"]
-L2["Layer 2: Coupling Delta\n(NetworkX fan-out)"]
-L3["Layer 3: Semantic Drift\n(MiniLM embeddings)"]
-L4["Layer 4: Duplication\n(FAISS vector search)"]
-EXPLAIN["LLM Explanation\n(Gemini)"]
-SCORE["🧮 ArchDebt Scoring\n(weighted composite)"]
-end
-subgraph Cache["💾 Cache Layer"]
-SQLITE[(SQLite WAL\nEmbedding Cache)]
-INCR[SHA-256\nIncremental Hash]
-end
-subgraph Output["📤 Output"]
-COMMENT[PR Comment]
-HTML[HTML Report]
-AUDIT[Audit JSONL Log]
-EXIT[CI Exit Code]
-end
-subgraph Contract["📋 Contract"]
-YAML[.archguard.yml\n(JSON Schema v3.0)]
-REINFER[Re-inference\nEngine]
-end
-Input --> Pipeline
-Pipeline --> SCORE
-SCORE --> Output
-Cache -.->|Cache reads| Pipeline
-Pipeline -.->|Cache writes| Cache
-Contract --> Pipeline
-L3 -->|persistent drift| REINFER
-REINFER --> Contract
-SCORE -->|violations| EXPLAIN
-EXPLAIN --> Output
+flowchart TD
+    U["Browser"]
+
+    subgraph web["Web image (slim)"]
+        W["FastAPI<br/>Jinja2 + ES modules"]
+    end
+
+    subgraph wrk["Worker image (torch + faiss + baked MiniLM)"]
+        K["arq worker"]
+        L1["L1 Import boundaries"]
+        L2["L2 Coupling"]
+        L3["L3 Semantic drift"]
+        L4["L4 Duplication"]
+    end
+
+    R[("Redis<br/>queue · sessions · rate limits")]
+    P[("PostgreSQL")]
+    G["GitHub"]
+    AI["Gemini API<br/>advisor · remediation"]
+
+    U -->|"GitHub OAuth"| W
+    W -->|"enqueue job"| R
+    R -->|"consume"| K
+    K --> L1 --> L2 --> L3 --> L4
+    K -->|"clone"| G
+    K -->|"progress"| R
+    L4 -->|"run · violations · file hashes"| P
+    W -->|"read"| P
+    R -->|"SSE"| W
+    W -.->|"optional"| AI
 ```
 
-ArchGuard runs a 4-layer analysis pipeline on every PR:
+**Why a queue at all.** Analysis clones and parses an arbitrary repository from
+the internet. Doing that in the process that holds every session key is a bad
+trade, and a 15-minute analysis inside a request is not a request. The worker
+also owns the crons: watched-repository sweeps and history retention.
 
-| Layer | Signal | Technology |
-|-------|--------|------------|
-| Boundary | Forbidden cross-module imports | tree-sitter AST |
-| Coupling | Fan-out exceeds budget | NetworkX graph |
-| Semantic | Embedding centroid drift | MiniLM + cosine similarity |
-| Duplication | Cross-module function clones | FAISS vector search |
+**Why two images.** The web service must not be able to `import torch`, and the
+worker must have `pip-audit` on its PATH. Both are asserted in CI on every push,
+because both regress silently — an extra in the wrong list looks like nothing
+until the image is built.
 
-Results posted as a PR comment with an ArchDebt score and LLM-generated explanation.
+---
 
+## Technical deep dive
 
-## Screenshots
+**Semantic drift needs a baseline, and says so when it has none.** Layer 3
+compares a module's current embedding centroid against a stored one. On a first
+scan there is nothing to compare to, so it returns `skipped` with that reason
+rather than a drift of 0.0 — which would read as "measured, no drift" and
+average into the composite as a real, perfect measurement.
 
-None yet. The three placeholders that used to sit here described terminal
-output and an automated PR comment from the removed CLI, so they promised a
-product that no longer exists rather than a screenshot that had not been taken.
+**Incremental analysis must not change the answer.** File hashes are persisted
+per repository, and unchanged files are skipped on re-scan. Layer 4 is the
+exception: duplication is a repository-wide property, so any module change
+recomputes it across the whole tree. An incremental scan of a given tree state
+is required to report the same layer set as a full scan of it — anything else
+means two different scores for one repository, which is the one thing
+incremental analysis is not allowed to do.
 
-## Technical Highlights
-- **4-layer analysis**: AST parsing + graph coupling + ML embeddings + FAISS vector search
-- **Louvain community detection** on commit co-change graph for automatic contract generation
-- **Incremental analysis**: SHA-256 file hashing + SQLite WAL cache — only recomputes changed files
-- **Resilient LLM explanations**: Gemini Flash (primary) with automatic fallback to Gemini Flash-Lite on rate-limit, server error or timeout, dispatched with concurrent async calls.
-- **Re-inference engine**: proposes contract updates when semantic drift persists across PRs
+**SSRF protection pins the address, not the name.** Validating a hostname and
+then letting the HTTP client re-resolve it leaves a DNS-rebinding window. The
+validator resolves the host, rejects private and loopback ranges, then issues the
+request against the resolved IP with `sni_hostname` set — so TLS is still
+verified against the real hostname while the connection cannot be re-pointed.
 
-## Phase 3: Architecture Intelligence
+**The dependency scanner does not build what it scans.** `pip-audit` resolving a
+`pyproject.toml` executes the project's own PEP 517 backend — arbitrary code from
+a repository submitted by a stranger. Only already-pinned requirement files are
+passed (`pip-audit -r`); a bare `pyproject.toml` is skipped with an explicit
+reason, and tests assert `subprocess.run` is never reached on that path.
 
-ArchGuard integrates multiple intelligent components to actively evaluate and guide architectural evolution:
+**ArchGuard analyses itself in CI.** `python -m archguard.release_gate` runs the
+orchestrator against this repository's own `.archguard.yml` and exits non-zero if
+it breaches its own thresholds or a `critical` fitness gate. It calls the
+orchestrator directly — no HTTP, no queue, no database — so a queue outage cannot
+masquerade as an architectural regression.
 
-### Architecture fitness functions
-Rules declared in `.archguard.yml` — no cycles between named modules, a module
-that must not grow past a size, a dependency direction that must hold. They are
-evaluated on every analysis and a failing critical gate caps the grade, so a
-repository cannot present an A while carrying a cycle.
+---
 
-### AI Advisor
-An LLM-backed panel that answers questions about the analysis it is looking at,
-streaming through the Gemini API. Needs `GEMINI_API_KEY`; without one it
-reports itself unavailable rather than failing quietly.
+## Project structure
 
-### Architecture evolution
-Walks a repository's git history, analysing selected commits in worktrees, and
-charts how health moved across them. Bounded by `ARCHGUARD_EVOLUTION_TIMEOUT`,
-because each commit examined is a full four-layer analysis.
+```
+archguard/
+├── analysis/          # The four layers, scoring, orchestration, ranking
+├── contract/          # .archguard.yml loading, validation, auto-generation
+├── dashboard/         # FastAPI app, routes, templates, static frontend
+│   ├── routes/        # jobs, runs, evolution, advisor, watch, auth, meta…
+│   ├── static/js/     # ES modules — no build step
+│   └── templates/     # Jinja2
+├── db/                # SQLAlchemy models, store, Alembic migrations
+├── worker/            # arq worker, tasks, crons, retention
+├── llm/               # Gemini client, advisor, remediation prompts
+├── evolution/         # Commit-history analysis (PyDriller, Louvain)
+├── fitness/           # Fitness-function evaluator
+├── watch/ alerting/   # Scheduled re-scans, webhook delivery
+├── cache/             # Incremental file-hash + embedding cache
+├── utils/             # URL validation, secret redaction, paths
+└── release_gate.py    # ArchGuard checking ArchGuard
 
-### AI remediation plans
-Turns a specific violation into ordered refactoring steps. Also Gemini-backed
-and also optional.
-
-### Compare runs
-Two runs of the same repository side by side: what was fixed, what appeared,
-and how each module's score moved.
-
-### Watched repositories
-Re-analysed on a schedule. When health drops past a threshold you set, a
-fitness gate starts failing, or a new critical issue appears, it is recorded
-and — if you configured a webhook — sent to it. Outbound URLs are checked
-against an SSRF guard that resolves the hostname once and connects to the
-address it approved.
-
-### Incremental re-analysis
-A rescan reuses what has not changed, keyed on content hashes stored per
-repository. The reuse is invisible: an incremental result is required to be
-identical to a full one for the same repository state, and the test suite
-compares them.
-
-### Dependency Health Score
-Native integration with `pip-audit` to evaluate real-time third-party vulnerability awareness, merging software supply chain health into overall project architectural scoring.
-
-## Using it
-
-ArchGuard is a website. There is no command-line tool: `pip install archguard`
-installs an importable library and no executable, and the analysis engine is
-driven by the web app and its worker rather than by a shell.
-
-To analyse a repository:
-
-1. Sign in with GitHub at `/`.
-2. Paste a public GitHub URL and submit.
-3. Watch the four layers report progress live, then read the result on the
-   dashboard.
-
-The repository is cloned anonymously over public HTTPS — ArchGuard never acts
-on your behalf and asks GitHub only for `read:user`. If the repository has no
-`.archguard.yml`, one is generated for it from its own co-change history.
-
-Everything else is on the dashboard: per-module scores, the violation list,
-dependency vulnerabilities, evolution over time, Compare Runs, and watching a
-repository so a regression finds you instead of the other way round.
-
-### Running your own instance
-
-`docs/DEVELOPMENT.md` covers local setup; `docs/DEPLOYMENT.md` covers a real
-deployment. The short version is above under **Deploy**.
-
-## What a result looks like
-
-Every analysis produces a health score out of 100, a letter grade, a band
-(PASS / WARN / FAIL) and a list of violations, each attributed to a module with
-a severity. The dashboard shows them per layer, and says explicitly when a
-layer could not be measured rather than scoring it as clean:
-
-```text
-Layer 1 — import boundaries: not checked (no import rules declared in this
-          contract - no boundaries to enforce). Excluded from the score.
-Layer 2 — coupling: checked, 1 finding.
-Layer 3 — semantic drift: not checked (no prior baseline - semantic drift is
-          not available on a first scan of a repository). Excluded from the score.
-Layer 4 — duplication: checked, no findings.
+tests/                 # unit · integration · frontend · e2e · a11y · visual
+docs/                  # DEVELOPMENT.md, DEPLOYMENT.md, ADRs
 ```
 
-The score is an average over the layers that produced a signal, reweighted
-around the ones that did not. A repository nothing could be measured on does
-not come back healthy — it comes back as not measured.
+---
 
-## Tracking health over time
+## Getting started
 
-Every run is stored, so the dashboard draws the trend for a repository and
-**Compare Runs** puts two of them side by side: what was fixed, what appeared,
-and how each module moved. Nothing is parsed from a local file; the history is
-whatever the database holds for your account.
+### Prerequisites
 
-**Watched repositories** turn that from something you check into something that
-finds you. A watched repository is re-analysed on a schedule, and when its
-health drops past a threshold you choose, a fitness gate starts failing, or a
-new critical issue appears, ArchGuard records it — and calls your webhook if
-you configured one.
+- **Python 3.11+** and [Poetry](https://python-poetry.org/)
+- **PostgreSQL 14+** and **Redis 6+** — nothing falls back to a file store
+- **Docker** (optional, for the compose path)
+- **Node 22.12+** (optional, only for the frontend/browser test suites)
 
-## Dashboard workflow
+### Install
 
-1. Submit a GitHub URL at `/`.
-2. A Server-Sent Events stream reports progress as each layer runs.
-3. On completion you land on `dashboard.html?job_id=...` with the new run shown.
+```bash
+git clone https://github.com/jainamsethia/ArchGuard.git
+cd ArchGuard
+poetry install --with dev
+```
 
-Arriving at the dashboard with no runs yet gives you an empty state pointing
-back to the submit page — distinct from a failed load, which says what went
-wrong and offers a retry.
+Layers 3 and 4 additionally need the ML extras:
 
-## Configuration profiles
+```bash
+poetry install --with dev --extras worker
+```
 
-A repository that ships an `.archguard.yml` is analysed against it. One that
-does not gets a contract generated per scan, with thresholds from a fixed
-preset — `ci` by default (coupling fan-out ≤ 10), configurable per deployment
-through `ARCHGUARD_DASHBOARD_PROFILE`. It is a deployment setting rather than a
-per-analysis choice: the contract is generated and graded in the same pass, and
-a baseline derived from the repository's own measurements would mean no
-repository could ever fail its first scan.
+### Configure
 
-## Using it from CI
+```bash
+cp .env.example .env
+```
 
-There is no ArchGuard GitHub Action and no CLI to invoke from one. Earlier
-versions shipped both; they were removed with the CLI, and nothing has replaced
-them.
+`.env` must define at minimum:
 
-What a CI job can do today is talk to a running instance over its HTTP API:
-submit a repository, poll the job, and read the result. The endpoints are the
-same ones the dashboard uses, they require a signed-in session or the operator
-credential, and they are not yet a stable published contract — treat them as
-internal until they are versioned as something other than `/api/v1` by
-convention alone.
+```
+DATABASE_URL=postgresql+asyncpg://archguard:archguard_local_dev@127.0.0.1:5432/archguard_dev
+TEST_DATABASE_URL=postgresql+asyncpg://archguard:archguard_local_dev@127.0.0.1:5432/archguard_test
+REDIS_URL=redis://127.0.0.1:6379/0
+```
+
+> **Use `127.0.0.1`, not `localhost`.** Where `localhost` resolves to `::1` first
+> without anything listening on IPv6, every connection waits out the failed
+> attempt — measured at 2.13s versus 0.09s per connect.
+
+> **`.env` is read by the application and nothing else.** `load_dotenv()` runs in
+> `archguard/dashboard/app.py`. pytest, alembic and the service scripts read the
+> process environment, so export it first: `set -a; . ./.env; set +a`
+
+### Run
+
+Start PostgreSQL and Redis:
+
+```bash
+docker compose up -d postgres redis
+```
+
+Create the test database and bring the schema to head:
+
+```bash
+docker compose exec postgres createdb -U archguard archguard_test
+```
+```bash
+poetry run alembic upgrade head
+```
+
+Then the two processes, in separate terminals:
+
+```bash
+poetry run arq archguard.worker.main.WorkerSettings
+```
+```bash
+make dev
+```
+
+The dashboard is at **http://localhost:8000**.
+
+Without a worker running, jobs are accepted and queued but never analysed — the
+queue simply grows, with no error to see. `docker compose up` starts both.
+
+---
 
 ## Environment variables
 
-`.env.example` is the reference: every variable the code reads appears there
-with what it does, whether it is required, and whether it applies only to
-development or only to tests. It is checked against the source by
-`tests/unit/test_env_documentation.py`, so it cannot drift silently.
+Full documentation lives in [`.env.example`](.env.example). The ones that matter:
 
-The seven that stop a **production** deployment from starting if they are
-missing or wrong:
+### Required in production
 
-| Variable | Why it stops the boot |
+| Variable | Purpose |
 |---|---|
-| `SESSION_SECRET` | Signs session cookies. Refused under 32 characters, or if it equals `ARCHGUARD_DASHBOARD_TOKEN`. |
-| `GITHUB_OAUTH_CLIENT_ID` / `_SECRET` | Without an OAuth app nobody can sign in, and the loopback development fallback is enabled instead. |
-| `DATABASE_URL` | Users, jobs, runs, findings, suppressions and watches live in PostgreSQL. |
-| `REDIS_URL` | Sessions, rate limits, job progress and the analysis queue. |
-| `ALLOWED_ORIGINS` | Credentialed CORS. `*` is refused outright. |
-| `ARCHGUARD_TRUSTED_PROXY_IPS` | Without it every request is attributed to the proxy and all users share one rate-limit bucket. |
+| `DATABASE_URL` | PostgreSQL connection (`postgresql+asyncpg://…`) |
+| `REDIS_URL` | Queue, sessions, rate-limit counters |
+| `SESSION_SECRET` | HMAC key for session cookies — `secrets.token_hex(32)` |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Sign-in; without them nobody can authenticate |
+| `ALLOWED_ORIGINS` | Exact origins, comma-separated. `*` with credentials is refused |
+| `ARCHGUARD_TRUSTED_PROXY_IPS` | Proxy CIDR, or `*` if the platform is the only ingress |
+| `ENVIRONMENT` | `production` activates the startup configuration gate |
 
-`ENVIRONMENT=production` is what arms that gate, the Secure cookie flag and
-HSTS. `ARCHGUARD_DASHBOARD_ALLOW_REMOTE` is not a discouraged option in
-production — it is a boot failure.
+A production instance **refuses to start** if any of these is missing or unsafe.
+Each one it catches is a misconfiguration that otherwise produces no error at
+all — only quietly weaker behaviour.
 
-`ARCHGUARD_DASHBOARD_TOKEN` is optional: it is an operator credential for
-reaching the API without a browser, and signed-in users are unaffected by its
-absence.
+### Optional
+
+| Variable | Default | Effect |
+|---|---|---|
+| `GEMINI_API_KEY` | unset | Enables AI Advisor and remediation plans; without it those controls report unavailable and disable themselves |
+| `GITHUB_TOKEN` | unset | Raises the GitHub API limit above 60 req/hr |
+| `ARCHGUARD_DASHBOARD_TOKEN` | unset | Operator credential for reaching the API without a browser. Signed-in users are unaffected by its absence |
+| `ARCHGUARD_WORKER_CONCURRENCY` | `2` | Worker `max_jobs` — a memory budget; scale out with processes |
+| `ARCHGUARD_JOB_TIMEOUT` | `900` | Seconds before an analysis is abandoned |
+| `ARCHGUARD_RETENTION_DAYS` | `90` | How long completed runs are kept |
+| `ARCHGUARD_RATE_LIMIT_MAX_REQUESTS` | `50` | Requests per minute per IP (LLM routes: `30`) |
+| `ARCHGUARD_PIP_AUDIT_TIMEOUT` | `60` | Raise for large dependency trees |
+| `ARCHGUARD_AUDIT_SECRET` | generated | HMAC key for the audit log. **This — not `SESSION_SECRET` — is what signs it** |
+| `SENTRY_DSN` | unset | Error reporting. `sentry-sdk` is not a dependency; without it this warns and no-ops |
+
+### Development-only
+
+`ARCHGUARD_SKIP_ML=1` skips layers 3 and 4. `ARCHGUARD_MOCK_LLM=1` serves canned
+AI responses so the browser suites can drive those features without a key.
+`ARCHGUARD_DASHBOARD_ALLOW_REMOTE` disables the IP guard and is refused by the
+production gate.
+
+Never commit `.env` — it is gitignored, and a `DATABASE_URL` carries a password.
+
+---
+
+## Usage
+
+1. **Sign in with GitHub.** Locally, with no OAuth app configured and the request
+   coming from loopback, ArchGuard falls back to a `local-dev` account so the
+   product is usable without setup. That fallback is impossible in production —
+   the config gate refuses to start without OAuth.
+2. **Submit a public repository:**
+   ```
+   https://github.com/owner/repo
+   ```
+3. **Watch it run.** Progress streams over SSE: cloning → layer 1 → … → complete.
+4. **Read the report.** Health score and band, per-layer breakdown, ranked
+   violations each with a plain-English explanation, module map, dependency
+   scan, and the fitness gates that passed or failed.
+5. **Follow it over time.** Re-analyse to get trends and run comparison; add a
+   watch to have it re-scanned on a schedule with a webhook on regression.
+
+`/example` serves a stored report of ArchGuard analysing its own repository.
+
+---
+
+## API reference
+
+All endpoints are under `/api/v1` and require an authenticated session (or the
+operator token). Rate-limited per IP.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/jobs` | Submit a repository. Body: `{"github_url": "..."}`. Returns `202` with `job_id`, `poll_url`, `stream_url` |
+| `POST` | `/jobs/validate` | Validate a URL and return repository metadata without queueing |
+| `GET` | `/jobs/{job_id}` | Job status, progress lines and result |
+| `GET` | `/jobs/{job_id}/stream` | SSE progress stream |
+| `GET` | `/runs` · `/runs/latest` | Completed runs for the signed-in user |
+| `GET` | `/modules` · `/trends/{module}` | Module scores and per-module history |
+| `GET` | `/deps?job_id=…` | Dependency scan result |
+| `GET` | `/risk` | Ranked findings |
+| `POST` | `/evolution/analyze` · `GET` `/evolution/{history,trends,summary,latest}` | Commit-history analysis |
+| `POST` | `/advisor/ask` · `GET`/`POST` `/remediation/plan` | AI features (require `GEMINI_API_KEY`) |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/watch` | Watched repositories |
+| `GET`/`POST`/`DELETE` | `/suppressions` | Suppress or restore findings |
+| `GET` | `/capabilities` | Which optional features are available, and why not if they aren't |
+
+Unauthenticated operational endpoints: `/health` (liveness — never fails while
+the process runs), `/ready` (readiness — 503 naming the failed dependency), and
+`/metrics` (Prometheus text).
+
+```bash
+curl -X POST http://localhost:8000/api/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"github_url": "https://github.com/pallets/itsdangerous"}'
+```
+
+> There is **no CLI**. ArchGuard declares no console entry points; the earlier
+> CLI was removed and the web application replaced it.
+
+---
 
 ## Testing
 
-`docs/DEVELOPMENT.md` has the full setup, including the two ways a run can look
-clean while testing nothing: `.env` is not read by pytest, and Layers 3 and 4
-skip without the `worker` extras.
-
 ```bash
-set -a; . ./.env; set +a
-poetry install --with dev --extras worker
-pytest -m "" --no-cov -rs      # everything, with skip reasons shown
-npm ci && npm test             # frontend
+set -a; . ./.env; set +a          # the suites read the process environment
 ```
 
-## FAQ
+| Command | Scope |
+|---|---|
+| `make test` | Unit tests |
+| `make test-full` | Unit + integration with coverage |
+| `poetry run pytest tests/unit tests/integration -m "not slow"` | What CI's matrix runs |
+| `npm test` | Frontend (jsdom, `node --test`) |
+| `npx playwright test tests/a11y/` | axe-core accessibility |
+| `npx playwright test tests/e2e/` | Browser journeys |
+| `npx playwright test tests/visual/` | Visual regression + snapshots |
+| `make lint` / `make typecheck` | ruff / mypy |
 
-**How do I use a local LLM instead of Gemini?**
-You can't. Gemini is the only LLM backend. An unwired Ollama backend used to
-ship in `archguard.llm.local`; it was never reachable, so it was removed rather
-than left as a feature the docs implied existed. To run with no LLM at all,
-leave `GEMINI_API_KEY` unset — the four analysis layers do not use it, and the
-AI Advisor and remediation panels report themselves unavailable.
+Integration tests need real PostgreSQL and Redis — they migrate a **separate**
+`archguard_test` database up and back down, which is why it must not be your
+development database.
 
-**How do I suppress a false positive?**
-On the dashboard, from the violation itself. Suppressions are per account: they
-change your view of a repository and nobody else's.
+Coverage is enforced at **≥79%** (`--cov-fail-under=79` in `pyproject.toml`).
+Layers 3 and 4 only execute where the ML extras are installed; CI runs them in a
+dedicated job that asserts no test skipped for want of them.
 
-**What does the health score mean?**
-0–100, measured against the contract — either the one the repository ships or
-the one generated for it. It is an average over the layers that produced a
-signal, reweighted around any that could not run, so it never presents an
-unmeasured layer as a clean one.
-
-**Can I run it against a private repository?**
-No. Repositories are cloned anonymously over public HTTPS, and the OAuth app
-asks only for `read:user`, so ArchGuard has no credential that could reach a
-private repository.
-
-## Known Limitations
-
-- **Python Version Skew in Standard Library Classification**: The engine uses the standard library module list of the Python version it is currently running on. If ArchGuard is analyzing a repository that targets a different Python version (e.g. running under Python 3.10 but analyzing a codebase that uses `tomllib` from Python 3.11), a small number of version-boundary standard library modules may be misclassified as third-party imports.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests to us.
-
-## Audit Log Security
-
-ArchGuard maintains an append-only JSONL audit log to track structural history. To prevent tampering:
-- By default, ArchGuard generates a random 32-byte HMAC key on first run, persisting it to `/app/.archguard-cache/audit.key` inside the container (mounted from the archguard-cache volume on Docker Compose, a Render Disk, or a Railway Volume, depending on platform. Note: Railway's volume attachment is a dashboard/IaC step, not part of the checked-in railway.toml) with strict permissions.
-- You can override this by setting `ARCHGUARD_AUDIT_SECRET` in your environment.
-- In CI/CD or production environments, you should set `ARCHGUARD_AUDIT_STRICT=1` to enforce that a secure secret is provided (or a key file is already present).
+---
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for information on our security policy and how to report vulnerabilities.
+| Measure | Implementation |
+|---|---|
+| **SSRF protection** | Hostname resolved, private/loopback ranges rejected, request pinned to the resolved IP with `sni_hostname` so TLS still verifies |
+| **No build execution** | Dependency scanning passes only pinned requirement files to `pip-audit`; a bare `pyproject.toml` is skipped |
+| **CSP with per-request nonce** | `script-src 'self' 'nonce-…'`, plus `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, `form-action 'self'` |
+| **Security headers** | `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` |
+| **Session integrity** | HMAC-signed cookies keyed on `SESSION_SECRET`, stored in Redis with a TTL, `httponly` + `samesite=lax`, `secure` in production |
+| **Tenancy** | Every data read is scoped to the signed-in user; the operator token authenticates but deliberately identifies nobody, so it cannot read another account's rows |
+| **Rate limiting** | Redis-backed, per real client IP, with a lower ceiling on billable LLM routes |
+| **Path traversal** | Job ids and repository paths validated before any filesystem access |
+| **Webhook egress** | Alert targets run through the same SSRF validation as inbound URLs, with a capped response read |
+| **Secret redaction** | Known credential variable names are filtered out of logs and AI prompts |
+| **Startup gate** | A production instance refuses to boot on a misconfiguration that would silently weaken any of the above |
+| **Dependency auditing** | `pip-audit` and `bandit` run in CI with no `|| true` — a new advisory fails the build |
+
+Vulnerability reporting: [`SECURITY.md`](SECURITY.md).
+
+---
+
+## CI/CD
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs ten jobs on every
+push and pull request:
+
+| Job | Validates |
+|---|---|
+| Lint & Type Check | ruff, mypy, shellcheck |
+| Security Scan | `pip-audit` (hard fail), `bandit -ll` |
+| Unit & Integration Tests | Python 3.11 **and** 3.12, against real PostgreSQL and Redis services |
+| Layer 3 & 4 (worker extras) | The ML layers, plus an assertion that no test skipped for want of them, plus the release gate |
+| Alembic round-trip | `upgrade → downgrade → upgrade`, then `alembic check` for model drift |
+| Frontend (jsdom) | `node --test` |
+| Docker (web / worker split) | Both images build; web has **no** torch, worker **has** `pip-audit` and loads the model offline; smoke test against the running container |
+| Visual regression | Browser behaviour tests |
+| Visual snapshots | Pixel comparison against committed Linux baselines (advisory) |
+| Browser journeys | axe-core accessibility and end-to-end flows |
+
+[`visual-baselines.yml`](.github/workflows/visual-baselines.yml) regenerates the
+Linux snapshot baselines on a runner matching the job that consumes them —
+baselines are platform-specific and cannot be produced from a developer machine.
+
+---
+
+## Deployment
+
+Supported through committed manifests. Both targets run **two services** from one
+repository — a web service and a worker — plus PostgreSQL and Redis.
+
+| Target | Manifest |
+|---|---|
+| **Render** | [`render.yaml`](render.yaml) — a Blueprint declaring web, worker, Postgres and Key Value |
+| **Railway** | [`railway.toml`](railway.toml) + [`railway.worker.toml`](railway.worker.toml) — one file per service |
+| **Docker Compose** | [`docker-compose.yml`](docker-compose.yml) |
+| **Bare metal** | uvicorn + arq on separate hosts |
+
+Production Redis must persist and use `noeviction`: it holds the job queue and
+every session, neither of which is regenerable. A non-persistent instance drops
+queued analyses and signs out every user on restart.
+
+The worker image is selected by the `ARCHGUARD_IMAGE=worker` build argument
+rather than a build stage, because not every platform can name one.
+
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) has the full procedure, including the
+production configuration gate and what each variable does.
+
+> **Status:** the manifests are committed, CI builds and smoke-tests both images
+> on every push, and the configuration gate is verified against each manifest's
+> declared environment. No public hosted instance is currently running.
+
+---
+
+## Limitations
+
+- **Python only.** The import parser is Python-specific. No other language is
+  analysed.
+- **Public repositories only.** No GitHub App installation or private-repo access.
+- **Semantic drift needs a baseline that survives the clone.** Dashboard runs
+  clone fresh each time, so Layer 3 reports "no prior baseline" on repositories
+  analysed that way. It is honest about it rather than reporting a false 0.00.
+- **Layers 3 and 4 require the ML extras.** Without torch and faiss they skip;
+  the composite is then computed over layers 1 and 2 only.
+- **Dependency scanning needs pinned requirements.** A repository shipping only
+  `pyproject.toml` is skipped by design — see Security.
+- **The audit log is write-only.** It is currently written by one code path and
+  read by nothing; all dashboard reads are PostgreSQL queries.
+- **No screenshots in this README.** The repository holds no dedicated UI
+  screenshots; `docs/architecture.png` is stale and deliberately unreferenced.
+  Screenshots would belong in `docs/`.
+
+---
+
+## Roadmap
+
+**Implemented** — everything in Key Features above.
+
+**Planned**
+- Publish UI screenshots and replace the stale architecture image
+- Persist Layer 3 baselines across clones so semantic drift works on dashboard runs
+- Make the audit log a real, readable trail in PostgreSQL rather than a write-only file
+
+**Potential**
+- Languages beyond Python
+- Private repositories via a GitHub App installation
+- A hosted public instance
+
+---
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). In short: [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)
+for setup, tests green before a PR, and `make lint typecheck` clean.
+Architectural decisions are recorded as ADRs in [`docs/adr/`](docs/adr).
+
+ArchGuard is subject to its own contract — [`.archguard.yml`](.archguard.yml)
+declares the module boundaries and fitness gates it must satisfy, and
+`python -m archguard.release_gate` enforces them in CI.
+
+---
 
 ## License
 
-MIT
+[MIT](LICENSE) © Jainam Sethia
