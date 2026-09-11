@@ -136,7 +136,7 @@ async def analyse_repository(ctx: dict[str, Any] | None, job_id: str) -> str:
             # of a run that then failed would make the next scan skip files
             # nothing had actually analysed.
             if incremental_ctx is not None:
-                await _save_hashes(job_id, incremental_ctx)
+                await _save_incremental_state(job_id, incremental_ctx)
 
             # Inside the workspace, because the scan reads the clone and the
             # clone does not outlive this block. Doing it on demand from a
@@ -236,6 +236,12 @@ async def _incremental_context(job_id: str) -> Any:
             repository_id = job.repository_id
             last = await store.get_previous_run_for_job(session, job_id)
             hashes = await store.load_file_hashes(session, repository_id)
+            # Layer 3 measures drift against the centroid an earlier scan
+            # recorded. It lives here rather than in the clone, which does
+            # not survive the job -- see ModuleCentroid.
+            centroids = await store.load_module_centroids(
+                session, repository_id
+            )
 
         previous = None
         # Both halves are required. Findings without hashes cannot be matched
@@ -254,6 +260,7 @@ async def _incremental_context(job_id: str) -> Any:
             previous=previous,
             version=_archguard_version(),
             record_hashes=lambda _h: None,
+            centroids=centroids,
             repository_id=repository_id,
         )
         # The adapter hands back what it hashed; kept on the context so the
@@ -331,20 +338,27 @@ async def scan_dependencies(job_id: str, repo_path: Any) -> None:
         )
 
 
-async def _save_hashes(job_id: str, ctx: Any) -> None:
+async def _save_incremental_state(job_id: str, ctx: Any) -> None:
     """Record what this scan measured, for the next one to compare against."""
     from archguard.db import store
     from archguard.db.session import session_scope
 
     hashes = getattr(ctx, "measured_hashes", None)
+    centroids = getattr(ctx, "measured_centroids", None)
     repository_id = getattr(ctx, "repository_id", None)
-    if not hashes or repository_id is None:
+    if repository_id is None or not (hashes or centroids):
         return
     try:
         async with session_scope() as session:
-            await store.save_file_hashes(session, repository_id, hashes)
+            if hashes:
+                await store.save_file_hashes(session, repository_id, hashes)
+            # Written even when the hashes are empty: Layer 3's baseline is
+            # independent of incremental reuse, and a scan that measured
+            # centroids has something the next one needs either way.
+            if centroids:
+                await store.save_module_centroids(session, repository_id, centroids)
     except Exception:
-        logger.exception("[job %s] Could not record file hashes", job_id)
+        logger.exception("[job %s] Could not record incremental state", job_id)
 
 
 async def _fail(job_id: str, set_status: Any, message: str) -> None:

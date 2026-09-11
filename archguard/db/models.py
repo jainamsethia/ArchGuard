@@ -34,6 +34,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -312,6 +313,37 @@ class FileHash(Base):
     )
     path: Mapped[str] = mapped_column(Text, primary_key=True)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class ModuleCentroid(Base):
+    """Per-module embedding centroid, so Layer 3 has a baseline to compare to.
+
+    Exactly the problem `FileHash` solves, one layer up. The semantic analyser
+    stores this in a SQLite file under the analysed repository, which is a
+    throwaway clone: it is deleted when the job finishes, so the centroid
+    written by one run was never there for the next. Layer 3 therefore reported
+    "no prior baseline" on every hosted analysis no matter how many times a
+    repository had been scanned, and drift -- the thing the layer exists to
+    measure -- could not be measured at all.
+
+    Keyed by repository so it survives the clone. The vector is stored as raw
+    little-endian float32 bytes, which is what `EmbeddingCache` already reads
+    and writes; `content_hash` is carried through unchanged so staleness is
+    decided by the same rule in both stores.
+    """
+
+    __tablename__ = "module_centroids"
+
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), primary_key=True
+    )
+    module_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    centroid: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
         nullable=False,

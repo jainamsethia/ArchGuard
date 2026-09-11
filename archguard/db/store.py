@@ -27,6 +27,7 @@ from archguard.db.models import (
     FileHash,
     Job,
     JobStatus,
+    ModuleCentroid,
     Repository,
     Run,
     Suppression,
@@ -908,6 +909,59 @@ async def load_file_hashes(session: AsyncSession, repository_id: int) -> dict[st
     return {row.path: row.sha256 for row in rows}
 
 
+async def load_module_centroids(
+    session: AsyncSession, repository_id: int
+) -> dict[str, tuple[bytes, str]]:
+    """Stored centroids for a repository, as ``{module: (vector, hash)}``.
+
+    Keyed by repository for the same reason the hashes above are: the clone the
+    semantic analyser writes its own cache into does not survive the job.
+    """
+    rows = (
+        await session.execute(
+            select(ModuleCentroid).where(
+                ModuleCentroid.repository_id == repository_id
+            )
+        )
+    ).scalars()
+    return {row.module_name: (row.centroid, row.content_hash) for row in rows}
+
+
+async def save_module_centroids(
+    session: AsyncSession,
+    repository_id: int,
+    records: dict[str, tuple[bytes, str]],
+) -> None:
+    """Replace a repository's stored centroids with this scan's.
+
+    Replace rather than merge, matching `save_file_hashes`: a module absent
+    from *records* no longer exists in the contract, and keeping its centroid
+    would let a module name reappear later and be compared against a baseline
+    from a different decomposition.
+
+    An empty *records* is a no-op rather than a wipe. Layer 3 is skipped
+    whenever the ML extras are absent, and a run that measured nothing must not
+    destroy the baseline an earlier run established.
+    """
+    if not records:
+        return
+    await session.execute(
+        delete(ModuleCentroid).where(ModuleCentroid.repository_id == repository_id)
+    )
+    session.add_all(
+        [
+            ModuleCentroid(
+                repository_id=repository_id,
+                module_name=name,
+                centroid=vector,
+                content_hash=content_hash,
+            )
+            for name, (vector, content_hash) in records.items()
+        ]
+    )
+    await session.flush()
+
+
 async def fail_stalled_jobs(session: AsyncSession, *, older_than_seconds: int) -> int:
     """Mark jobs abandoned mid-analysis as failed. Returns how many.
 
@@ -993,7 +1047,7 @@ async def purge_expired_runs(
     from datetime import UTC, datetime, timedelta
 
     cutoff = datetime.now(UTC) - timedelta(days=retain_days)
-    removed = {"runs": 0, "jobs": 0, "file_hashes": 0}
+    removed = {"runs": 0, "jobs": 0, "file_hashes": 0, "module_centroids": 0}
 
     # Runs whose job has finished. `Job.completed_at` is set by set_job_status
     # for terminal states only, so this is the same question as "did it stop".
@@ -1047,6 +1101,32 @@ async def purge_expired_runs(
             await session.execute(delete(FileHash).where(FileHash.repository_id.in_(stale))),
         )
         removed["file_hashes"] = result.rowcount or 0
+
+    # Centroids follow the hashes, and for the same reason: they are the other
+    # half of the same per-repository cache, and a baseline for a repository
+    # with no runs left is comparing against history nobody can see.
+    stale_centroids = (
+        await session.execute(
+            select(ModuleCentroid.repository_id)
+            .where(
+                ~select(Run.id)
+                .where(Run.repository_id == ModuleCentroid.repository_id)
+                .exists()
+            )
+            .distinct()
+            .limit(limit)
+        )
+    ).scalars().all()
+    if stale_centroids:
+        result = cast(
+            "CursorResult[Any]",
+            await session.execute(
+                delete(ModuleCentroid).where(
+                    ModuleCentroid.repository_id.in_(stale_centroids)
+                )
+            ),
+        )
+        removed["module_centroids"] = result.rowcount or 0
 
     return removed
 

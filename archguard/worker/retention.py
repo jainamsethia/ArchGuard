@@ -68,11 +68,12 @@ async def purge_expired_data(ctx: dict[str, Any] | None = None) -> int:
 
     if any(removed.values()):
         logger.info(
-            "Retention sweep removed %d run(s), %d job(s), %d file-hash row(s) "
-            "older than %d days",
+            "Retention sweep removed %d run(s), %d job(s), %d file-hash row(s), "
+            "%d module-centroid row(s) older than %d days",
             removed["runs"],
             removed["jobs"],
             removed["file_hashes"],
+            removed.get("module_centroids", 0),
             RETENTION_DAYS,
         )
     else:

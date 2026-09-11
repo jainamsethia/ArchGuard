@@ -199,9 +199,15 @@ class IncrementalContext:
     record_hashes: Callable[[dict[str, str]], None]
     carried: list[dict[str, Any]] = field(default_factory=list)
 
+    # Centroids the caller loaded for this repository, and the ones this scan
+    # produced. Same shape and same reason as the hashes above: Layer 3's
+    # baseline cannot live in the clone, because the clone does not survive.
+    centroids: dict[str, tuple[bytes, str]] = field(default_factory=dict)
+
     # Filled by the caller so it can persist the result afterwards. Declared
     # rather than attached at runtime, so the type checker sees them.
     measured_hashes: dict[str, str] = field(default_factory=dict)
+    measured_centroids: dict[str, tuple[bytes, str]] = field(default_factory=dict)
     repository_id: int | None = None
 
 
@@ -397,6 +403,10 @@ async def run_analysis_on_repo(
         def _relay(message: str, phase: str | None = None) -> None:
             asyncio.run_coroutine_threadsafe(_emit(message, phase), loop)
 
+        def _record_centroids(measured: dict[str, tuple[bytes, str]]) -> None:
+            if incremental is not None:
+                incremental.measured_centroids = measured
+
         result, payload = await asyncio.wait_for(
             asyncio.to_thread(
                 _run_analysis_sync,
@@ -411,6 +421,11 @@ async def run_analysis_on_repo(
                 carried,
                 repo_files,
                 await _suppressed_hashes(job_id, repo_url),
+                # Layer 3's baseline, loaded by the caller from PostgreSQL, and
+                # the sink for whatever this scan measures. Assigned onto the
+                # context so the worker can persist it after the run.
+                dict(getattr(incremental, "centroids", {}) or {}),
+                _record_centroids,
             ),
             timeout=ANALYSIS_TIMEOUT_SECONDS,
         )
@@ -515,6 +530,62 @@ def _generate_contract_sync(repo_path: Path) -> ContractGenerationResult:
 # It spans both halves: the orchestrator run, and the derived artifacts built
 # afterwards. Both resolve every source file, and both were reporting the same
 # uncovered files -- two identical summaries where one will do.
+def _seed_centroids(
+    orchestrator: Any, centroids: dict[str, tuple[bytes, str]] | None
+) -> None:
+    """Write stored centroids into the clone's embedding cache.
+
+    Never raises. A baseline that cannot be restored costs this run its drift
+    measurement -- Layer 3 reports "no prior baseline", which is the honest
+    answer -- and that is a far better outcome than failing an analysis over a
+    cache.
+    """
+    if not centroids:
+        return
+    try:
+        import numpy as np
+    except ImportError:  # ML extras absent; Layer 3 is skipped anyway
+        return
+    restored = 0
+    for module_name, (blob, content_hash) in centroids.items():
+        try:
+            vector = np.frombuffer(blob, dtype=np.float32).copy()
+            if vector.size == 0:
+                continue
+            orchestrator.cache.store_centroid(module_name, vector, content_hash)
+            restored += 1
+        except Exception:
+            logger.debug("Could not restore centroid for %s", module_name)
+    logger.info("Restored %d module centroid(s) from previous scans", restored)
+
+
+def _harvest_centroids(
+    orchestrator: Any, result: Any
+) -> dict[str, tuple[bytes, str]]:
+    """Read back the centroids this run wrote, for the caller to persist.
+
+    Read from the cache rather than from *result* because the analyser stores
+    a centroid for every module it embedded, including the ones whose drift was
+    zero, and those are exactly the baselines the next scan needs.
+    """
+    out: dict[str, tuple[bytes, str]] = {}
+    modules = [
+        m.get("name")
+        for m in (orchestrator.contract.get("modules") or [])
+        if m.get("name")
+    ]
+    for module_name in modules:
+        try:
+            stored = orchestrator.cache.get_centroid(module_name)
+        except Exception:
+            return {}
+        if stored is None:
+            continue
+        vector, content_hash = stored
+        out[module_name] = (vector.astype("float32").tobytes(), content_hash)
+    return out
+
+
 @collect_unassigned(context="analysis")
 def _run_analysis_sync(
     repo_path: Path,
@@ -528,6 +599,8 @@ def _run_analysis_sync(
     carried_violations: list[dict[str, Any]] | None = None,
     repo_files: list[Path] | None = None,
     suppressed_hashes: set[str] | None = None,
+    centroids: dict[str, tuple[bytes, str]] | None = None,
+    record_centroids: Callable[[dict[str, tuple[bytes, str]]], None] | None = None,
 ) -> tuple[Any, dict[str, Any] | None]:
     """Run AnalysisOrchestrator synchronously. Called from a thread pool.
 
@@ -548,6 +621,15 @@ def _run_analysis_sync(
     )
 
     with orchestrator:
+        # Seed the clone's embedding cache with the centroids a previous scan
+        # of this repository recorded. Layer 3 reads its baseline from that
+        # cache, and the cache lives inside a clone that is deleted after every
+        # job -- so without this the layer has nothing to compare against and
+        # reports "no prior baseline" for ever, however often a repository is
+        # analysed. The caller reads them from PostgreSQL; this function keeps
+        # no database dependency, matching how file hashes already arrive.
+        _seed_centroids(orchestrator, centroids)
+
         result = orchestrator.run(
             changed_files=py_files,
             commit_sha=commit_sha,
@@ -564,6 +646,10 @@ def _run_analysis_sync(
             # everything.
             repo_files=repo_files,
         )
+
+        # Harvest before the context manager closes the SQLite connection.
+        if record_centroids is not None:
+            record_centroids(_harvest_centroids(orchestrator, result))
 
     # -- Build the persistable payload --
     # Nested inside the function-level scope above, so this emits no summary of
