@@ -124,7 +124,9 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
         RuntimeError: if git exits with non-zero status
     """
     import os
+    import signal
     import subprocess
+    import sys
 
     # On Windows, find git -- prefer x64/mingw64 over ARM64 (clangarm64)
     git_exe = _find_git()
@@ -155,26 +157,84 @@ async def _clone_repo(clone_url: str, dest: Path, branch: str) -> None:
 
     logger.info("Cloning with git=%s", git_exe)
 
-    def _do_clone() -> None:
+    def _terminate_process_tree(proc: subprocess.Popen[bytes]) -> None:
+        """Kill the clone and everything it spawned. Never raises.
+
+        A timeout that leaves index-pack running has not stopped anything: the
+        download continues into a workspace the caller has already given up on,
+        and the job slot it holds is one the next submission is waiting for.
+        """
         try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=float(CLONE_TIMEOUT_SECONDS),
-                check=False,
-                env=None,
-            )
-        except subprocess.TimeoutExpired:
-            raise TimeoutError(
-                f"Repository clone timed out after {CLONE_TIMEOUT_SECONDS}s. "
-                "The repository may be too large. "
-                "Increase ARCHGUARD_CLONE_TIMEOUT to allow more time."
-            )
-        if proc.returncode != 0:
-            error_msg = proc.stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError(
-                f"git clone failed (exit {proc.returncode}): {error_msg[:500]}"
-            )
+            if sys.platform == "win32":
+                # No killpg here, and terminating a process group only reaches
+                # processes that joined one. taskkill /T walks the real tree.
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    timeout=30,
+                    check=False,
+                )
+            else:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            # Best effort. The caller is already raising TimeoutError, and a
+            # failure to clean up must not replace that with something less
+            # informative.
+            logger.warning("Could not kill the clone process tree", exc_info=True)
+        finally:
+            try:
+                proc.wait(timeout=10)
+            except Exception:
+                pass
+
+    def _do_clone() -> None:
+        # A file, not a pipe, and the process group is deliberate. Both exist
+        # because `subprocess.run(capture_output=True, timeout=...)` does not
+        # bound this command, which was discovered the way these things usually
+        # are: a clone of torvalds/linux still running twelve minutes into a
+        # 120-second timeout, with the worker silent and the queue behind it
+        # frozen.
+        #
+        # On a timeout, run() kills the process it started and then calls
+        # communicate() again to drain the pipes. `git clone` is not one
+        # process: it spawns git-remote-https and index-pack, and they inherit
+        # the write end of that pipe. Killing the parent leaves them holding it
+        # open, so the drain waits for an EOF that cannot arrive. The thread
+        # blocks forever, TimeoutError is never raised, and the grandchildren
+        # keep downloading -- 2 GB of kernel history, in the case that found
+        # this, into a workspace nothing would ever read.
+        #
+        # Redirecting to a temporary file removes the pipe the drain waits on.
+        # Killing the whole tree stops the download the timeout was for. The
+        # clone starts in its own group so there is a tree to kill: neither
+        # platform reaps descendants when the process you started dies, and
+        # `git clone` always has descendants.
+        with tempfile.TemporaryFile() as output:
+            if sys.platform == "win32":
+                proc = subprocess.Popen(
+                    cmd, stdout=output, stderr=subprocess.STDOUT, env=None,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
+                )
+            else:
+                proc = subprocess.Popen(
+                    cmd, stdout=output, stderr=subprocess.STDOUT, env=None,
+                    start_new_session=True,
+                )
+            try:
+                returncode = proc.wait(timeout=float(CLONE_TIMEOUT_SECONDS))
+            except subprocess.TimeoutExpired:
+                _terminate_process_tree(proc)
+                raise TimeoutError(
+                    f"Repository clone timed out after {CLONE_TIMEOUT_SECONDS}s. "
+                    "The repository may be too large. "
+                    "Increase ARCHGUARD_CLONE_TIMEOUT to allow more time."
+                ) from None
+            if returncode != 0:
+                output.seek(0)
+                error_msg = output.read().decode("utf-8", errors="replace").strip()
+                raise RuntimeError(
+                    f"git clone failed (exit {returncode}): {error_msg[:500]}"
+                )
 
     await asyncio.to_thread(_do_clone)
     logger.info("Clone completed: %s -> %s", clone_url, dest)
