@@ -119,3 +119,10 @@ skills-lock.json
 # diffing against whichever machine happened to record first.
 tests/visual/snapshots/**/*-win32.png
 tests/visual/snapshots/**/*-darwin.png
+
+# The IEEE conference template is IEEE's to distribute, not this repository's.
+# paper/README.md says where to download it; build_paper.py takes --template.
+paper/template.docx
+paper/build/
+# The corpus run transcripts are the paper's raw evidence, not build noise.
+!paper/results/*.log

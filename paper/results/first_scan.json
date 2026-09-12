@@ -1,0 +1,502 @@
+[
+  {
+    "repo": "itsdangerous",
+    "url": "https://github.com/pallets/itsdangerous",
+    "commits": 677,
+    "py_files": 15,
+    "py_loc": 1359,
+    "status": "ok",
+    "duration_s": 40.56,
+    "health": 100.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 0,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "cachecontrol",
+    "url": "https://github.com/psf/cachecontrol",
+    "commits": 654,
+    "py_files": 31,
+    "py_loc": 2829,
+    "status": "ok",
+    "duration_s": 2.58,
+    "health": 100.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 0,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "click",
+    "url": "https://github.com/pallets/click",
+    "commits": 3362,
+    "py_files": 90,
+    "py_loc": 23803,
+    "status": "ok",
+    "duration_s": 31.34,
+    "health": 100.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 0,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "flask",
+    "url": "https://github.com/pallets/flask",
+    "commits": 5557,
+    "py_files": 83,
+    "py_loc": 14085,
+    "status": "ok",
+    "duration_s": 16.91,
+    "health": 95.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.05,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 1,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.1,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 1
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "requests",
+    "url": "https://github.com/psf/requests",
+    "commits": 6494,
+    "py_files": 37,
+    "py_loc": 9841,
+    "status": "ok",
+    "duration_s": 10.88,
+    "health": 100.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 0,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "starlette",
+    "url": "https://github.com/encode/starlette",
+    "commits": 1737,
+    "py_files": 84,
+    "py_loc": 17275,
+    "status": "ok",
+    "duration_s": 20.16,
+    "health": 90.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.1,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 1,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.2,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 1
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "microblog",
+    "url": "https://github.com/miguelgrinberg/microblog",
+    "commits": 25,
+    "py_files": 34,
+    "py_loc": 1507,
+    "status": "ok",
+    "duration_s": 3.83,
+    "health": 50.0,
+    "grade": "F",
+    "band": "",
+    "composite": 0.5,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 1,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 1.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 1
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "records",
+    "url": "https://github.com/kennethreitz/records",
+    "commits": 378,
+    "py_files": 9,
+    "py_loc": 764,
+    "status": "ok",
+    "duration_s": 2.5,
+    "health": 100.0,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 0,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "httpx",
+    "url": "https://github.com/encode/httpx",
+    "commits": 1523,
+    "py_files": 60,
+    "py_loc": 14376,
+    "status": "ok",
+    "duration_s": 18.58,
+    "health": 75.0,
+    "grade": "C",
+    "band": "",
+    "composite": 0.25,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 1,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.5,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 1
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      }
+    ]
+  },
+  {
+    "repo": "attrs",
+    "url": "https://github.com/python-attrs/attrs",
+    "commits": 1841,
+    "py_files": 56,
+    "py_loc": 16492,
+    "status": "ok",
+    "duration_s": 11.33,
+    "health": 96.2,
+    "grade": "A",
+    "band": "",
+    "composite": 0.0380165122804188,
+    "skipped": false,
+    "skip_reason": "",
+    "total_violations": 2,
+    "layers": [
+      {
+        "layer": 1,
+        "name": "Import Boundary Violations",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no import rules declared in this contract - no boundaries to enforce",
+        "violations": 0
+      },
+      {
+        "layer": 2,
+        "name": "Coupling Delta",
+        "score": 0.0,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 0
+      },
+      {
+        "layer": 3,
+        "name": "Semantic Drift",
+        "score": 0.0,
+        "skipped": true,
+        "skip_reason": "no prior baseline - semantic drift is not available on a first scan of a repository",
+        "violations": 0
+      },
+      {
+        "layer": 4,
+        "name": "Duplication / Explanation",
+        "score": 0.0760330245608376,
+        "skipped": false,
+        "skip_reason": "",
+        "violations": 2
+      }
+    ]
+  }
+]

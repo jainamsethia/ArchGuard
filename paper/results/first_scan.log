@@ -1,0 +1,104 @@
+=== itsdangerous
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|##########| 103/103 [00:00<00:00, 3355.00it/s]
+6 file(s) in analysis matched no module in the contract and were excluded from scoring: docs/conf.py, tests/test_itsdangerous/test_encoding.py, tests/test_itsdangerous/test_serializer.py, tests/test_itsdangerous/test_signer.py, tests/test_itsdangerous/test_timed.py, tests/test_itsdangerous/test_url_safe.py
+[job ae25626f-70e7-48ff-bb5c-dc9743b28337] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job 'ae25626f-70e7-48ff-bb5c-dc9743b28337'
+   ok health=100.0 A in 40.56s
+=== cachecontrol
+18 file(s) in analysis matched no module in the contract and were excluded from scoring: docs/conf.py, examples/benchmark.py, tests/conftest.py, tests/issue_263.py, tests/test_adapter.py, tests/test_cache_control.py, tests/test_chunked_response.py, tests/test_etag.py, tests/test_expires_heuristics.py, tests/test_max_age.py, tests/test_redirects.py, tests/test_regressions.py, tests/test_serialization.py, tests/test_server_http_version.py, tests/test_storage_filecache.py, tests/test_storage_redis.py, tests/test_vary.py, tests/utils.py
+[job ce747f4d-b50d-472d-bdfa-e93f0bc33e6b] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job 'ce747f4d-b50d-472d-bdfa-e93f0bc33e6b'
+   ok health=100.0 A in 2.58s
+=== click
+68 file(s) in analysis matched no module in the contract and were excluded from scoring: docs/conf.py, examples/aliases/aliases.py, examples/colors/colors.py, examples/completion/completion.py, examples/complex/complex/cli.py, examples/complex/complex/commands/cmd_init.py, examples/complex/complex/commands/cmd_status.py, examples/imagepipe/imagepipe.py, examples/inout/inout.py, examples/naval/naval.py, examples/repo/repo.py, examples/termui/termui.py, examples/validation/validation.py, tests/conftest.py, tests/test_abort_interrupt.py, tests/test_arguments.py, tests/test_basic.py, tests/test_chain.py, tests/test_command_decorators.py, tests/test_commands.py (and 48 more)
+[job 1a01cdf8-fe95-4f7f-82f9-1522856415fa] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job '1a01cdf8-fe95-4f7f-82f9-1522856415fa'
+   ok health=100.0 A in 31.34s
+=== flask
+49 file(s) in analysis matched no module in the contract and were excluded from scoring: docs/conf.py, examples/celery/make_celery.py, examples/celery/src/task_app/__init__.py, examples/celery/src/task_app/tasks.py, examples/celery/src/task_app/views.py, examples/javascript/js_example/__init__.py, examples/javascript/js_example/views.py, examples/tutorial/flaskr/__init__.py, examples/tutorial/flaskr/auth.py, examples/tutorial/flaskr/blog.py, examples/tutorial/flaskr/db.py, tests/conftest.py, tests/test_appctx.py, tests/test_apps/blueprintapp/__init__.py, tests/test_apps/blueprintapp/apps/admin/__init__.py, tests/test_apps/blueprintapp/apps/frontend/__init__.py, tests/test_apps/cliapp/app.py, tests/test_apps/cliapp/factory.py, tests/test_apps/cliapp/importerrorapp.py, tests/test_apps/cliapp/inner1/__init__.py (and 29 more)
+[job 6fad38ce-3d28-4b98-9e98-49989e664118] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job '6fad38ce-3d28-4b98-9e98-49989e664118'
+   ok health=95.0 A in 16.91s
+=== requests
+15 file(s) in analysis matched no module in the contract and were excluded from scoring: docs/_themes/flask_theme_support.py, docs/conf.py, setup.py, tests/__init__.py, tests/compat.py, tests/conftest.py, tests/test_adapters.py, tests/test_help.py, tests/test_hooks.py, tests/test_lowlevel.py, tests/test_packages.py, tests/test_requests.py, tests/test_structures.py, tests/test_testserver.py, tests/test_utils.py
+[job a0bce430-d1bc-4abb-83c5-c61d9a043ae1] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job 'a0bce430-d1bc-4abb-83c5-c61d9a043ae1'
+   ok health=100.0 A in 10.88s
+=== starlette
+45 file(s) in analysis matched no module in the contract and were excluded from scoring: benchmarks/_utils.py, benchmarks/conftest.py, benchmarks/file_response_benchmark.py, benchmarks/gzip_benchmark.py, benchmarks/json_benchmark.py, benchmarks/multipart_benchmark.py, benchmarks/request_benchmark.py, benchmarks/response_benchmark.py, benchmarks/routing_benchmark.py, benchmarks/streaming_response_benchmark.py, benchmarks/urlencoded_benchmark.py, benchmarks/websocket_benchmark.py, tests/conftest.py, tests/middleware/test_base.py, tests/middleware/test_body_limit.py, tests/middleware/test_cors.py, tests/middleware/test_errors.py, tests/middleware/test_gzip.py, tests/middleware/test_https_redirect.py, tests/middleware/test_middleware.py (and 25 more)
+[job cda6632e-4c60-43f2-bfc7-27c8d53ad95f] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job 'cda6632e-4c60-43f2-bfc7-27c8d53ad95f'
+   ok health=90.0 A in 20.16s
+=== microblog
+3 file(s) in analysis matched no module in the contract and were excluded from scoring: config.py, microblog.py, tests.py
+[job 39926560-a7a7-4cda-bd60-d20a80ea637c] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job '39926560-a7a7-4cda-bd60-d20a80ea637c'
+   ok health=50.0 F in 3.83s
+=== records
+5 file(s) in analysis matched no module in the contract and were excluded from scoring: examples/randomuser-sqlite.py, tests/conftest.py, tests/test_105.py, tests/test_records.py, tests/test_transactions.py
+[job 0c74f0cc-fffc-4abc-b460-a64c1ae833a8] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job '0c74f0cc-fffc-4abc-b460-a64c1ae833a8'
+   ok health=100.0 A in 2.5s
+=== httpx
+33 file(s) in analysis matched no module in the contract and were excluded from scoring: tests/client/test_async_client.py, tests/client/test_auth.py, tests/client/test_client.py, tests/client/test_cookies.py, tests/client/test_event_hooks.py, tests/client/test_headers.py, tests/client/test_properties.py, tests/client/test_proxies.py, tests/client/test_queryparams.py, tests/client/test_redirects.py, tests/concurrency.py, tests/conftest.py, tests/models/test_cookies.py, tests/models/test_headers.py, tests/models/test_queryparams.py, tests/models/test_requests.py, tests/models/test_responses.py, tests/models/test_url.py, tests/models/test_whatwg.py, tests/test_api.py (and 13 more)
+[job 24488ffd-930d-4813-b2a3-fabafdf269f6] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job '24488ffd-930d-4813-b2a3-fabafdf269f6'
+   ok health=75.0 C in 18.58s
+=== attrs
+30 file(s) in analysis matched no module in the contract and were excluded from scoring: bench/test_benchmarks.py, tests/attr_import_star.py, tests/conftest.py, tests/dataclass_transform_example.py, tests/strategies.py, tests/test_3rd_party.py, tests/test_abc.py, tests/test_annotations.py, tests/test_cmp.py, tests/test_compat.py, tests/test_config.py, tests/test_converters.py, tests/test_dunders.py, tests/test_filters.py, tests/test_forward_references.py, tests/test_funcs.py, tests/test_functional.py, tests/test_hooks.py, tests/test_import.py, tests/test_init_subclass.py (and 10 more)
+[job cd93404f-9bfa-4281-bdb3-98b418670e18] Failed to persist the analysis run; the dashboard will show no data for this job even though the analysis completed
+Traceback (most recent call last):
+  File "D:\study\archguard\archguard\dashboard\pipeline_adapter.py", line 148, in _persist
+    await persist_run(
+  File "D:\study\archguard\archguard\db\store.py", line 309, in persist_run
+    raise ValueError(f"cannot persist a run for unknown job {job_id!r}")
+ValueError: cannot persist a run for unknown job 'cd93404f-9bfa-4281-bdb3-98b418670e18'
+   ok health=96.2 A in 11.33s
+
+wrote C:\Users\jainam\AppData\Local\Temp\ag_results.json
