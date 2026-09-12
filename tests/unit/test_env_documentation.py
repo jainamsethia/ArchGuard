@@ -34,6 +34,16 @@ EXAMPLE = ROOT / ".env.example"
 NON_APPLICATION = {
     "TEST_DATABASE_URL",
     "PLAYWRIGHT_REUSE_SERVER",
+    # Read by docker-compose.prod.yml, not by the package. The deployment stack
+    # composes DATABASE_URL and REDIS_URL from the two passwords, because it has
+    # to hand the same secret to the server and to the client and a URL cannot
+    # be split back apart reliably. ARCHGUARD_DOMAIN is the host Caddy obtains a
+    # certificate for. An operator who does not set them gets a stack that
+    # refuses to start naming the one that is missing, so they are as required
+    # as anything the gate checks -- just enforced a file earlier.
+    "POSTGRES_PASSWORD",
+    "REDIS_PASSWORD",
+    "ARCHGUARD_DOMAIN",
 }
 
 #: Removed with the CLI. Nothing reads them, and documenting them invites an

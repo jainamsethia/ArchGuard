@@ -36,6 +36,12 @@ _ALLOWED_ROOT_FILES = {
     "README.md",
     "SECURITY.md",
     "docker-compose.yml",
+    # The deployment stack. Standalone rather than an overlay on the file above,
+    # because Compose appends to `ports` instead of replacing it and so cannot
+    # be used to un-publish the database and cache ports -- which is the whole
+    # reason a separate file exists. Compose resolves relative build contexts
+    # from its own directory, so it belongs beside the Dockerfile.
+    "docker-compose.prod.yml",
     # The image entrypoint. It must sit in the build context root, and the
     # Dockerfile COPYs it by that path.
     "docker-entrypoint.sh",

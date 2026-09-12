@@ -45,25 +45,53 @@
 
 ## Deployment Options
 
-### Option A: Docker (Production — Recommended)
+### Option A: Docker on a host you control (Recommended)
+
+Two compose files, and picking the wrong one is not a cosmetic mistake.
+
+`docker-compose.yml` is the development stack. It pins
+`ENVIRONMENT=development`, which switches the startup configuration gate off
+entirely, and it publishes PostgreSQL on 5432 and Redis on 6379 to the host.
+On a laptop that is convenient. On a machine with a public address it is an
+open, unauthenticated Redis — an attacker who can write keys can `CONFIG SET`
+an SSH key into place — and an application that will happily start with no
+session secret, no OAuth app and a wildcard CORS origin.
+
+`docker-compose.prod.yml` is the deployment stack: production environment,
+no published database or cache ports, a password on Redis, and Caddy in front
+terminating TLS. It is standalone rather than an overlay, because Compose
+*appends* to `ports` instead of replacing it and therefore cannot be used to
+take a published port away.
 
 ```bash
 # 1. Clone
 git clone https://github.com/jainamsethia/ArchGuard.git
-cd archguard
+cd ArchGuard
 
-# 2. Configure
+# 2. Configure. Every variable below is required; the stack refuses to
+#    start naming any that is missing.
 cp .env.example .env
-# Edit .env — set ARCHGUARD_DASHBOARD_TOKEN at minimum
-#   python -c "import secrets; print(secrets.token_hex(32))"
+python -c "import secrets; print('SESSION_SECRET=' + secrets.token_hex(32))"
+python -c "import secrets; print('ARCHGUARD_DASHBOARD_TOKEN=' + secrets.token_hex(32))"
+python -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_urlsafe(24))"
+python -c "import secrets; print('REDIS_PASSWORD=' + secrets.token_urlsafe(24))"
+# and by hand: ARCHGUARD_DOMAIN, ALLOWED_ORIGINS (https, exact),
+#              GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET
 
 # 3. Build and start
-docker compose up --build -d
+docker compose -f docker-compose.prod.yml up --build -d
 
-# 4. Verify
-curl http://localhost:8000/health
+# 4. Verify — through Caddy, over TLS, which is the only way in
+curl https://$ARCHGUARD_DOMAIN/health
 # → {"status":"ok","version":"1.0.0","environment":"production","uptime_seconds":42}
 ```
+
+`environment` reading `production` in that response is the check that matters:
+if it says `development`, the gate never ran and none of the guarantees below
+hold.
+
+For local development, `docker compose up --build -d` (no `-f`) and
+`http://localhost:8000/health`.
 
 ### Two processes, not one
 

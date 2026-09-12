@@ -1,0 +1,164 @@
+# A deployment that faces the internet. Standalone, not an overlay:
+#
+#     docker compose -f docker-compose.prod.yml up -d --build
+#
+# docker-compose.yml is for a laptop, and three of its choices are wrong the
+# moment the host has a public address. Overriding them would have been the
+# smaller diff, but Compose *appends* to `ports` rather than replacing it, so an
+# overlay cannot take a published port away -- the one difference that matters
+# most here. A separate file cannot be half-applied.
+#
+# What is different, and why:
+#
+#   1. ENVIRONMENT=production. The development file pins `development`, which
+#      switches off the startup configuration gate entirely. Every check in
+#      _config_check.py describes a misconfiguration that produces no error --
+#      only quieter behaviour, in the direction of less safety.
+#
+#   2. No published database or cache ports. The development file maps 5432 and
+#      6379 to the host so a local psql or redis-cli can reach them. On a public
+#      VM that is an open PostgreSQL and, worse, an unauthenticated Redis: an
+#      attacker who can write keys can use CONFIG SET to drop an SSH key into
+#      the data directory. Both services stay on the internal compose network,
+#      which is the only place anything needs them.
+#
+#   3. Redis requires a password anyway. Defence in depth for the case where a
+#      future edit re-publishes the port, or another container on the host is
+#      compromised.
+#
+# Nothing here is a secret. Values come from .env, which is not committed.
+# Required in it: POSTGRES_PASSWORD, REDIS_PASSWORD, SESSION_SECRET,
+# ARCHGUARD_DASHBOARD_TOKEN, ALLOWED_ORIGINS, GITHUB_OAUTH_CLIENT_ID,
+# GITHUB_OAUTH_CLIENT_SECRET, ARCHGUARD_DOMAIN. See docs/DEPLOYMENT.md.
+
+name: archguard
+
+x-backing-services: &backing-services
+  DATABASE_URL: postgresql+asyncpg://archguard:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/archguard
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: archguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: archguard
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archguard -d archguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    # appendonly yes, unlike development: what is in here is the job queue and
+    # every signed-in session. A restart that loses it drops queued analyses and
+    # signs everyone out. `fail_stalled_jobs` eventually marks the lost ones
+    # failed, but "eventually failed" is not "ran".
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    image: archguard:web
+    env_file: [.env]
+    environment:
+      <<: *backing-services
+      ENVIRONMENT: production
+      PORT: "8000"
+      # Caddy is the only ingress and it runs on this host, so the proxy address
+      # is not knowable in advance and is guaranteed to be the sole source.
+      ARCHGUARD_TRUSTED_PROXY_IPS: "*"
+    volumes:
+      - cache:/app/.archguard-cache
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # Without this the site accepts jobs and never runs them. queue_available()
+  # is true as soon as REDIS_URL is set, so every submission is enqueued, the
+  # browser gets a job id and a progress stream, and the queue simply grows.
+  # There is no error to see.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    image: archguard:worker
+    env_file: [.env]
+    environment:
+      <<: *backing-services
+      ENVIRONMENT: production
+    volumes:
+      - cache:/app/.archguard-cache
+    tmpfs:
+      # Clones land here, and this is RAM. Sized against the box, not against
+      # the largest repository imaginable: the worker already holds ~560 MB of
+      # torch and model weights before it clones anything.
+      - /tmp:size=2g,mode=1777
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+
+  # TLS, and it is not optional. The configuration gate rejects a plaintext
+  # non-localhost origin in ALLOWED_ORIGINS, because a session cookie sent to
+  # one travels in the clear. Caddy obtains and renews a certificate from Let's
+  # Encrypt on its own, given a domain that resolves here.
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ARCHGUARD_DOMAIN: ${ARCHGUARD_DOMAIN:?set ARCHGUARD_DOMAIN in .env}
+    command:
+      - sh
+      - -c
+      - |
+        printf '%s {\n  reverse_proxy app:8000\n}\n' "$$ARCHGUARD_DOMAIN" > /etc/caddy/Caddyfile
+        exec caddy run --config /etc/caddy/Caddyfile
+    volumes:
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [app]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  cache:
+  caddydata:
+  caddyconfig:
