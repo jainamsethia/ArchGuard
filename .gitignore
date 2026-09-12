@@ -126,3 +126,6 @@ paper/template.docx
 paper/build/
 # The corpus run transcripts are the paper's raw evidence, not build noise.
 !paper/results/*.log
+
+# Backups of .env made during local setup. Same secrets, same rule.
+.env.backup-*
