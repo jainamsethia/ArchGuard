@@ -2,6 +2,24 @@ import { state } from '../state.js';
 import { getEmptyStateHtml, getSeverityClass, sanitize, violationLocationCell } from '../dom.js';
 
 
+/**
+ * Sort order for the severity column, most serious first.
+ *
+ * Mirrors archguard.utils.severity.Severity, which is the only vocabulary the
+ * analysis emits. Anything unrecognised sorts last rather than throwing, so a
+ * severity added on the server cannot empty this table before the page that
+ * renders it is updated -- which is close to what happened: this table's sort
+ * referenced SEVERITY_RANK without it being defined anywhere, so the default
+ * sort threw on the first comparison and the violations never rendered.
+ */
+const SEVERITY_RANK = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+};
+
+
 export function violationKey(v) {
     return [v.module || '', v.layer || '', v.message || ''].join('|');
 }
