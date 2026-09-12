@@ -400,9 +400,9 @@ P.append(body(
     "partitioned into modules, planned incrementally, analysed by four layers, scored, "
     "and persisted."))
 P.append(image_para("rIdFig1", 2.45, 2.25 / 3.42))
-P.append(caption("Analysis pipeline. Dashed labels mark the two inference inputs: "
+P.append(caption("Analysis pipeline. Italic labels mark the two inference inputs: "
                  "version history for module boundaries and embeddings for the "
-                 "semantic layers."))
+                 "semantic layers. The score is the mean over active layers only."))
 
 P.append(head(2, "Module contract inference"))
 P.append(body(
